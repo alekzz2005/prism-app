@@ -1,0 +1,36 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Users collection ──────────────────────────────────────────────
+    // A user can read and write only their own profile document.
+    // This is what allows register() to write to users/{uid}.
+    match /users/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // ── Sessions collection ───────────────────────────────────────────
+    match /sessions/{sessionId} {
+
+      // Any authenticated user can create a session (students submitting RDs)
+      allow create: if request.auth != null;
+
+      // Students can read only their own RELEASED sessions
+      // Instructors can read ALL sessions
+      allow read: if request.auth != null && (
+        (resource.data.userId == request.auth.uid &&
+         resource.data.feedbackStatus == 'Released')
+        ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Instructor'
+      );
+
+      // Only Instructors can update sessions (releasing feedback, adding notes)
+      // aiFeedbackText is never modified here — only instructorNote, feedbackStatus, releaseTimestamp
+      allow update: if request.auth != null &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Instructor';
+
+      // Nobody deletes sessions
+      allow delete: if false;
+    }
+  }
+}
