@@ -4,12 +4,12 @@ import 'package:provider/provider.dart';
 import '../providers/user_role_provider.dart';
 import '../services/auth_service.dart';
 import '../screens/auth/login_screen.dart';
-import '../screens/student/injection_type_screen.dart';
+import '../screens/student/my_sessions_screen.dart';
 import '../screens/instructor/instructor_dashboard_screen.dart';
 
 /// Listens to Firebase Auth state changes and routes to the correct screen:
 /// - Unauthenticated → LoginScreen
-/// - Student role    → InjectionTypeScreen
+/// - Student role    → MySessionsScreen
 /// - Instructor role → InstructorDashboardScreen
 class AuthWrapper extends StatelessWidget {
   const AuthWrapper({super.key});
@@ -42,7 +42,7 @@ class AuthWrapper extends StatelessWidget {
             if (snap.hasError) {
               debugPrint(
                   '[AuthWrapper] Firestore error — defaulting to Student: ${snap.error}');
-              return const InjectionTypeScreen();
+              return const MySessionsScreen();
             }
 
             // Still loading Firestore doc
@@ -54,7 +54,7 @@ class AuthWrapper extends StatelessWidget {
             // is created) — default to Student
             final data = snap.data;
             if (data == null) {
-              return const InjectionTypeScreen();
+              return const MySessionsScreen();
             }
 
             // Populate the UserRoleProvider
@@ -71,7 +71,7 @@ class AuthWrapper extends StatelessWidget {
             if (role == 'Instructor') {
               return const InstructorDashboardScreen();
             }
-            return const InjectionTypeScreen();
+            return const MySessionsScreen();
           },
         );
       },

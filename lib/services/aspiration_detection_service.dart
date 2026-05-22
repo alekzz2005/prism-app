@@ -1,9 +1,10 @@
-import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
+import 'package:hand_landmarker/hand_landmarker.dart';
+import 'hand_landmark_service.dart';
 
 /// Detects aspiration technique by tracking L4 (thumb tip) displacement.
 /// Aspiration is "Correct" when the thumb moves proximally (plunger pull).
 class AspirationDetectionService {
-  static const double _displacementThreshold = 15.0; // pixels
+  static const double _displacementThreshold = 0.025; // normalized units
   static const double _minDurationSeconds = 1.0;
 
   double? _initialThumbY;
@@ -27,18 +28,22 @@ class AspirationDetectionService {
     _thumbYHistory = [];
   }
 
-  /// Call on each frame. [pose] may be null if detection failed.
-  void update(Pose? pose) {
-    if (pose == null) return;
-
-    final thumb = pose.landmarks[PoseLandmarkType.rightThumb] ??
-        pose.landmarks[PoseLandmarkType.leftThumb];
+  /// Call on each frame. [hands] is the hand detection result.
+  void update(List<Hand> hands, {int sensorOrientation = 90}) {
+    final thumb = HandLandmarkService.getThumbTip(hands);
     if (thumb == null) return;
 
-    _initialThumbY ??= thumb.y;
-    _thumbYHistory.add(thumb.y);
+    double thumbY = thumb.y;
+    if (sensorOrientation == 90) {
+      thumbY = thumb.x;
+    } else if (sensorOrientation == 270) {
+      thumbY = 1.0 - thumb.x;
+    }
 
-    final displacement = (_initialThumbY! - thumb.y).abs();
+    _initialThumbY ??= thumbY;
+    _thumbYHistory.add(thumbY);
+
+    final displacement = (_initialThumbY! - thumbY).abs();
 
     if (displacement >= _displacementThreshold) {
       _aspirationStart ??= DateTime.now();
@@ -59,7 +64,7 @@ class AspirationDetectionService {
       totalJitter += (_thumbYHistory[i] - _thumbYHistory[i - 1]).abs();
     }
     final avgJitter = totalJitter / (_thumbYHistory.length - 1);
-    return avgJitter < 5.0 ? 'Good' : 'Low';
+    return avgJitter < 0.01 ? 'Good' : 'Low';
   }
 
   void markIncorrect() => _result = 'Incorrect';

@@ -267,9 +267,13 @@ class _LoginScreenState extends State<LoginScreen> {
                             OutlinedButton.icon(
                               key: const Key('login_google'),
                               onPressed: _isLoading ? null : _loginWithGoogle,
-                              icon: Image.network(
-                                'https://upload.wikimedia.org/wikipedia/commons/5/53/Google_%22G%22_Logo.svg',
-                                height: 20,
+                              icon: const Text(
+                                'G',
+                                style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF4285F4),
+                                ),
                               ),
                               label: const Text('Continue with Google',
                                   style: TextStyle(color: Color(0xFF4A5568), fontWeight: FontWeight.w600)),
