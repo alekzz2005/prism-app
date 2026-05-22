@@ -32,5 +32,18 @@ service cloud.firestore {
       // Nobody deletes sessions
       allow delete: if false;
     }
+
+    // ── Live Sessions (Two-Device Architecture) ───────────────────────
+    // The instructor (Remote) and their camera node read/write to this document.
+    // They access it by their own uid.
+    match /live_sessions/{instructorId} {
+      allow read, write: if request.auth != null && request.auth.uid == instructorId;
+    }
+
+    // ── Instructor Roster ─────────────────────────────────────────────
+    // Instructors manage their CSV imported student roster here.
+    match /instructor_roster/{instructorId}/students/{studentDoc} {
+      allow read, write: if request.auth != null && request.auth.uid == instructorId;
+    }
   }
 }

@@ -1,11 +1,13 @@
 import 'dart:async';
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
-import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
+import 'package:hand_landmarker/hand_landmarker.dart';
+import '../../services/hand_landmark_service.dart';
 import 'package:provider/provider.dart';
 import '../../providers/session_state_provider.dart';
 import '../../widgets/angle_overlay_painter.dart';
+import '../../services/detection_service.dart';
+import '../../services/aspiration_detection_service.dart';
 import 'session_complete_screen.dart';
 
 enum DetectionPhase { insertion, aspiration, withdrawal }
@@ -22,21 +24,12 @@ class _DetectionScreenState extends State<DetectionScreen> {
   // ── Camera ──
   CameraController? _camera;
   bool _cameraReady = false;
+  int _sensorOrientation = 90;
 
-  // ── Pose detector ──
-  final PoseDetector _detector = PoseDetector(
-    options: PoseDetectorOptions(mode: PoseDetectionMode.stream, model: PoseDetectionModel.base),
-  );
+  // ── Hand Landmarker ──
+  final HandLandmarkService _landmarkService = HandLandmarkService();
   bool _processing = false;
-
-  // ── Mock landmark state ──
-  final _rng = math.Random();
-  double _mockWristX = 200, _mockWristY = 400;
-  double _mockIndexX = 280, _mockIndexY = 300;
-  double _mockThumbX = 190, _mockThumbY = 380;
-  List<Pose> _poses = [];
-  Size _imageSize = const Size(480, 640);
-  Timer? _mockTimer;
+  List<Hand> _hands = [];
 
   // ── Phase & Tracking States ──
   DetectionPhase _phase = DetectionPhase.insertion;
@@ -50,14 +43,7 @@ class _DetectionScreenState extends State<DetectionScreen> {
   // ── Aspiration ──
   bool _aspirationStarted = false;
   bool _aspirationLocked = false;
-  DateTime? _aspirationStart;
-  double _aspirationElapsed = 0;
-  double _aspirationInitialThumbY = 0;
-  double _aspirationDisplacement = 0;
-  Timer? _aspirationTimer;
-  List<double> _thumbYHistory = [];
-  static const _aspirationMinDuration = 5.0; // seconds
-  static const _aspirationDisplacementThreshold = 10.0; // px
+  final AspirationDetectionService _aspirationService = AspirationDetectionService();
 
   // ── Withdrawal ──
   double? _lockedWithdrawalAngle;
@@ -66,8 +52,8 @@ class _DetectionScreenState extends State<DetectionScreen> {
   @override
   void initState() {
     super.initState();
+    _landmarkService.init();
     _initCamera();
-    _startMockLandmarks();
   }
 
   Future<void> _initCamera() async {
@@ -75,7 +61,7 @@ class _DetectionScreenState extends State<DetectionScreen> {
       final cameras = await availableCameras();
       if (cameras.isEmpty) return;
       final cam = cameras.firstWhere((c) => c.lensDirection == CameraLensDirection.back, orElse: () => cameras.first);
-      _camera = CameraController(cam, ResolutionPreset.medium, enableAudio: false, imageFormatGroup: ImageFormatGroup.nv21);
+      _camera = CameraController(cam, ResolutionPreset.medium, enableAudio: false, imageFormatGroup: ImageFormatGroup.yuv420);
       await _camera!.initialize();
       await _camera!.startImageStream(_onFrame);
       if (mounted) setState(() => _cameraReady = true);
@@ -84,37 +70,7 @@ class _DetectionScreenState extends State<DetectionScreen> {
     }
   }
 
-  void _startMockLandmarks() {
-    _mockTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
-      if (!mounted) return;
-      setState(() {
-        _mockWristX += _rng.nextDouble() * 4 - 2;
-        _mockWristY += _rng.nextDouble() * 4 - 2;
-        _mockIndexX += _rng.nextDouble() * 4 - 2;
-        _mockIndexY += _rng.nextDouble() * 4 - 2;
-        _mockThumbX += _rng.nextDouble() * 3 - 1.5;
-        _mockThumbY += _rng.nextDouble() * 3 - 1.5;
 
-        // Optionally simulate lost tracking here occasionally for testing, 
-        // but normally let's keep it robust for the user
-        // _isTrackingLost = _poses.isEmpty && _cameraReady;
-
-        _liveAngle = _computeMockAngle();
-        _updateAngleState();
-
-        if (_aspirationStarted && !_aspirationLocked) {
-          _aspirationDisplacement = (_mockThumbY - _aspirationInitialThumbY).abs();
-          _thumbYHistory.add(_mockThumbY);
-        }
-      });
-    });
-  }
-
-  double _computeMockAngle() {
-    final dx = _mockIndexX - _mockWristX;
-    final dy = _mockWristY - _mockIndexY; // invert Y
-    return (math.atan2(dy, dx.abs()) * 180 / math.pi).clamp(0.0, 90.0);
-  }
 
   void _updateAngleState() {
     final config = context.read<SessionStateProvider>().currentConfig;
@@ -129,26 +85,27 @@ class _DetectionScreenState extends State<DetectionScreen> {
     try {
       final cam = _camera?.description;
       if (cam == null) return;
-      final rotation = InputImageRotationValue.fromRawValue(cam.sensorOrientation);
-      final format = InputImageFormatValue.fromRawValue(image.format.raw);
-      if (rotation == null || format == null) return;
-
-      final inputImage = InputImage.fromBytes(
-        bytes: image.planes.first.bytes,
-        metadata: InputImageMetadata(
-          size: Size(image.width.toDouble(), image.height.toDouble()),
-          rotation: rotation,
-          format: format,
-          bytesPerRow: image.planes.first.bytesPerRow,
-        ),
-      );
-
-      final detected = await _detector.processImage(inputImage);
+      
+      final detected = _landmarkService.detect(image, cam.sensorOrientation);
       if (mounted) {
         setState(() {
-          _poses = detected;
-          _imageSize = Size(image.width.toDouble(), image.height.toDouble());
-          _isTrackingLost = _poses.isEmpty;
+          _hands = detected;
+          _sensorOrientation = cam.sensorOrientation;
+          
+          if (_hands.isNotEmpty) {
+            _isTrackingLost = false;
+            final angle = AngleComputationUtil.computeDartGripAngle(_hands, sensorOrientation: _sensorOrientation);
+            if (angle >= 0) {
+              _liveAngle = angle;
+              _updateAngleState();
+            }
+
+            if (_phase == DetectionPhase.aspiration && _aspirationStarted && !_aspirationLocked) {
+              _aspirationService.update(_hands, sensorOrientation: _sensorOrientation);
+            }
+          } else {
+            _isTrackingLost = true;
+          }
         });
       }
     } finally {
@@ -177,6 +134,7 @@ class _DetectionScreenState extends State<DetectionScreen> {
   }
 
   void _proceedToAspiration() {
+    AngleComputationUtil.resetSmoothing(); // fresh buffer for next phase
     setState(() {
       _phase = DetectionPhase.aspiration;
     });
@@ -184,39 +142,23 @@ class _DetectionScreenState extends State<DetectionScreen> {
 
   // Phase 2: Aspiration
   void _startAspiration() {
+    _aspirationService.reset();
     setState(() {
       _aspirationStarted = true;
-      _aspirationStart = DateTime.now();
-      _aspirationInitialThumbY = _mockThumbY;
-      _thumbYHistory = [_mockThumbY];
-    });
-
-    _aspirationTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
-      if (!mounted) return;
-      setState(() {
-        _aspirationElapsed = DateTime.now().difference(_aspirationStart!).inMilliseconds / 1000.0;
-      });
     });
   }
 
   void _lockAspiration() {
-    _aspirationTimer?.cancel();
     final session = context.read<SessionStateProvider>();
 
-    String result;
-    if (_aspirationDisplacement > _aspirationDisplacementThreshold && _aspirationElapsed >= _aspirationMinDuration) {
-      result = 'Correct';
-    } else if (_aspirationDisplacement > _aspirationDisplacementThreshold) {
-      result = 'Incorrect';
-    } else {
-      result = 'Not Detected';
+    if (_aspirationService.result == 'Not Detected') {
       session.setFlagged(true);
     }
 
     session.setAspiration(
-      result: result,
-      duration: _aspirationElapsed,
-      smoothness: _computeSmoothness(),
+      result: _aspirationService.result,
+      duration: _aspirationService.duration,
+      smoothness: _aspirationService.smoothness,
     );
 
     setState(() {
@@ -224,16 +166,8 @@ class _DetectionScreenState extends State<DetectionScreen> {
     });
   }
 
-  String _computeSmoothness() {
-    if (_thumbYHistory.length < 3) return 'Good';
-    double totalJitter = 0;
-    for (int i = 1; i < _thumbYHistory.length; i++) {
-      totalJitter += (_thumbYHistory[i] - _thumbYHistory[i - 1]).abs();
-    }
-    return (totalJitter / (_thumbYHistory.length - 1)) < 5.0 ? 'Good' : 'Low';
-  }
-
   void _proceedToWithdrawal() {
+    AngleComputationUtil.resetSmoothing(); // fresh buffer for withdrawal
     setState(() {
       _phase = DetectionPhase.withdrawal;
     });
@@ -266,11 +200,9 @@ class _DetectionScreenState extends State<DetectionScreen> {
 
   @override
   void dispose() {
-    _mockTimer?.cancel();
-    _aspirationTimer?.cancel();
     _camera?.stopImageStream();
     _camera?.dispose();
-    _detector.close();
+    _landmarkService.dispose();
     super.dispose();
   }
 
@@ -423,15 +355,8 @@ class _DetectionScreenState extends State<DetectionScreen> {
           )
         ] else ...[
           // Skeletons
-          if (_poses.isNotEmpty)
-            CustomPaint(painter: AngleOverlayPainter(poses: _poses, imageSize: _imageSize))
-          else
-            CustomPaint(painter: _MockOverlayPainter(
-              wrist: Offset(_mockWristX, _mockWristY),
-              index: Offset(_mockIndexX, _mockIndexY),
-              thumb: Offset(_mockThumbX, _mockThumbY),
-              isLocked: isLocked,
-            )),
+          if (_hands.isNotEmpty)
+            CustomPaint(painter: AngleOverlayPainter(hands: _hands, sensorOrientation: _sensorOrientation)),
 
           if (isLocked)
             Container(color: const Color(0xFF22C55E).withValues(alpha: 0.07)),
@@ -674,7 +599,7 @@ class _DetectionScreenState extends State<DetectionScreen> {
       scoreDesc = "Insertion Angle: ${(_lockedInsertionAngle ?? 0).toStringAsFixed(1)}° locked.";
     } else if (_phase == DetectionPhase.aspiration) {
       score = session.aspirationResult == 'Correct' ? 5 : session.aspirationResult == 'Incorrect' ? 2 : 1;
-      scoreDesc = "Aspiration Result: ${session.aspirationResult}. Duration: ${_aspirationElapsed.toStringAsFixed(1)}s";
+      scoreDesc = "Aspiration Result: ${session.aspirationResult}. Duration: ${_aspirationService.duration.toStringAsFixed(1)}s";
     } else {
       score = session.withdrawalScore ?? 0;
       scoreDesc = "Withdrawal Angle: ${(_lockedWithdrawalAngle ?? 0).toStringAsFixed(1)}° locked.";
@@ -734,7 +659,7 @@ class _DetectionScreenState extends State<DetectionScreen> {
       if (!_aspirationStarted) {
         return _ActionButton(key: const Key('start_aspiration_button'), label: 'Start Aspiration', icon: Icons.play_arrow, onPressed: _startAspiration);
       } else if (!_aspirationLocked) {
-        return _ActionButton(key: const Key('lock_aspiration_button'), label: 'Done Aspirating (${_aspirationElapsed.toStringAsFixed(1)}s)', icon: Icons.stop, onPressed: _aspirationElapsed >= 1.0 ? _lockAspiration : null);
+        return _ActionButton(key: const Key('lock_aspiration_button'), label: 'Done Aspirating (${_aspirationService.duration.toStringAsFixed(1)}s)', icon: Icons.stop, onPressed: _aspirationService.duration >= 1.0 || _aspirationService.result == 'Not Detected' ? _lockAspiration : null);
       } else {
         return _ActionButton(key: const Key('proceed_withdrawal_button'), label: 'Proceed to Withdrawal', icon: Icons.arrow_forward, onPressed: _proceedToWithdrawal);
       }
@@ -749,13 +674,12 @@ class _DetectionScreenState extends State<DetectionScreen> {
 }
 
 class _ActionButton extends StatelessWidget {
-  final Key? key;
   final String label;
   final IconData icon;
   final VoidCallback? onPressed;
   final Color color;
 
-  const _ActionButton({this.key, required this.label, required this.icon, this.onPressed, this.color = const Color(0xFF003366)});
+  const _ActionButton({super.key, required this.label, required this.icon, this.onPressed, this.color = const Color(0xFF003366)});
 
   @override
   Widget build(BuildContext context) {
@@ -777,27 +701,4 @@ class _ActionButton extends StatelessWidget {
   }
 }
 
-class _MockOverlayPainter extends CustomPainter {
-  final Offset wrist;
-  final Offset index;
-  final Offset thumb;
-  final bool isLocked;
 
-  const _MockOverlayPainter({required this.wrist, required this.index, required this.thumb, this.isLocked = false});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    Color activeColor = isLocked ? const Color(0xFF22C55E) : const Color(0xFF22C55E).withValues(alpha: 0.8);
-    final linePaint = Paint()..color = activeColor..strokeWidth = 3;
-    final dotPaint = Paint()..color = activeColor..style = PaintingStyle.stroke..strokeWidth = 2;
-    final bgDotPaint = Paint()..color = activeColor.withValues(alpha: 0.35)..style = PaintingStyle.fill;
-
-    canvas.drawLine(wrist, index, linePaint);
-    canvas.drawCircle(wrist, 6, bgDotPaint); canvas.drawCircle(wrist, 6, dotPaint);
-    canvas.drawCircle(index, 5, bgDotPaint); canvas.drawCircle(index, 5, dotPaint);
-    canvas.drawCircle(thumb, 5, bgDotPaint); canvas.drawCircle(thumb, 5, dotPaint);
-  }
-
-  @override
-  bool shouldRepaint(_MockOverlayPainter old) => true;
-}

@@ -36,6 +36,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
         password: _passwordController.text,
         fullName: _nameController.text.trim(),
       );
+      // Sign out immediately so AuthWrapper stays on LoginScreen
+      // (Firebase auto-signs in after createUserWithEmailAndPassword)
+      await _authService.signOut();
       if (!mounted) return;
       Navigator.pop(context); // back to login
       ScaffoldMessenger.of(context).showSnackBar(

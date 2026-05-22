@@ -1,8 +1,12 @@
-import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
+import 'package:hand_landmarker/hand_landmarker.dart';
 import 'detection_service.dart';
 
-/// Detects the withdrawal angle (L0→L8 vector on the way out).
+/// Detects the withdrawal angle using the dart-grip syringe axis (L5→L6).
 /// Compares against the insertion angle to determine correspondence.
+///
+/// Uses the same [AngleComputationUtil.computeDartGripAngle] as insertion
+/// so that both phases measure the identical vector, making the
+/// angular delta (correspondence) comparison consistent.
 class WithdrawalDetectionService {
   double _withdrawalAngle = 0.0;
   int _withdrawalScore = 1;
@@ -22,15 +26,16 @@ class WithdrawalDetectionService {
   }
 
   /// Call when student begins withdrawal phase.
-  /// [pose] — current pose, [insertionAngle] — recorded insertion angle,
+  /// [hands] — current hand landmarks, [insertionAngle] — recorded insertion angle,
   /// [targetAngle] and [tolerance] from InjectionConfig.
   void update(
-    Pose pose, {
+    List<Hand> hands, {
     required double insertionAngle,
     required double targetAngle,
     required double tolerance,
+    int sensorOrientation = 90,
   }) {
-    final angle = AngleComputationUtil.computeInsertionAngle(pose);
+    final angle = AngleComputationUtil.computeDartGripAngle(hands, sensorOrientation: sensorOrientation);
     if (angle < 0) return;
 
     _withdrawalAngle = angle;
@@ -41,3 +46,4 @@ class WithdrawalDetectionService {
     _correspondenceResult = _angularDelta <= tolerance ? 'Matches' : 'Deviates';
   }
 }
+

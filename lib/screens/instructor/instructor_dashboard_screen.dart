@@ -4,7 +4,10 @@ import '../../models/session_model.dart';
 import '../../providers/user_role_provider.dart';
 import '../../services/auth_service.dart';
 import '../../services/instructor_session_repository.dart';
+import '../../widgets/auth_wrapper.dart';
 import 'feedback_review_screen.dart';
+import 'camera_node_screen.dart';
+import 'live_demo_setup_screen.dart';
 
 /// UC-4.1 — Instructor dashboard with filter chips.
 class InstructorDashboardScreen extends StatefulWidget {
@@ -59,13 +62,80 @@ class _InstructorDashboardScreenState
             icon: const Icon(Icons.logout, color: Colors.white54),
             onPressed: () async {
               await AuthService().signOut();
+              if (!context.mounted) return;
               roleProvider.clear();
+              Navigator.pushAndRemoveUntil(
+                context,
+                MaterialPageRoute(builder: (_) => const AuthWrapper()),
+                (_) => false,
+              );
             },
           ),
         ],
       ),
       body: Column(
         children: [
+          // ── Mode Selection Area ──
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.deepPurpleAccent,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                    ),
+                    icon: const Icon(Icons.camera_alt, color: Colors.white),
+                    label: const Text('Camera Mode\n(Tripod)',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.white, fontSize: 13)),
+                    onPressed: () {
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => const CameraNodeScreen()));
+                    },
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF1A1A2E),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      side: const BorderSide(color: Colors.deepPurpleAccent),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                    ),
+                    icon: const Icon(Icons.co_present, color: Colors.white),
+                    label: const Text('Live Demo\n(Remote)',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.white, fontSize: 13)),
+                    onPressed: () {
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => const LiveDemoSetupScreen()));
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(color: Colors.white12, height: 1),
+          
+          // ── Session History Header ──
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Past Sessions',
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
+
           // ── Status filter chips ──
           _FilterRow(
             label: 'Status',
@@ -107,10 +177,10 @@ class _InstructorDashboardScreenState
                 return ListView.separated(
                   padding: const EdgeInsets.all(16),
                   itemCount: sessions.length,
-                  separatorBuilder: (_, __) =>
+                  separatorBuilder: (context, index) =>
                       const SizedBox(height: 10),
-                  itemBuilder: (_, i) =>
-                      _SessionCard(session: sessions[i], repo: _repo),
+                  itemBuilder: (context, index) =>
+                      _SessionCard(session: sessions[index], repo: _repo),
                 );
               },
             ),

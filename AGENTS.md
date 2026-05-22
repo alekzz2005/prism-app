@@ -54,22 +54,24 @@ lib/
 │   ├── withdrawal_detection_service.dart
 │   ├── feedback_service.dart        # FeedbackService + PayloadBuilder
 │   ├── openrouter_api_client.dart   # OpenRouterApiClient
-│   └── instructor_session_repository.dart
+│   ├── roster_service.dart          # CSV Parsing and student matching
+│   └── live_session_service.dart    # Two-device syncing
 ├── screens/
 │   ├── auth/
 │   │   ├── login_screen.dart
 │   │   └── register_screen.dart
 │   ├── student/
-│   │   ├── injection_type_screen.dart   # UC-3.2
-│   │   ├── detection_screen.dart        # UC-1.1 + 1.2 + 1.3 (main camera view)
-│   │   ├── my_sessions_screen.dart      # UC-3.3 session list
-│   │   └── session_detail_screen.dart   # UC-3.3 session detail + AI feedback
+│   │   ├── my_sessions_screen.dart      # Student Dashboard with Tabs
+│   │   └── session_detail_screen.dart   # Session detail + AI feedback
 │   └── instructor/
 │       ├── instructor_dashboard_screen.dart  # UC-4.1
+│       ├── live_demo_setup_screen.dart       # Remote Session Setup (Desk)
+│       ├── remote_control_screen.dart        # Remote Session Controls (Desk)
+│       ├── camera_node_screen.dart           # MediaPipe Tracker (Tripod)
 │       └── feedback_review_screen.dart       # UC-4.2
 └── widgets/
     ├── auth_wrapper.dart             # Routes to role-specific home
-    ├── angle_overlay_painter.dart    # CustomPainter for L0→L8 skeleton overlay
+    ├── angle_overlay_painter.dart    # CustomPainter for syringe vector overlay
     └── angle_badge.dart              # Pill badge showing live angle
 ```
 
@@ -80,10 +82,10 @@ lib/
 | Landmark ID | Body Part | Used For |
 |---|---|---|
 | L0 | Wrist | Base vector point — all angle calculations |
-| L8 | Index fingertip | Distal vector point — insertion and withdrawal angle |
+| Midpoint(L5, L9) | Knuckles | Distal vector point — longitudinal axis for dart-grip (Lizhe 2024) |
 | L4 | Thumb tip | Aspiration plunger displacement tracking |
 
-**Angle formula:** `atan2` of the L0→L8 vector relative to the forearm/horizontal axis.
+**Angle formula:** `atan2` of the L0 → Midpoint(L5,L9) vector relative to the vertical axis.
 
 ---
 
@@ -110,6 +112,23 @@ email: String
 role: String  // "Student" or "Instructor"
 createdAt: Timestamp
 emailVerified: bool
+```
+
+### `instructor_roster/{instructorId}/students/{docId}`
+```
+firstName: String
+lastName: String
+email: String
+```
+
+### `live_sessions/{instructorId}`
+```
+studentName: String
+studentEmail: String
+injectionType: String
+targetAngle: double
+phase: String // "waiting" | "insertion" | "aspiration" | "withdrawal" | "completed"
+currentAngle: double
 ```
 
 ### `sessions/{sessionId}`
@@ -148,12 +167,12 @@ flagged: bool
 
 ## Module Build Order (follow this sequence)
 
-1. **Module 3 Auth** — Firebase Auth + `AuthWrapper` + role routing (unblocks everything else)
-2. **Module 3 Injection Type Screen** — `InjectionConfigService` + `SessionStateProvider` init
-3. **Module 1 Detection Engine** — Camera + MediaPipe + angle overlay + aspiration + withdrawal
-4. **Module 2 AI Feedback** — `PayloadBuilder` + `OpenRouterApiClient` + `FeedbackService`
-5. **Module 4 Instructor** — Dashboard + `FeedbackReviewScreen` + Firestore release flow
-6. **Module 3 Student Views** — `MySessionsScreen` + `SessionDetailScreen`
+1. **Module 3 Auth** — Firebase Auth + `AuthWrapper` + role routing
+2. **Module 4 Instructor Setup** — `LiveDemoSetupScreen` + CSV Parsing to `instructor_roster`
+3. **Module 1 Detection Engine** — `CameraNodeScreen` (Tripod) syncing angles to `live_sessions` (2Hz)
+4. **Module 1 Remote Control** — `RemoteControlScreen` (Desk) managing phase transitions
+5. **Module 2 AI Feedback** — `PayloadBuilder` + `OpenRouterApiClient` triggered on Session Complete
+6. **Module 3 Student Views** — Tabbed Dashboard (`MySessionsScreen`) + `SessionDetailScreen`
 
 ---
 
@@ -204,12 +223,13 @@ Body:
 |---|---|---|
 | Login | `auth/login_screen.dart` | Firebase Auth |
 | Register | `auth/register_screen.dart` | Firebase Auth + role field |
-| Injection Type Select | `student/injection_type_screen.dart` | `InjectionConfigService` |
-| Camera / Detection | `student/detection_screen.dart` | `DetectionService`, `SessionStateProvider` |
-| My Sessions (list) | `student/my_sessions_screen.dart` | Firestore `sessions` where `feedbackStatus == Released` |
+| Student Dashboard | `student/my_sessions_screen.dart` | Firestore `sessions` stream (Tabs for types) |
 | Session Detail | `student/session_detail_screen.dart` | Single Firestore session doc |
-| Instructor Dashboard | `instructor/instructor_dashboard_screen.dart` | Firestore stream all sessions |
-| Feedback Review | `instructor/feedback_review_screen.dart` | `FeedbackReleaseService` |
+| Instructor Dashboard | `instructor/instructor_dashboard_screen.dart` | Mode selection (Tripod vs Desk) |
+| Live Demo Setup | `instructor/live_demo_setup_screen.dart` | CSV file picker, `instructor_roster` stream |
+| Remote Control | `instructor/remote_control_screen.dart` | `live_sessions` stream |
+| Camera Node | `instructor/camera_node_screen.dart` | `live_sessions` stream + MediaPipe |
+| Feedback Review | `instructor/feedback_review_screen.dart` | Firestore release flow |
 
 ---
 

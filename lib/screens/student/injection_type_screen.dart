@@ -4,6 +4,7 @@ import '../../core/injection_config.dart';
 import '../../providers/session_state_provider.dart';
 import '../../services/auth_service.dart';
 import '../../providers/user_role_provider.dart';
+import '../../widgets/auth_wrapper.dart';
 import 'detection_screen.dart';
 import 'my_sessions_screen.dart';
 
@@ -127,7 +128,13 @@ class InjectionTypeScreen extends StatelessWidget {
                             tooltip: 'Sign out',
                             onPressed: () async {
                               await AuthService().signOut();
+                              if (!context.mounted) return;
                               context.read<UserRoleProvider>().clear();
+                              Navigator.pushAndRemoveUntil(
+                                context,
+                                MaterialPageRoute(builder: (_) => const AuthWrapper()),
+                                (_) => false,
+                              );
                             },
                           ),
                         ],
