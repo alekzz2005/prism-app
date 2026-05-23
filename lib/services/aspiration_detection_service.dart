@@ -11,6 +11,9 @@ class AspirationDetectionService {
   static const double _minDurationSeconds = 1.0;
 
   double? _initialDistance;
+  double _currentDisplacement = 0.0;
+  double get displacement => _currentDisplacement;
+
   DateTime? _aspirationStart;
   String _result = 'Not Detected';
   double _duration = 0.0;
@@ -59,14 +62,17 @@ class AspirationDetectionService {
       distance = sqrt(pow(thumb.x - midX, 2) + pow(thumb.y - midY, 2));
     }
 
-    _initialDistance ??= distance;
+    if (_initialDistance == null) {
+      _initialDistance = distance;
+      return;
+    }
+
+    _currentDisplacement = (distance - _initialDistance!).abs();
     _distanceHistory.add(distance);
 
-    // If current distance is greater than initial, the plunger is being pulled
-    final displacement = (distance - _initialDistance!).abs();
     final threshold = isTwoHanded ? _twoHandDisplacementThreshold : _displacementThreshold;
 
-    if (displacement >= threshold) {
+    if (_currentDisplacement >= threshold) {
       _aspirationStart ??= DateTime.now();
       _duration =
           DateTime.now().difference(_aspirationStart!).inMilliseconds / 1000.0;

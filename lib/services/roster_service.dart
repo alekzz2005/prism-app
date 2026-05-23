@@ -63,30 +63,17 @@ class StudentRoster {
 class RosterService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
-  /// Watches all sections for an instructor.
+  /// Fetches sections for the instructor.
   Stream<List<String>> watchSections(String instructorId) {
     return _db
         .collection('instructor_roster')
         .doc(instructorId)
         .collection('sections')
-        .orderBy('name')
         .snapshots()
         .map((snap) => snap.docs.map((doc) => doc.id).toList());
   }
 
-  /// Creates a new section.
-  Future<void> createSection(String instructorId, String sectionName) async {
-    final cleanName = sectionName.trim();
-    if (cleanName.isEmpty) return;
-    await _db
-        .collection('instructor_roster')
-        .doc(instructorId)
-        .collection('sections')
-        .doc(cleanName)
-        .set({'name': cleanName, 'createdAt': FieldValue.serverTimestamp()});
-  }
-
-  /// Fetches the roster for a specific section.
+  /// Fetches the roster for the instructor's section.
   Stream<List<StudentRoster>> watchRoster(String instructorId, String sectionName) {
     return _db
         .collection('instructor_roster')
@@ -101,7 +88,7 @@ class RosterService {
             .toList());
   }
 
-  /// Parses a spreadsheet file (CSV, XLSX, XLS) and uploads to the section's roster.
+  /// Parses a spreadsheet file (CSV, XLSX, XLS) and uploads to the roster section.
   Future<void> importRoster(String instructorId, String sectionName, Uint8List fileBytes, String fileName) async {
     try {
       final ext = fileName.split('.').last.toLowerCase();
@@ -147,7 +134,14 @@ class RosterService {
           .doc(sectionName)
           .collection('students');
 
-      // Delete existing roster to avoid duplicates
+      // Ensure the section doc exists
+      batch.set(
+        _db.collection('instructor_roster').doc(instructorId).collection('sections').doc(sectionName),
+        {'createdAt': FieldValue.serverTimestamp()},
+        SetOptions(merge: true),
+      );
+
+      // Delete existing roster in this section to avoid duplicates
       final existing = await collRef.get();
       for (var doc in existing.docs) {
         batch.delete(doc.reference);

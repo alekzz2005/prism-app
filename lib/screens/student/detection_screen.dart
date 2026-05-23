@@ -9,6 +9,7 @@ import '../../widgets/angle_overlay_painter.dart';
 import '../../services/detection_service.dart';
 import '../../services/aspiration_detection_service.dart';
 import 'session_complete_screen.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 enum DetectionPhase { insertion, aspiration, withdrawal }
 
@@ -69,8 +70,6 @@ class _DetectionScreenState extends State<DetectionScreen> {
       if (mounted) setState(() => _cameraReady = false);
     }
   }
-
-
 
   void _updateAngleState() {
     final config = context.read<SessionStateProvider>().currentConfig;
@@ -216,13 +215,13 @@ class _DetectionScreenState extends State<DetectionScreen> {
   @override
   Widget build(BuildContext context) {
     final session = context.watch<SessionStateProvider>();
-    final config = session.currentConfig;
-    final target = config?.targetAngle ?? 0;
+    final target = session.currentConfig?.targetAngle ?? 0;
     final isLocked = _isPhaseLocked();
 
     return Scaffold(
       backgroundColor: const Color(0xFFE8EDF2),
       body: SafeArea(
+        bottom: false,
         child: Column(
           children: [
             _buildTopNav(session),
@@ -237,21 +236,27 @@ class _DetectionScreenState extends State<DetectionScreen> {
   }
 
   Widget _buildTopNav(SessionStateProvider session) {
-    String title = "Detection Active";
-    String subtitle = "Live";
+    String title;
+    String subtitle;
     
     if (_isTrackingLost) {
-      title = "Detection Paused";
-      subtitle = "Tracking Lost";
-    } else if (_isPhaseLocked()) {
-      if (_phase == DetectionPhase.insertion) title = "Insertion Confirmed";
-      if (_phase == DetectionPhase.aspiration) title = "Aspiration Completed";
-      if (_phase == DetectionPhase.withdrawal) title = "Withdrawal Confirmed";
-      subtitle = "Locked & Scored";
+      title = 'Detection Paused';
+      subtitle = 'Insertion Angle · Tracking Lost';
+    } else if (_phase == DetectionPhase.insertion && !_isPhaseLocked()) {
+      title = 'Detection Active';
+      subtitle = 'Insertion Angle · Live';
+    } else if (_phase == DetectionPhase.insertion && _isPhaseLocked()) {
+      title = 'Insertion Confirmed';
+      subtitle = 'Insertion Angle · Locked & Scored';
+    } else if (_phase == DetectionPhase.aspiration) {
+      title = 'Aspiration Tracking';
+      subtitle = 'Aspiration Motion · Live';
+    } else {
+      title = 'Withdrawal Confirmed';
+      subtitle = 'Withdrawal Angle · Locked & Scored';
     }
 
-    String phaseName = _phase == DetectionPhase.insertion ? "Insertion Angle" : 
-                       _phase == DetectionPhase.aspiration ? "Aspiration Motion" : "Withdrawal Angle";
+    final targetAngle = (session.currentConfig?.targetAngle ?? 0).toStringAsFixed(0);
 
     return Container(
       color: const Color(0xFF003366),
@@ -266,7 +271,12 @@ class _DetectionScreenState extends State<DetectionScreen> {
                 color: Colors.white.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 18),
+              alignment: Alignment.center,
+              child: SvgPicture.string(
+                '''<svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M11 14L6 9L11 4" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>''',
+              ),
             ),
           ),
           const SizedBox(width: 12),
@@ -274,9 +284,22 @@ class _DetectionScreenState extends State<DetectionScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600)),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
                 const SizedBox(height: 2),
-                Text('$phaseName • $subtitle', style: const TextStyle(color: Color(0xFFA8C4E0), fontSize: 11)),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    color: Color(0xFFA8C4E0),
+                    fontSize: 11,
+                  ),
+                ),
               ],
             ),
           ),
@@ -288,8 +311,14 @@ class _DetectionScreenState extends State<DetectionScreen> {
               borderRadius: BorderRadius.circular(8),
             ),
             child: Text(
-              '${widget.injectionType} ${(session.currentConfig?.targetAngle ?? 0).toStringAsFixed(0)}°',
-              style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'monospace'),
+              '${widget.injectionType} $targetAngle°',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                fontFamily: 'DM Mono',
+                letterSpacing: 0.04 * 12,
+              ),
             ),
           ),
         ],
@@ -298,193 +327,347 @@ class _DetectionScreenState extends State<DetectionScreen> {
   }
 
   Widget _buildCameraViewport(SessionStateProvider session, double target, bool isLocked) {
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        // Feed
-        _cameraReady
-            ? CameraPreview(_camera!)
-            : Container(
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [Color(0xFF0D1F35), Color(0xFF0A1828), Color(0xFF111C2A)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                ),
-              ),
+    return Container(
+      color: const Color(0xFF0D1F35),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          // Feed
+          if (_cameraReady) CameraPreview(_camera!),
 
-        // Corner Guides
-        _buildCornerGuides(isLocked),
+          // Corner Guides
+          _buildCornerGuides(isLocked),
 
-        if (_isTrackingLost) ...[
-          // Tracking lost overlay
-          Container(
-            color: const Color(0xFF080F1C).withValues(alpha: 0.55),
-            alignment: Alignment.center,
-            child: Container(
-              margin: const EdgeInsets.all(20),
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: const Color(0xFF0F1928).withValues(alpha: 0.92),
-                border: Border.all(color: const Color(0xFFEF4444).withValues(alpha: 0.45), width: 1.5),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.warning_amber_rounded, color: Color(0xFFEF4444), size: 48),
-                  const SizedBox(height: 12),
-                  const Text('Detection Lost', style: TextStyle(color: Color(0xFFFCA5A5), fontSize: 18, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 8),
-                  const Text('Hand landmarks could not be tracked. Adjust hand position.', 
-                             style: TextStyle(color: Color(0xFFA8C4E0), fontSize: 13), textAlign: TextAlign.center),
-                  const SizedBox(height: 16),
-                  ElevatedButton.icon(
-                    onPressed: () => setState(() => _isTrackingLost = false),
-                    icon: const Icon(Icons.refresh, color: Colors.white, size: 16),
-                    label: const Text('Simulate Resume', style: TextStyle(color: Colors.white)),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFEF4444),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                  )
-                ],
-              ),
-            ),
-          )
-        ] else ...[
-          // Skeletons
-          if (_hands.isNotEmpty)
-            CustomPaint(painter: AngleOverlayPainter(hands: _hands, sensorOrientation: _sensorOrientation)),
-
-          if (isLocked)
-            Container(color: const Color(0xFF22C55E).withValues(alpha: 0.07)),
-
-          if (isLocked && _phase == DetectionPhase.insertion)
-            Center(
+          // Tracking Lost Overlay
+          if (_isTrackingLost)
+            Container(
+              color: const Color(0xFF080F1C).withValues(alpha: 0.55),
+              alignment: Alignment.center,
               child: Container(
-                width: 64, height: 64,
+                margin: const EdgeInsets.all(20),
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF22C55E).withValues(alpha: 0.18),
-                  shape: BoxShape.circle,
-                  border: Border.all(color: const Color(0xFF22C55E).withValues(alpha: 0.5), width: 2),
-                ),
-                child: const Icon(Icons.check, color: Color(0xFF22C55E), size: 36),
-              ),
-            ),
-
-          // Top Pills
-          Positioned(
-            top: 16, left: 16,
-            child: _buildInfoPill('Target', '${target.toStringAsFixed(0)}°', Colors.black45, const Color(0xFFA8C4E0)),
-          ),
-          Positioned(
-            top: 16, right: 16,
-            child: _buildInfoPill('Dev Δ', '${(_liveAngle - target).toStringAsFixed(1)}°', Colors.black45, const Color(0xFFF59E0B)),
-          ),
-          Positioned(
-            top: 16, left: 0, right: 0,
-            child: Center(
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
-                decoration: BoxDecoration(
-                  color: isLocked ? const Color(0xFF22C55E).withValues(alpha: 0.2) : const Color(0xFF003366).withValues(alpha: 0.85),
+                  color: const Color(0xFF0F1928).withValues(alpha: 0.92),
+                  border: Border.all(color: const Color(0xFFEF4444).withValues(alpha: 0.45), width: 1.5),
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: isLocked ? const Color(0xFF22C55E).withValues(alpha: 0.55) : const Color(0xFFA8C4E0).withValues(alpha: 0.35)),
                 ),
-                child: Row(
+                child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(
-                      (isLocked ? (_lockedInsertionAngle ?? _liveAngle) : _liveAngle).toStringAsFixed(0),
-                      style: TextStyle(fontFamily: 'monospace', fontSize: 26, fontWeight: FontWeight.bold, color: isLocked ? const Color(0xFF22C55E) : const Color(0xFF22C55E)),
+                    SvgPicture.string(
+                      '''<svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M24 19v10M24 33h.02M21.8 7.6L4 39a3 3 0 0 0 2.6 4.5H41.4A3 3 0 0 0 44 39L26.2 7.6a2.6 2.6 0 0 0-4.4 0z" stroke="#EF4444" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+                      </svg>'''
                     ),
-                    const Text('°', style: TextStyle(fontFamily: 'monospace', fontSize: 14, color: Color(0xFFA8C4E0))),
-                    const SizedBox(width: 4),
-                    Text(isLocked ? '🔒 LOCKED' : 'LIVE', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: isLocked ? const Color(0xFF22C55E) : const Color(0xFFA8C4E0))),
+                    const SizedBox(height: 10),
+                    const Text('Detection Lost', style: TextStyle(color: Color(0xFFFCA5A5), fontSize: 18, fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Hand landmarks could not be tracked. Adjust hand position and ensure the hand and syringe are clearly visible.',
+                      style: TextStyle(color: Color(0xFFA8C4E0), fontSize: 13, height: 1.5),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 16),
+                    GestureDetector(
+                      onTap: () => setState(() => _isTrackingLost = false),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 9),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEF4444),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            SvgPicture.string(
+                              '''<svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M2 7.5a5.5 5.5 0 1 1 1.4 3.6" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
+                                <path d="M2 11V7.5h3.5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                              </svg>'''
+                            ),
+                            const SizedBox(width: 6),
+                            const Text('Resume Tracking', style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
+                          ],
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ),
+            )
+          else ...[
+            // Skeletons
+            if (_hands.isNotEmpty)
+              CustomPaint(painter: AngleOverlayPainter(hands: _hands, sensorOrientation: _sensorOrientation)),
+
+            if (isLocked) ...[
+              Container(color: const Color(0xFF22C55E).withValues(alpha: 0.07)),
+              Center(
+                child: FractionalTranslation(
+                  translation: const Offset(0, -0.1),
+                  child: Container(
+                    width: 64, height: 64,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF22C55E).withValues(alpha: 0.18),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: const Color(0xFF22C55E).withValues(alpha: 0.5), width: 2),
+                    ),
+                    alignment: Alignment.center,
+                    child: SvgPicture.string(
+                      '''<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M7 16l6 6 12-12" stroke="#22C55E" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                      </svg>'''
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ],
+
+          // Angle Pill (Center Top)
+          Positioned(
+            top: 16, left: 0, right: 0,
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: _buildAnglePill(),
             ),
-          )
-        ],
-      ],
-    );
-  }
+          ),
 
-  Widget _buildCornerGuides(bool isLocked) {
-    Color guideColor = _isTrackingLost ? const Color(0xFFEF4444).withValues(alpha: 0.5) :
-                       isLocked ? const Color(0xFF22C55E).withValues(alpha: 0.8) :
-                       const Color(0xFFA8C4E0).withValues(alpha: 0.6);
-    return Stack(
-      children: [
-        Positioned(top: 20, left: 20, child: Container(width: 24, height: 24, decoration: BoxDecoration(border: Border(top: BorderSide(color: guideColor, width: 2.5), left: BorderSide(color: guideColor, width: 2.5))))),
-        Positioned(top: 20, right: 20, child: Container(width: 24, height: 24, decoration: BoxDecoration(border: Border(top: BorderSide(color: guideColor, width: 2.5), right: BorderSide(color: guideColor, width: 2.5))))),
-        Positioned(bottom: 20, left: 20, child: Container(width: 24, height: 24, decoration: BoxDecoration(border: Border(bottom: BorderSide(color: guideColor, width: 2.5), left: BorderSide(color: guideColor, width: 2.5))))),
-        Positioned(bottom: 20, right: 20, child: Container(width: 24, height: 24, decoration: BoxDecoration(border: Border(bottom: BorderSide(color: guideColor, width: 2.5), right: BorderSide(color: guideColor, width: 2.5))))),
-      ],
-    );
-  }
-
-  Widget _buildInfoPill(String label, String value, Color bgColor, Color textColor) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(color: bgColor, borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFFA8C4E0).withValues(alpha: 0.2))),
-      child: Column(
-        children: [
-          Text(value, style: TextStyle(fontFamily: 'monospace', fontSize: 15, fontWeight: FontWeight.bold, color: textColor)),
-          Text(label.toUpperCase(), style: const TextStyle(fontSize: 9, color: Colors.white54, letterSpacing: 0.5)),
+          // Info Pills
+          Positioned(
+            top: 16, left: 16,
+            child: _buildInfoPillLeft(target),
+          ),
+          Positioned(
+            top: 16, right: 16,
+            child: _buildInfoPillRight(target, session),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildStatusStrip(bool isLocked) {
-    Color bgColor = _isTrackingLost ? const Color(0xFFEF4444).withValues(alpha: 0.1) : 
-                    isLocked ? const Color(0xFF22C55E).withValues(alpha: 0.12) : 
-                    const Color(0xFF22C55E).withValues(alpha: 0.12);
-    Color dotColor = _isTrackingLost ? const Color(0xFFEF4444) : const Color(0xFF22C55E);
-    String text = _isTrackingLost ? "Landmarks Not Detected — Adjust Hand Position" : 
-                  isLocked ? "Angle Locked — Recorded to Session State" : 
-                  "Landmarks Detected — Tracking Active";
-    
+  Widget _buildAnglePill() {
+    Color bg;
+    Color border;
+    String numVal;
+    Color numColor;
+    String tag;
+    Color tagColor;
+
+    if (_isTrackingLost) {
+      bg = const Color(0xFF003366).withValues(alpha: 0.85);
+      border = const Color(0xFFEF4444).withValues(alpha: 0.35);
+      numVal = _liveAngle.toStringAsFixed(0);
+      numColor = const Color(0xFFFCA5A5);
+      tag = 'PAUSED';
+      tagColor = const Color(0xFFFCA5A5).withValues(alpha: 0.8);
+    } else if (_phase == DetectionPhase.insertion && !_isPhaseLocked()) {
+      bg = const Color(0xFF003366).withValues(alpha: 0.85);
+      border = const Color(0xFFA8C4E0).withValues(alpha: 0.35);
+      numVal = _liveAngle.toStringAsFixed(0);
+      numColor = const Color(0xFF22C55E);
+      tag = 'LIVE';
+      tagColor = const Color(0xFFA8C4E0).withValues(alpha: 0.8);
+    } else if (_phase == DetectionPhase.insertion && _isPhaseLocked()) {
+      bg = const Color(0xFF22C55E).withValues(alpha: 0.2);
+      border = const Color(0xFF22C55E).withValues(alpha: 0.55);
+      numVal = (_lockedInsertionAngle ?? _liveAngle).toStringAsFixed(0);
+      numColor = const Color(0xFF22C55E);
+      tag = '🔒 LOCKED';
+      tagColor = const Color(0xFF22C55E);
+    } else if (_phase == DetectionPhase.aspiration) {
+      bg = const Color(0xFF003366).withValues(alpha: 0.85);
+      border = const Color(0xFF06B6D4).withValues(alpha: 0.4);
+      numVal = _aspirationService.duration.toStringAsFixed(1);
+      numColor = const Color(0xFF06B6D4);
+      tag = 'SEC';
+      tagColor = const Color(0xFFA8C4E0).withValues(alpha: 0.8);
+    } else { // withdrawal
+      bg = const Color(0xFF22C55E).withValues(alpha: 0.2);
+      border = const Color(0xFF22C55E).withValues(alpha: 0.55);
+      numVal = (_lockedWithdrawalAngle ?? _liveAngle).toStringAsFixed(0);
+      numColor = const Color(0xFF22C55E);
+      tag = '🔒 LOCKED';
+      tagColor = const Color(0xFF22C55E);
+    }
+
     return Container(
-      width: double.infinity,
-      color: bgColor,
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
+      decoration: BoxDecoration(
+        color: bg,
+        border: Border.all(color: border),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.baseline,
+        textBaseline: TextBaseline.alphabetic,
+        children: [
+          Text(numVal, style: TextStyle(fontFamily: 'DM Mono', fontSize: 26, fontWeight: FontWeight.w600, color: numColor, height: 1)),
+          if (_phase != DetectionPhase.aspiration)
+            const Text('°', style: TextStyle(fontFamily: 'DM Mono', fontSize: 14, color: Color(0xFFA8C4E0))),
+          const SizedBox(width: 4),
+          Text(tag, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 0.07 * 10, color: tagColor)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInfoPillLeft(double target) {
+    String val; String lbl; Color valColor;
+    if (_phase == DetectionPhase.aspiration) {
+      val = '${_aspirationService.displacement.toStringAsFixed(0)}px'; lbl = 'DISP.'; valColor = const Color(0xFF06B6D4);
+    } else if (_phase == DetectionPhase.withdrawal) {
+      val = widget.injectionType; lbl = 'TYPE'; valColor = const Color(0xFFA8C4E0);
+    } else if (_isPhaseLocked()) {
+      val = widget.injectionType; lbl = 'TYPE'; valColor = const Color(0xFFA8C4E0);
+    } else {
+      val = '${target.toStringAsFixed(0)}°'; lbl = 'TARGET'; valColor = const Color(0xFFA8C4E0);
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.45),
+        border: Border.all(color: const Color(0xFFA8C4E0).withValues(alpha: 0.2)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        children: [
+          Text(val, style: TextStyle(fontFamily: 'DM Mono', fontSize: 14, fontWeight: FontWeight.w600, color: valColor)),
+          Text(lbl, style: TextStyle(fontSize: 9, color: const Color(0xFFA8C4E0).withValues(alpha: 0.55), letterSpacing: 0.07 * 9)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInfoPillRight(double target, SessionStateProvider session) {
+    String val; String lbl; Color valColor;
+    if (_phase == DetectionPhase.aspiration) {
+      val = _aspirationService.smoothness; lbl = 'SMOOTH'; valColor = const Color(0xFF22C55E);
+    } else if (_phase == DetectionPhase.withdrawal) {
+      val = session.correspondenceResult ?? 'Match'; lbl = 'CORRESPOND.'; valColor = const Color(0xFF22C55E);
+    } else if (_isPhaseLocked()) {
+      val = '${session.insertionScore}/5'; lbl = 'SCORE'; valColor = const Color(0xFF22C55E);
+    } else {
+      double delta = _liveAngle - target;
+      val = '${delta >= 0 ? '+' : ''}${delta.toStringAsFixed(0)}°'; 
+      lbl = _isTrackingLost ? 'LAST Δ' : 'DEV Δ'; 
+      valColor = _isTrackingLost ? const Color(0xFFA8C4E0).withValues(alpha: 0.4) : const Color(0xFFF59E0B);
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.45),
+        border: Border.all(color: const Color(0xFFA8C4E0).withValues(alpha: 0.2)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        children: [
+          Text(val, style: TextStyle(fontFamily: 'DM Mono', fontSize: 14, fontWeight: FontWeight.w600, color: valColor)),
+          Text(lbl, style: TextStyle(fontSize: 9, color: const Color(0xFFA8C4E0).withValues(alpha: 0.55), letterSpacing: 0.07 * 9)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCornerGuides(bool isLocked) {
+    Color guideColor;
+    if (_isTrackingLost) guideColor = const Color(0xFFEF4444).withValues(alpha: 0.5);
+    else if (_phase == DetectionPhase.aspiration) guideColor = const Color(0xFF06B6D4).withValues(alpha: 0.55);
+    else if (isLocked) guideColor = const Color(0xFF22C55E).withValues(alpha: 0.8);
+    else guideColor = const Color(0xFFA8C4E0).withValues(alpha: 0.6);
+
+    return Stack(
+      children: [
+        Positioned(top: 20, left: 20, child: Container(width: 26, height: 26, decoration: BoxDecoration(border: Border(top: BorderSide(color: guideColor, width: 2.5), left: BorderSide(color: guideColor, width: 2.5))))),
+        Positioned(top: 20, right: 20, child: Container(width: 26, height: 26, decoration: BoxDecoration(border: Border(top: BorderSide(color: guideColor, width: 2.5), right: BorderSide(color: guideColor, width: 2.5))))),
+        Positioned(bottom: 20, left: 20, child: Container(width: 26, height: 26, decoration: BoxDecoration(border: Border(bottom: BorderSide(color: guideColor, width: 2.5), left: BorderSide(color: guideColor, width: 2.5))))),
+        Positioned(bottom: 20, right: 20, child: Container(width: 26, height: 26, decoration: BoxDecoration(border: Border(bottom: BorderSide(color: guideColor, width: 2.5), right: BorderSide(color: guideColor, width: 2.5))))),
+      ],
+    );
+  }
+
+  Widget _buildStatusStrip(bool isLocked) {
+    Color bg; Color border; Color dotColor; Color textColor; String text;
+    if (_isTrackingLost) {
+      bg = const Color(0xFFEF4444).withValues(alpha: 0.1); border = const Color(0xFFEF4444).withValues(alpha: 0.3); dotColor = const Color(0xFFEF4444); textColor = const Color(0xFFFCA5A5);
+      text = 'Landmarks Not Detected — Adjust Hand Position';
+    } else if (_phase == DetectionPhase.insertion && !_isPhaseLocked()) {
+      bg = const Color(0xFF22C55E).withValues(alpha: 0.12); border = const Color(0xFF22C55E).withValues(alpha: 0.3); dotColor = const Color(0xFF22C55E); textColor = const Color(0xFF22C55E);
+      text = 'Landmarks Detected — Tracking Active';
+    } else if (_phase == DetectionPhase.insertion && _isPhaseLocked()) {
+      bg = const Color(0xFF22C55E).withValues(alpha: 0.12); border = const Color(0xFF22C55E).withValues(alpha: 0.3); dotColor = const Color(0xFF22C55E); textColor = const Color(0xFF22C55E);
+      text = 'Angle Locked — ${_lockedInsertionAngle?.toStringAsFixed(0)}° Recorded to Session State';
+    } else if (_phase == DetectionPhase.aspiration) {
+      bg = const Color(0xFF06B6D4).withValues(alpha: 0.1); border = const Color(0xFF06B6D4).withValues(alpha: 0.28); dotColor = const Color(0xFF06B6D4); textColor = const Color(0xFF06B6D4);
+      text = 'L4 Thumb Tracked — Withdrawal in Progress';
+    } else {
+      bg = const Color(0xFF22C55E).withValues(alpha: 0.12); border = const Color(0xFF22C55E).withValues(alpha: 0.3); dotColor = const Color(0xFF22C55E); textColor = const Color(0xFF22C55E);
+      text = 'Withdrawal Angle Locked — ${_lockedWithdrawalAngle?.toStringAsFixed(0)}° Recorded to Session State';
+    }
+
+    return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      decoration: BoxDecoration(color: bg, border: Border(top: BorderSide(color: border))),
       child: Row(
         children: [
-          Container(width: 8, height: 8, decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle, boxShadow: [BoxShadow(color: dotColor.withValues(alpha: 0.7), blurRadius: 6)])),
+          Container(width: 8, height: 8, decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle, boxShadow: [BoxShadow(color: dotColor.withValues(alpha: 0.5), blurRadius: 4)])),
           const SizedBox(width: 8),
-          Text(text, style: TextStyle(color: dotColor, fontSize: 12, fontWeight: FontWeight.bold)),
+          Text(text, style: TextStyle(color: textColor, fontSize: 12, fontWeight: FontWeight.w600, letterSpacing: 0.02 * 12)),
         ],
       ),
     );
   }
 
   Widget _buildGaugeSection(double target, bool isLocked) {
-    double fillPercent = (_isTrackingLost ? (_lockedInsertionAngle ?? _liveAngle) : _liveAngle) / 180.0;
-    Color fillColor = _isTrackingLost ? const Color(0xFFEF4444).withValues(alpha: 0.35) : const Color(0xFF22C55E);
-    
-    String scoreText = _isTrackingLost ? "Paused — Last: ${_liveAngle.toStringAsFixed(0)}°" :
-                       isLocked ? "${_liveAngle.toStringAsFixed(0)}° ✓ Locked" : 
-                       "${_liveAngle.toStringAsFixed(0)}° / ${target.toStringAsFixed(0)}° target";
+    String label; String score; Color scoreBg; Color scoreColor; double fillPercent;
+    List<Color> gradientColors; String markerLabel; double markerPct;
+
+    if (_phase == DetectionPhase.aspiration) {
+      label = 'ASPIRATION DURATION';
+      score = '${_aspirationService.duration.toStringAsFixed(1)}s / ≥2s threshold';
+      scoreBg = const Color(0xFF06B6D4).withValues(alpha: 0.2); scoreColor = const Color(0xFF06B6D4);
+      fillPercent = _aspirationService.duration / 3.0; // Assume 3s max on gauge
+      gradientColors = const [Color(0xFF06B6D4), Color(0xFF67E8F9)];
+      markerLabel = 'Min 2s'; markerPct = 2.0 / 3.0;
+    } else {
+      label = _phase == DetectionPhase.withdrawal ? 'WITHDRAWAL ANGLE' : 'INSERTION ANGLE';
+      double displayAngle = _isPhaseLocked() ? ((_phase == DetectionPhase.insertion ? _lockedInsertionAngle : _lockedWithdrawalAngle) ?? _liveAngle) : _liveAngle;
+      
+      if (_isTrackingLost) {
+        score = 'Paused — Last: ${displayAngle.toStringAsFixed(0)}°';
+        scoreBg = const Color(0xFFEF4444).withValues(alpha: 0.2); scoreColor = const Color(0xFFFCA5A5);
+        gradientColors = [const Color(0xFFEF4444).withValues(alpha: 0.35), const Color(0xFFEF4444).withValues(alpha: 0.35)];
+      } else if (isLocked) {
+        int s = _scoreAngle(displayAngle, target);
+        score = '${displayAngle.toStringAsFixed(0)}° ✓ Scored $s/5';
+        scoreBg = const Color(0xFF22C55E).withValues(alpha: 0.2); scoreColor = const Color(0xFF22C55E);
+        gradientColors = const [Color(0xFF22C55E), Color(0xFF86EFAC)];
+      } else {
+        score = '${displayAngle.toStringAsFixed(0)}° / ${target.toStringAsFixed(0)}° target';
+        scoreBg = const Color(0xFF22C55E).withValues(alpha: 0.2); scoreColor = const Color(0xFF22C55E);
+        gradientColors = const [Color(0xFF22C55E), Color(0xFF86EFAC)];
+      }
+      fillPercent = displayAngle / 180.0;
+      markerLabel = '${target.toStringAsFixed(0)}°'; markerPct = target / 180.0;
+    }
 
     return Container(
       color: const Color(0xFF002244),
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+      padding: const EdgeInsets.fromLTRB(20, 14, 20, 12),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text("INSERTION ANGLE", style: TextStyle(color: Color(0xFFA8C4E0), fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
+              Text(label, style: const TextStyle(color: Color(0xFFA8C4E0), fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 1.2)),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(color: fillColor.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(6)),
-                child: Text(scoreText, style: TextStyle(color: fillColor, fontSize: 11, fontWeight: FontWeight.bold)),
+                decoration: BoxDecoration(color: scoreBg, borderRadius: BorderRadius.circular(6)),
+                child: Text(score, style: TextStyle(color: scoreColor, fontSize: 11, fontWeight: FontWeight.w700)),
               )
             ],
           ),
@@ -495,26 +678,39 @@ class _DetectionScreenState extends State<DetectionScreen> {
               Container(height: 8, decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(4))),
               FractionallySizedBox(
                 widthFactor: fillPercent.clamp(0.0, 1.0),
-                child: Container(height: 8, decoration: BoxDecoration(color: fillColor, borderRadius: BorderRadius.circular(4))),
+                child: Container(
+                  height: 8,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(colors: gradientColors),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
               ),
               Positioned(
-                left: MediaQuery.of(context).size.width * (target / 180.0) - 20,
+                left: MediaQuery.of(context).size.width * markerPct - 20,
                 top: -4,
-                child: Container(width: 2, height: 16, color: const Color(0xFFA8C4E0)),
+                child: Column(
+                  children: [
+                    Text(markerLabel, style: const TextStyle(fontFamily: 'DM Mono', fontSize: 9, color: Color(0xFFA8C4E0))),
+                    const SizedBox(height: 2),
+                    Container(width: 2, height: 16, color: const Color(0xFFA8C4E0), margin: const EdgeInsets.only(top: -6)),
+                  ],
+                ),
               )
             ],
           ),
           const SizedBox(height: 4),
-          const Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text('0°', style: TextStyle(color: Colors.white38, fontSize: 9)),
-              Text('45°', style: TextStyle(color: Colors.white38, fontSize: 9)),
-              Text('90°', style: TextStyle(color: Colors.white38, fontSize: 9)),
-              Text('135°', style: TextStyle(color: Colors.white38, fontSize: 9)),
-              Text('180°', style: TextStyle(color: Colors.white38, fontSize: 9)),
-            ],
-          )
+          if (_phase != DetectionPhase.aspiration)
+            const Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('0°', style: TextStyle(fontFamily: 'DM Mono', fontSize: 9, color: Colors.white38)),
+                Text('45°', style: TextStyle(fontFamily: 'DM Mono', fontSize: 9, color: Colors.white38)),
+                Text('90°', style: TextStyle(fontFamily: 'DM Mono', fontSize: 9, color: Colors.white38)),
+                Text('135°', style: TextStyle(fontFamily: 'DM Mono', fontSize: 9, color: Colors.white38)),
+                Text('180°', style: TextStyle(fontFamily: 'DM Mono', fontSize: 9, color: Colors.white38)),
+              ],
+            )
         ],
       ),
     );
@@ -527,31 +723,25 @@ class _DetectionScreenState extends State<DetectionScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // If Tracking Lost Alert
           if (_isTrackingLost) ...[
             Container(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               decoration: BoxDecoration(color: const Color(0xFFFEF2F2), border: Border.all(color: const Color(0xFFEF4444).withValues(alpha: 0.25)), borderRadius: BorderRadius.circular(12)),
-              child: const Row(
+              child: Row(
                 children: [
-                  Icon(Icons.pause_circle_outline, color: Color(0xFFEF4444)),
-                  SizedBox(width: 10),
-                  Expanded(child: Text("Angle recording is suspended until landmarks are re-acquired.", style: TextStyle(color: Color(0xFFB91C1C), fontSize: 11.5))),
+                  SvgPicture.string('''<svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M9 7.5v3M9 12h.01M7.5 2.5L1 14h16L10.5 2.5a1.73 1.73 0 0 0-3 0z" stroke="#EF4444" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>'''),
+                  const SizedBox(width: 10),
+                  const Expanded(child: Text("Angle recording is suspended until landmarks are re-acquired.", style: TextStyle(color: Color(0xFFB91C1C), fontSize: 11.5, height: 1.45))),
                 ],
               ),
             ),
             const SizedBox(height: 12),
           ],
 
-          // Phase Tracker or Rubric Row depending on lock
-          if (isLocked) 
-            _buildPhaseTracker(session)
-          else 
-            _buildRubricRow(),
+          if (isLocked) _buildScoreCard(session) else _buildRubricRow(),
 
-          const Divider(color: Color(0x11003366), height: 24),
+          Container(height: 1, color: const Color(0xFF003366).withValues(alpha: 0.07), margin: const EdgeInsets.symmetric(vertical: 14)),
 
-          // Action Button
           _buildActionButton(session),
         ],
       ),
@@ -559,24 +749,32 @@ class _DetectionScreenState extends State<DetectionScreen> {
   }
 
   Widget _buildRubricRow() {
-    String title = _phase == DetectionPhase.insertion ? "Phase 1 — Insertion" : 
-                   _phase == DetectionPhase.aspiration ? "Phase 2 — Aspiration" : "Phase 3 — Withdrawal";
-    String desc = _phase == DetectionPhase.insertion ? "Awaiting needle insertion confirmation" : 
-                  _phase == DetectionPhase.aspiration ? (_aspirationStarted ? "Aspirating..." : "Start aspiration motion") : "Awaiting withdrawal angle lock";
-    
+    String phase; String desc;
+    if (_isTrackingLost) {
+      phase = 'Phase 1 — Insertion'; desc = 'Tracking paused — awaiting re-acquisition';
+    } else if (_phase == DetectionPhase.insertion) {
+      phase = 'Phase 1 — Insertion'; desc = 'Awaiting needle insertion confirmation';
+    } else if (_phase == DetectionPhase.aspiration) {
+      phase = 'Phase 2 — Aspiration'; desc = 'Aspirating... tracking L4 thumb displacement';
+    } else {
+      phase = 'Phase 3 — Withdrawal'; desc = 'Awaiting withdrawal angle lock';
+    }
+
     return Row(
       children: [
         Container(
           width: 36, height: 36,
           decoration: BoxDecoration(color: const Color(0xFFEFF7FF), borderRadius: BorderRadius.circular(10)),
-          child: const Icon(Icons.colorize, color: Color(0xFF003366), size: 18),
+          alignment: Alignment.center,
+          child: SvgPicture.string('''<svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M9 2v10M4 9l5 6 5-6" stroke="#003366" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>'''),
         ),
         const SizedBox(width: 10),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: const TextStyle(color: Color(0xFF1A2E4A), fontSize: 12, fontWeight: FontWeight.bold)),
+              Text(phase, style: const TextStyle(color: Color(0xFF1A2E4A), fontSize: 12, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 1),
               Text(desc, style: const TextStyle(color: Color(0xFF4A6080), fontSize: 11)),
             ],
           ),
@@ -584,90 +782,97 @@ class _DetectionScreenState extends State<DetectionScreen> {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
           decoration: BoxDecoration(color: const Color(0xFFEFF7FF), borderRadius: BorderRadius.circular(8)),
-          child: const Text("In Progress", style: TextStyle(color: Color(0xFF003366), fontSize: 11, fontWeight: FontWeight.bold)),
-        )
+          child: const Text('In Progress', style: TextStyle(color: Color(0xFF003366), fontSize: 11, fontWeight: FontWeight.w700)),
+        ),
       ],
     );
   }
 
-  Widget _buildPhaseTracker(SessionStateProvider session) {
-    // Score summary card
-    int score = 0;
-    String scoreDesc = "";
+  Widget _buildScoreCard(SessionStateProvider session) {
+    int score = 0; String title = ''; String desc = '';
     if (_phase == DetectionPhase.insertion) {
       score = session.insertionScore ?? 0;
-      scoreDesc = "Insertion Angle: ${(_lockedInsertionAngle ?? 0).toStringAsFixed(1)}° locked.";
+      title = 'Insertion Angle: ${(_lockedInsertionAngle ?? 0).toStringAsFixed(0)}°';
+      desc = 'Within ±${session.currentConfig?.tolerance ?? 0}° of ${session.currentConfig?.targetAngle ?? 0}° target. CIT-U Rubric: $score/5';
     } else if (_phase == DetectionPhase.aspiration) {
       score = session.aspirationResult == 'Correct' ? 5 : session.aspirationResult == 'Incorrect' ? 2 : 1;
-      scoreDesc = "Aspiration Result: ${session.aspirationResult}. Duration: ${_aspirationService.duration.toStringAsFixed(1)}s";
+      title = 'Aspiration: ${session.aspirationResult}';
+      desc = 'Duration: ${_aspirationService.duration.toStringAsFixed(1)}s. Rubric: $score/5';
     } else {
       score = session.withdrawalScore ?? 0;
-      scoreDesc = "Withdrawal Angle: ${(_lockedWithdrawalAngle ?? 0).toStringAsFixed(1)}° locked.";
+      title = 'Withdrawal Angle: ${(_lockedWithdrawalAngle ?? 0).toStringAsFixed(0)}°';
+      desc = 'Matches insertion angle (${(_lockedInsertionAngle ?? 0).toStringAsFixed(0)}°). Δ = ${session.angularDelta?.toStringAsFixed(0)}°. CIT-U Rubric: $score/5';
     }
 
-    return Column(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(color: const Color(0xFFDCFCE7), border: Border.all(color: const Color(0xFF22C55E).withValues(alpha: 0.3)), borderRadius: BorderRadius.circular(14)),
-          child: Row(
-            children: [
-              Container(
-                width: 52, height: 52,
-                decoration: BoxDecoration(color: const Color(0xFF22C55E).withValues(alpha: 0.15), border: Border.all(color: const Color(0xFF22C55E), width: 2.5), shape: BoxShape.circle),
-                child: Center(child: Text(score.toString(), style: const TextStyle(color: Color(0xFF166534), fontSize: 20, fontWeight: FontWeight.bold))),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text("Score: $score / 5", style: const TextStyle(color: Color(0xFF166534), fontSize: 14, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 2),
-                    Text(scoreDesc, style: const TextStyle(color: Color(0xFF166534), fontSize: 12)),
-                  ],
-                ),
-              )
-            ],
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(color: const Color(0xFFDCFCE7), border: Border.all(color: const Color(0xFF22C55E).withValues(alpha: 0.3)), borderRadius: BorderRadius.circular(14)),
+      child: Row(
+        children: [
+          Container(
+            width: 52, height: 52,
+            decoration: BoxDecoration(color: const Color(0xFF22C55E).withValues(alpha: 0.15), border: Border.all(color: const Color(0xFF22C55E), width: 2.5), shape: BoxShape.circle),
+            alignment: Alignment.center,
+            child: Text(score.toString(), style: const TextStyle(fontFamily: 'DM Mono', color: Color(0xFF166534), fontSize: 20, fontWeight: FontWeight.w700)),
           ),
-        )
-      ],
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: const TextStyle(color: Color(0xFF166534), fontSize: 14, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 2),
+                Text(desc, style: const TextStyle(color: Color(0xFF166534), fontSize: 12, height: 1.4)),
+              ],
+            ),
+          )
+        ],
+      ),
     );
   }
 
   Widget _buildActionButton(SessionStateProvider session) {
     if (_isTrackingLost) {
-      return SizedBox(
-        width: double.infinity,
-        height: 52,
-        child: ElevatedButton.icon(
-          onPressed: () => setState(() => _isTrackingLost = false),
-          icon: const Icon(Icons.warning, color: Colors.white),
-          label: const Text('Adjust Position & Resume', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white)),
-          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF003366), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
-        ),
+      return Column(
+        children: [
+          _ActionButton(
+            label: 'Adjust Position & Resume',
+            iconSvg: '''<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 9v4M12 17h.01M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" stroke="white" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>''',
+            onPressed: () => setState(() => _isTrackingLost = false),
+          ),
+        ],
       );
     }
 
     if (_phase == DetectionPhase.insertion) {
-      if (_lockedInsertionAngle == null) {
-        return _ActionButton(key: const Key('lock_insertion_button'), label: 'Confirm Needle Insertion', icon: Icons.check_circle_outline, onPressed: _angleInRange ? _lockInsertion : null);
+      if (!_isPhaseLocked()) {
+        return Column(
+          children: [
+            _ActionButton(key: const Key('lock_insertion_button'), label: 'Confirm Needle Insertion', iconSvg: '''<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5 12l4 4L19 8" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>''', onPressed: _angleInRange ? _lockInsertion : null),
+            const SizedBox(height: 8), const Text('Tap when the needle is visibly inserted at the correct angle', style: TextStyle(color: Color(0xFF4A6080), fontSize: 11)),
+          ],
+        );
       } else {
-        return _ActionButton(key: const Key('proceed_aspiration_button'), label: 'Proceed to Aspiration Detection', icon: Icons.arrow_forward, onPressed: _proceedToAspiration);
+        return _ActionButton(key: const Key('proceed_aspiration_button'), label: 'Proceed to Aspiration Detection', iconSvg: '''<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5 12h14M12 5l7 7-7 7" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>''', onPressed: _proceedToAspiration);
       }
     } else if (_phase == DetectionPhase.aspiration) {
       if (!_aspirationStarted) {
-        return _ActionButton(key: const Key('start_aspiration_button'), label: 'Start Aspiration', icon: Icons.play_arrow, onPressed: _startAspiration);
+        return _ActionButton(key: const Key('start_aspiration_button'), label: 'Start Aspiration', iconSvg: '''<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5 12h14M12 5l7 7-7 7" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>''', onPressed: _startAspiration);
       } else if (!_aspirationLocked) {
-        return _ActionButton(key: const Key('lock_aspiration_button'), label: 'Done Aspirating (${_aspirationService.duration.toStringAsFixed(1)}s)', icon: Icons.stop, onPressed: _aspirationService.duration >= 1.0 || _aspirationService.result == 'Not Detected' ? _lockAspiration : null);
+        return Column(
+          children: [
+            _ActionButton(key: const Key('lock_aspiration_button'), label: 'Done Aspirating (${_aspirationService.duration.toStringAsFixed(1)}s)', iconSvg: '''<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="4" y="4" width="16" height="16" rx="3" stroke="white" stroke-width="1.8"/><rect x="8" y="8" width="8" height="8" rx="1" fill="white"/></svg>''', onPressed: _aspirationService.duration >= 1.0 || _aspirationService.result == 'Not Detected' ? _lockAspiration : null),
+            const SizedBox(height: 8), const Text('Tap when plunger withdrawal is fully complete', style: TextStyle(color: Color(0xFF4A6080), fontSize: 11)),
+          ],
+        );
       } else {
-        return _ActionButton(key: const Key('proceed_withdrawal_button'), label: 'Proceed to Withdrawal', icon: Icons.arrow_forward, onPressed: _proceedToWithdrawal);
+        return _ActionButton(key: const Key('proceed_withdrawal_button'), label: 'Proceed to Withdrawal', iconSvg: '''<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5 12h14M12 5l7 7-7 7" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>''', onPressed: _proceedToWithdrawal);
       }
     } else {
       if (!_withdrawalLocked) {
-        return _ActionButton(key: const Key('lock_withdrawal_button'), label: 'Confirm Withdrawal Angle', icon: Icons.check_circle_outline, onPressed: _angleInRange ? _lockWithdrawal : null);
+        return _ActionButton(key: const Key('lock_withdrawal_button'), label: 'Confirm Withdrawal Angle', iconSvg: '''<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5 12l4 4L19 8" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>''', onPressed: _angleInRange ? _lockWithdrawal : null);
       } else {
-        return _ActionButton(key: const Key('complete_session_button'), label: 'Complete Session', icon: Icons.flag, onPressed: _completeSession, color: const Color(0xFF22C55E));
+        return _ActionButton(key: const Key('complete_session_button'), label: 'Complete Session', iconSvg: '''<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 12l4 4L20 6" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>''', onPressed: _completeSession, color: const Color(0xFF22C55E));
       }
     }
   }
@@ -675,30 +880,35 @@ class _DetectionScreenState extends State<DetectionScreen> {
 
 class _ActionButton extends StatelessWidget {
   final String label;
-  final IconData icon;
+  final String iconSvg;
   final VoidCallback? onPressed;
   final Color color;
 
-  const _ActionButton({super.key, required this.label, required this.icon, this.onPressed, this.color = const Color(0xFF003366)});
+  const _ActionButton({super.key, required this.label, required this.iconSvg, this.onPressed, this.color = const Color(0xFF003366)});
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
       width: double.infinity,
       height: 52,
-      child: ElevatedButton.icon(
+      child: ElevatedButton(
         key: key,
         onPressed: onPressed,
-        icon: Icon(icon, color: Colors.white, size: 20),
-        label: Text(label, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white)),
         style: ElevatedButton.styleFrom(
           backgroundColor: color,
-          disabledBackgroundColor: color.withValues(alpha: 0.3),
+          disabledBackgroundColor: color.withValues(alpha: 0.35),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          elevation: 0,
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            SvgPicture.string(iconSvg),
+            const SizedBox(width: 8),
+            Text(label, style: const TextStyle(fontFamily: 'DM Sans', fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white)),
+          ],
         ),
       ),
     );
   }
 }
-
-

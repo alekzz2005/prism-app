@@ -33,4 +33,12 @@ class InstructorSessionRepository {
         await _db.collection('sessions').add(session.toFirestore());
     return ref.id;
   }
+
+  /// Updates a draft session with the edited feedback.
+  Future<void> updateFeedbackDraft(String sessionId, String aiText, String noteText) async {
+    await _db.collection('sessions').doc(sessionId).update({
+      'aiFeedbackText': aiText,
+      'instructorNote': noteText,
+    });
+  }
 }
