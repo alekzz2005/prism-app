@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
 import '../../providers/session_state_provider.dart';
+import '../../models/session_model.dart';
 import '../../services/feedback_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../student/injection_type_screen.dart';
 
 /// Shown after all 3 phases complete. Generates AI feedback and saves to Firestore.
@@ -30,7 +32,31 @@ class _SessionCompleteScreenState extends State<SessionCompleteScreen> {
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
 
     try {
-      await _feedbackService.submitSession(session, uid);
+      final finalSession = SessionModel(
+        sessionId: '',
+        userId: uid,
+        studentName: FirebaseAuth.instance.currentUser?.displayName ?? FirebaseAuth.instance.currentUser?.email ?? 'Unknown Student',
+        timestamp: Timestamp.now(),
+        injectionType: session.currentConfig?.type ?? '',
+        insertionAngle: session.insertionAngle ?? 0.0,
+        insertionScore: session.insertionScore ?? 1,
+        aspirationResult: session.aspirationResult ?? 'Not Detected',
+        aspirationDuration: session.aspirationDuration ?? 0.0,
+        motionSmoothness: session.motionSmoothness ?? 'Good',
+        withdrawalAngle: session.withdrawalAngle ?? 0.0,
+        withdrawalScore: session.withdrawalScore ?? 1,
+        correspondenceResult: session.correspondenceResult ?? 'Deviates',
+        angularDelta: session.angularDelta ?? 0.0,
+        overallScore: session.overallScore ?? 1,
+        aiFeedbackText: '',
+        feedbackStatus: 'Pending',
+        instructorNote: '',
+        flagged: session.flagged,
+      );
+      
+      final genSession = await _feedbackService.generateFeedbackForSession(finalSession);
+      await FirebaseFirestore.instance.collection('sessions').add(genSession.toFirestore());
+
       // Fetch feedback text from session state (already set in submitSession)
       setState(() {
         _feedbackText = 'Your session has been submitted. '

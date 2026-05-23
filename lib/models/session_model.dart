@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 class SessionModel {
   final String sessionId;
   final String userId;
+  final String studentName;
   final Timestamp timestamp;
   final String injectionType; // "IM" | "SubQ" | "IV" | "ID"
 
@@ -37,6 +38,7 @@ class SessionModel {
   const SessionModel({
     required this.sessionId,
     required this.userId,
+    required this.studentName,
     required this.timestamp,
     required this.injectionType,
     required this.insertionAngle,
@@ -57,24 +59,25 @@ class SessionModel {
   });
 
   factory SessionModel.fromFirestore(DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>;
+    final data = doc.data() as Map<String, dynamic>? ?? {};
     return SessionModel(
       sessionId: doc.id,
-      userId: data['userId'] as String,
-      timestamp: data['timestamp'] as Timestamp,
-      injectionType: data['injectionType'] as String,
-      insertionAngle: (data['insertionAngle'] as num).toDouble(),
-      insertionScore: data['insertionScore'] as int,
-      aspirationResult: data['aspirationResult'] as String,
-      aspirationDuration: (data['aspirationDuration'] as num).toDouble(),
-      motionSmoothness: data['motionSmoothness'] as String,
-      withdrawalAngle: (data['withdrawalAngle'] as num).toDouble(),
-      withdrawalScore: data['withdrawalScore'] as int,
-      correspondenceResult: data['correspondenceResult'] as String,
-      angularDelta: (data['angularDelta'] as num).toDouble(),
-      overallScore: data['overallScore'] as int,
+      userId: data['userId'] as String? ?? '',
+      studentName: data['studentName'] as String? ?? 'Unknown Student',
+      timestamp: data['timestamp'] as Timestamp? ?? Timestamp.now(),
+      injectionType: data['injectionType'] as String? ?? 'IM',
+      insertionAngle: (data['insertionAngle'] as num?)?.toDouble() ?? 0.0,
+      insertionScore: data['insertionScore'] as int? ?? 1,
+      aspirationResult: data['aspirationResult'] as String? ?? 'Not Detected',
+      aspirationDuration: (data['aspirationDuration'] as num?)?.toDouble() ?? 0.0,
+      motionSmoothness: data['motionSmoothness'] as String? ?? 'Low',
+      withdrawalAngle: (data['withdrawalAngle'] as num?)?.toDouble() ?? 0.0,
+      withdrawalScore: data['withdrawalScore'] as int? ?? 1,
+      correspondenceResult: data['correspondenceResult'] as String? ?? 'Deviates',
+      angularDelta: (data['angularDelta'] as num?)?.toDouble() ?? 0.0,
+      overallScore: data['overallScore'] as int? ?? 1,
       aiFeedbackText: data['aiFeedbackText'] as String? ?? '',
-      feedbackStatus: data['feedbackStatus'] as String,
+      feedbackStatus: data['feedbackStatus'] as String? ?? 'Pending',
       releaseTimestamp: data['releaseTimestamp'] as Timestamp?,
       instructorNote: data['instructorNote'] as String? ?? '',
       flagged: data['flagged'] as bool? ?? false,
@@ -83,6 +86,7 @@ class SessionModel {
 
   Map<String, dynamic> toFirestore() => {
         'userId': userId,
+        'studentName': studentName,
         'timestamp': timestamp,
         'injectionType': injectionType,
         'insertionAngle': insertionAngle,

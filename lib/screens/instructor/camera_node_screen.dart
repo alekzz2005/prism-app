@@ -54,25 +54,33 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
       if (mounted) setState(() => _cameraReady = true);
 
       // Start 2Hz sync timer
-      _syncTimer = Timer.periodic(const Duration(milliseconds: 500), (_) => _syncLiveAngle());
+      _syncTimer = Timer.periodic(const Duration(milliseconds: 500), (_) => _syncMetrics());
     } catch (_) {
       if (mounted) setState(() => _cameraReady = false);
     }
   }
 
-  void _syncLiveAngle() {
+  void _syncMetrics() {
     if (!mounted) return;
-    if (_currentPhase != 'insertion' && _currentPhase != 'withdrawal') return;
-    if (_liveAngle < 0) return;
-
+    
     final instructorId = context.read<UserRoleProvider>().uid;
-    if (instructorId != null) {
-      _liveService.updateLiveAngle(instructorId, _liveAngle);
+    if (instructorId == null) return;
+
+    // Sync detection state
+    _liveService.setDetectionLost(instructorId, _hands.isEmpty);
+
+    if (_currentPhase == 'insertion' || _currentPhase == 'withdrawal') {
+      if (_liveAngle >= 0) {
+        _liveService.updateLiveAngle(instructorId, _liveAngle);
+      }
+    } else if (_currentPhase == 'aspiration') {
+      _liveService.updateLiveAspiration(instructorId, _aspirationService.result, _aspirationService.duration);
     }
   }
 
   void _onFrame(CameraImage image) {
     if (_processing) return;
+    if (_currentPhase == 'waiting') return;
     _processing = true;
     try {
       final cam = _camera?.description;
@@ -121,7 +129,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
       AngleComputationUtil.resetSmoothing();
     } else if (session.phase == 'aspiration_locked' && oldPhase == 'aspiration') {
       _liveService.saveAspirationMetrics(instructorId, _aspirationService.result, _aspirationService.duration, _aspirationService.smoothness);
-    } else if (session.phase == 'withdrawal' && oldPhase == 'aspiration_locked') {
+    } else if (session.phase == 'withdrawal' && oldPhase == 'medication_push_locked') {
       AngleComputationUtil.resetSmoothing();
     } else if (session.phase == 'withdrawal_locked' && oldPhase == 'withdrawal') {
       final score = _scoreAngle(_liveAngle, session.targetAngle);
@@ -137,6 +145,10 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
     _camera?.stopImageStream();
     _camera?.dispose();
     _landmarkService.dispose();
+    final instructorId = context.read<UserRoleProvider>().uid;
+    if (instructorId != null) {
+      _liveService.setCameraActive(instructorId, false);
+    }
     super.dispose();
   }
 
@@ -150,6 +162,12 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
         stream: _liveService.watchSession(instructorId!),
         builder: (context, snapshot) {
           final session = snapshot.data;
+
+          if (session != null && !session.cameraNodeActive) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              _liveService.setCameraActive(instructorId, true);
+            });
+          }
 
           if (session != null && session.phase != _currentPhase) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -181,8 +199,40 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
           return Stack(
             fit: StackFit.expand,
             children: [
-              if (_cameraReady) CameraPreview(_camera!),
-              if (_hands.isNotEmpty) CustomPaint(painter: AngleOverlayPainter(hands: _hands, sensorOrientation: _sensorOrientation)),
+              if (_cameraReady && _camera?.value.previewSize != null) 
+                SizedBox.expand(
+                  child: FittedBox(
+                    fit: BoxFit.cover,
+                    child: SizedBox(
+                      width: _camera!.value.previewSize!.height,
+                      height: _camera!.value.previewSize!.width,
+                      child: Stack(
+                        children: [
+                          CameraPreview(_camera!),
+                          if (_hands.isNotEmpty)
+                            Positioned.fill(
+                              child: CustomPaint(painter: AngleOverlayPainter(hands: _hands, sensorOrientation: _sensorOrientation)),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              if (_cameraReady && _currentPhase != 'waiting' && _hands.isEmpty)
+                Container(
+                  color: Colors.redAccent.withValues(alpha: 0.3),
+                  child: const Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.warning_amber_rounded, color: Colors.white, size: 64),
+                        SizedBox(height: 16),
+                        Text('DETECTION LOST', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold, letterSpacing: 2)),
+                        Text('Please readjust hand or camera placement', style: TextStyle(color: Colors.white, fontSize: 16)),
+                      ],
+                    ),
+                  ),
+                ),
               
               // Top Status Banner
               Positioned(

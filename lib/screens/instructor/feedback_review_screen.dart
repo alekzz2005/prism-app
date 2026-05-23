@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../models/session_model.dart';
 import '../../services/instructor_session_repository.dart';
 import '../../services/feedback_release_service.dart';
@@ -20,21 +22,56 @@ class FeedbackReviewScreen extends StatefulWidget {
 
 class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
   late final TextEditingController _noteController;
+  late final TextEditingController _aiFeedbackController;
   final _releaseService = FeedbackReleaseService();
   bool _isReleasing = false;
+  Timer? _debounce;
 
   @override
   void initState() {
     super.initState();
     _noteController =
         TextEditingController(text: widget.session.instructorNote);
+    _aiFeedbackController =
+        TextEditingController(text: widget.session.aiFeedbackText);
+    
+    _noteController.addListener(_onTextChanged);
+    _aiFeedbackController.addListener(_onTextChanged);
+  }
+
+  void _onTextChanged() {
+    setState(() {}); // Updates the release button validation
+    if (widget.session.feedbackStatus == 'Released') return;
+
+    if (_debounce?.isActive ?? false) _debounce!.cancel();
+    _debounce = Timer(const Duration(seconds: 1), () {
+      _saveDraft();
+    });
+  }
+
+  Future<void> _saveDraft() async {
+    try {
+      await FirebaseFirestore.instance
+          .collection('sessions')
+          .doc(widget.session.sessionId)
+          .update({
+        'aiFeedbackText': _aiFeedbackController.text.trim(),
+        'instructorNote': _noteController.text.trim(),
+      });
+    } catch (_) {
+      // Silently fail for background draft saving
+    }
   }
 
   @override
   void dispose() {
+    _debounce?.cancel();
     _noteController.dispose();
+    _aiFeedbackController.dispose();
     super.dispose();
   }
+
+  bool get _isReleaseValid => _aiFeedbackController.text.trim().isNotEmpty;
 
   Future<void> _release() async {
     setState(() => _isReleasing = true);
@@ -42,6 +79,7 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
       await _releaseService.releaseSession(
         widget.session.sessionId,
         _noteController.text.trim(),
+        _aiFeedbackController.text.trim(),
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -91,7 +129,7 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
               ],
             ),
             const SizedBox(height: 4),
-            Text('Student: ${s.userId}',
+            Text('Student: ${s.studentName}',
                 style: const TextStyle(
                     color: Colors.white38, fontSize: 12)),
             const SizedBox(height: 20),
@@ -126,26 +164,95 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
             ),
             const SizedBox(height: 20),
 
-            // ── AI Draft (read-only) ──
-            _SectionHeader('AI Draft'),
-            const SizedBox(height: 8),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: Colors.grey.shade900,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.white12),
-              ),
-              child: Text(
-                s.aiFeedbackText.isEmpty
-                    ? 'No AI feedback was generated.'
-                    : s.aiFeedbackText,
-                style: const TextStyle(
-                    color: Colors.white70,
-                    height: 1.6,
-                    fontSize: 14),
-              ),
+            // ── AI Draft (editable & streaming) ──
+            StreamBuilder<DocumentSnapshot>(
+              stream: FirebaseFirestore.instance.collection('sessions').doc(widget.session.sessionId).snapshots(),
+              builder: (context, snapshot) {
+                String streamAiText = widget.session.aiFeedbackText;
+                String streamStatus = widget.session.feedbackStatus;
+
+                if (snapshot.hasData && snapshot.data!.exists) {
+                  final data = snapshot.data!.data() as Map<String, dynamic>;
+                  streamAiText = data['aiFeedbackText'] as String? ?? '';
+                  streamStatus = data['feedbackStatus'] as String? ?? 'Pending';
+
+                  if (_aiFeedbackController.text.isEmpty && streamAiText.isNotEmpty) {
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (mounted) {
+                        _aiFeedbackController.text = streamAiText;
+                      }
+                    });
+                  }
+                }
+
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const _SectionHeader('AI Assisted Feedback'),
+                        if (!isReleased && streamAiText.isNotEmpty)
+                          TextButton.icon(
+                            onPressed: () {
+                              _aiFeedbackController.text = streamAiText;
+                            },
+                            icon: const Icon(Icons.restore, size: 16, color: Colors.white54),
+                            label: const Text('Revert to Original', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                            style: TextButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    if (streamAiText.isEmpty && streamStatus == 'Pending')
+                      Container(
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade900,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.white12),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: const [
+                            SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.deepPurpleAccent, strokeWidth: 2)),
+                            SizedBox(width: 12),
+                            Flexible(child: Text('Generating AI feedback.\nPlease wait for a while...', style: TextStyle(color: Colors.white54, fontStyle: FontStyle.italic, fontSize: 13))),
+                          ],
+                        ),
+                      )
+                    else
+                      TextField(
+                        controller: _aiFeedbackController,
+                        maxLines: 8,
+                        enabled: !isReleased,
+                        style: const TextStyle(color: Colors.white70, height: 1.6, fontSize: 14),
+                        decoration: InputDecoration(
+                          hintText: 'No AI feedback was generated...',
+                          hintStyle: const TextStyle(color: Colors.white24),
+                          filled: true,
+                          fillColor: Colors.grey.shade900,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(color: Colors.white12),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(color: Colors.white12),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(color: Colors.deepPurpleAccent, width: 1.5),
+                          ),
+                        ),
+                      ),
+                  ],
+                );
+              },
             ),
             const SizedBox(height: 20),
 
@@ -182,7 +289,7 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
                 width: double.infinity,
                 child: ElevatedButton.icon(
                   key: const Key('release_button'),
-                  onPressed: _isReleasing ? null : _release,
+                  onPressed: (_isReleasing || !_isReleaseValid) ? null : _release,
                   icon: _isReleasing
                       ? const SizedBox(
                           width: 18,

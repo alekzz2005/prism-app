@@ -15,11 +15,10 @@ service cloud.firestore {
       // Any authenticated user can create a session (students submitting RDs)
       allow create: if request.auth != null;
 
-      // Students can read only their own RELEASED sessions
+      // Students can read their own sessions (Pending and Released)
       // Instructors can read ALL sessions
       allow read: if request.auth != null && (
-        (resource.data.userId == request.auth.uid &&
-         resource.data.feedbackStatus == 'Released')
+        resource.data.userId == request.auth.uid || resource.data.userId == request.auth.token.email
         ||
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Instructor'
       );

@@ -9,6 +9,10 @@ class LiveSessionModel {
   final double targetAngle;
   final String phase; // "waiting", "insertion", "aspiration", "withdrawal", "completed"
   final double liveAngle;
+  final bool cameraNodeActive;
+  final bool detectionLost;
+  final String liveAspirationResult;
+  final double liveAspirationDuration;
 
   // Stored results to be pushed to final session
   final double? finalInsertionAngle;
@@ -28,6 +32,10 @@ class LiveSessionModel {
     required this.targetAngle,
     required this.phase,
     required this.liveAngle,
+    required this.cameraNodeActive,
+    required this.detectionLost,
+    required this.liveAspirationResult,
+    required this.liveAspirationDuration,
     this.finalInsertionAngle,
     this.insertionScore,
     this.aspirationResult,
@@ -47,6 +55,10 @@ class LiveSessionModel {
       targetAngle: (data['targetAngle'] ?? 90).toDouble(),
       phase: data['phase'] ?? 'waiting',
       liveAngle: (data['liveAngle'] ?? 0).toDouble(),
+      cameraNodeActive: data['cameraNodeActive'] ?? false,
+      detectionLost: data['detectionLost'] ?? false,
+      liveAspirationResult: data['liveAspirationResult'] ?? 'Not Detected',
+      liveAspirationDuration: (data['liveAspirationDuration'] ?? 0).toDouble(),
       finalInsertionAngle: data['finalInsertionAngle']?.toDouble(),
       insertionScore: data['insertionScore'],
       aspirationResult: data['aspirationResult'],
@@ -78,6 +90,10 @@ class LiveSessionService {
       'targetAngle': targetAngle,
       'phase': 'waiting',
       'liveAngle': 0.0,
+      'cameraNodeActive': false,
+      'detectionLost': false,
+      'liveAspirationResult': 'Not Detected',
+      'liveAspirationDuration': 0.0,
       'finalInsertionAngle': null,
       'insertionScore': null,
       'aspirationResult': null,
@@ -107,10 +123,32 @@ class LiveSessionService {
     });
   }
 
+  /// Sets whether the camera node is actively listening.
+  Future<void> setCameraActive(String instructorId, bool isActive) async {
+    await _db.collection('live_sessions').doc(instructorId).update({
+      'cameraNodeActive': isActive,
+    });
+  }
+
+  /// Sets whether the camera has lost hand detection.
+  Future<void> setDetectionLost(String instructorId, bool isLost) async {
+    await _db.collection('live_sessions').doc(instructorId).update({
+      'detectionLost': isLost,
+    });
+  }
+
   /// Pushes the live angle. Called by the Camera node at ~2Hz.
   Future<void> updateLiveAngle(String instructorId, double angle) async {
     await _db.collection('live_sessions').doc(instructorId).update({
       'liveAngle': angle,
+    });
+  }
+
+  /// Pushes the live aspiration metrics. Called by the Camera node at ~2Hz during aspiration.
+  Future<void> updateLiveAspiration(String instructorId, String result, double duration) async {
+    await _db.collection('live_sessions').doc(instructorId).update({
+      'liveAspirationResult': result,
+      'liveAspirationDuration': duration,
     });
   }
 

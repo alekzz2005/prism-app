@@ -25,13 +25,14 @@ class _InstructorDashboardScreenState
   String _statusFilter = 'All';
   String _typeFilter = 'All';
 
-  static const _statusOptions = ['All', 'Pending', 'Released'];
+  static const _statusOptions = ['All', 'Pending', 'Released', 'Failed'];
   static const _typeOptions = ['All', 'IM', 'SubQ', 'IV', 'ID'];
 
   List<SessionModel> _applyFilters(List<SessionModel> sessions) {
     return sessions.where((s) {
+      final targetStatus = _statusFilter == 'Failed' ? 'Feedback Generation Failed' : _statusFilter;
       final matchStatus =
-          _statusFilter == 'All' || s.feedbackStatus == _statusFilter;
+          _statusFilter == 'All' || s.feedbackStatus == targetStatus;
       final matchType =
           _typeFilter == 'All' || s.injectionType == _typeFilter;
       return matchStatus && matchType;
@@ -155,13 +156,14 @@ class _InstructorDashboardScreenState
           // ── Session list ──
           Expanded(
             child: StreamBuilder<List<SessionModel>>(
-              stream: _repo.watchAllSessions(
-                statusFilter:
-                    _statusFilter == 'All' ? null : _statusFilter,
-                typeFilter:
-                    _typeFilter == 'All' ? null : _typeFilter,
-              ),
+              stream: _repo.watchAllSessions(),
               builder: (context, snap) {
+                if (snap.hasError) {
+                  return Center(
+                    child: Text('Error loading sessions: ${snap.error}',
+                        style: const TextStyle(color: Colors.redAccent)),
+                  );
+                }
                 if (snap.connectionState == ConnectionState.waiting) {
                   return const Center(
                       child: CircularProgressIndicator(
@@ -260,6 +262,11 @@ class _SessionCard extends StatelessWidget {
     return Colors.redAccent;
   }
 
+  String _statusLabel(String status) {
+    if (status == 'Feedback Generation Failed') return 'Failed';
+    return status;
+  }
+
   @override
   Widget build(BuildContext context) {
     final date = session.timestamp.toDate();
@@ -284,18 +291,23 @@ class _SessionCard extends StatelessWidget {
           children: [
             // Score circle
             Container(
-              width: 44,
-              height: 44,
+              width: 52,
+              height: 52,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: Colors.deepPurple.withValues(alpha: 0.2),
+                border: Border.all(color: Colors.deepPurpleAccent.withValues(alpha: 0.3)),
               ),
-              child: Center(
-                child: Text('${session.overallScore}',
-                    style: const TextStyle(
-                        color: Colors.deepPurpleAccent,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 18)),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text('Score', style: TextStyle(color: Colors.white54, fontSize: 9, fontWeight: FontWeight.bold)),
+                  Text('${session.overallScore}',
+                      style: const TextStyle(
+                          color: Colors.deepPurpleAccent,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 18)),
+                ],
               ),
             ),
             const SizedBox(width: 12),
@@ -319,17 +331,17 @@ class _SessionCard extends StatelessWidget {
                               .withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(10),
                         ),
-                        child: Text(session.feedbackStatus,
+                        child: Text(_statusLabel(session.feedbackStatus),
                             style: TextStyle(
                                 color:
                                     _statusColor(session.feedbackStatus),
-                                fontSize: 10)),
+                                fontSize: 10, fontWeight: FontWeight.bold)),
                       ),
                     ],
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    '${date.day}/${date.month}/${date.year}  •  ${session.userId.substring(0, 8)}…',
+                    '${date.day}/${date.month}/${date.year}  •  ${session.studentName}',
                     style: const TextStyle(
                         color: Colors.white38, fontSize: 12),
                   ),

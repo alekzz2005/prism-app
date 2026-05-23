@@ -1,69 +1,102 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../providers/session_state_provider.dart';
+import '../models/session_model.dart';
 import '../core/injection_config.dart';
 import 'openrouter_api_client.dart';
 import 'feedback_exceptions.dart';
 
-/// Builds the LLM prompt from live session state.
+/// Builds a compact, structured LLM prompt from the finalized SessionModel.
+/// Uses key:value pairs to minimise input tokens while maximising context.
 class PayloadBuilder {
-  static String buildPrompt(SessionStateProvider session) {
-    final config = session.currentConfig;
-    final type = config?.type ?? 'Unknown';
-    final target = config?.targetAngle.toStringAsFixed(0) ?? '?';
+  static String buildPrompt(SessionModel session) {
+    final config = InjectionConfigService.getConfig(session.injectionType);
 
-    return '''Student completed a $type injection return demonstration.
-Insertion angle: ${session.insertionAngle?.toStringAsFixed(1) ?? '?'}° (target: $target°, score: ${session.insertionScore ?? '?'}/5)
-Aspiration: ${session.aspirationResult ?? 'Not Detected'} (duration: ${session.aspirationDuration?.toStringAsFixed(1) ?? '0'}s, smoothness: ${session.motionSmoothness ?? 'Unknown'})
-Withdrawal angle: ${session.withdrawalAngle?.toStringAsFixed(1) ?? '?'}° (delta from insertion: ${session.angularDelta?.toStringAsFixed(1) ?? '?'}°, result: ${session.correspondenceResult ?? 'Unknown'}, score: ${session.withdrawalScore ?? '?'}/5)
-Overall score: ${session.overallScore ?? '?'}/5
-Generate clinical feedback for this student.''';
+    // Injection-specific clinical context from CIT-U rubrics
+    final clinicalContext = switch (session.injectionType) {
+      'IM' => 'CIT-U rubric: dart-like motion at 90 deg, aspirate for blood, if no blood inject slowly (~10 sec/ml), wait 10s, smoothly withdraw at same angle of insertion.',
+      'SubQ' => 'CIT-U rubric: stretch skin, dart-like motion at 45 deg, aspirate for blood, if no blood inject slowly (~10 sec/ml), wait 10s, withdraw at same angle with dry cotton ball.',
+      'ID' => 'CIT-U rubric: pull skin taut, insert at 10 deg, no aspiration, administer slowly and observe for bleb, withdraw slightly if no bleb, then withdraw needle.',
+      'IV' => 'Standard: insert at 15 deg, aspirate for blood return to confirm vein, inject medication slowly, withdraw smoothly.',
+      _ => '',
+    };
+
+    return '$clinicalContext\n'
+        '${session.injectionType} injection RD results:\n'
+        'Target angle: ${config.targetAngle.toStringAsFixed(0)} deg (tolerance ±${config.tolerance.toStringAsFixed(0)} deg)\n'
+        'Insertion: ${session.insertionAngle.toStringAsFixed(1)} deg, rubric ${session.insertionScore}/5\n'
+        'Aspiration: ${session.aspirationResult}, ${session.aspirationDuration.toStringAsFixed(1)}s, smoothness ${session.motionSmoothness}\n'
+        'Withdrawal: ${session.withdrawalAngle.toStringAsFixed(1)} deg, rubric ${session.withdrawalScore}/5\n'
+        'Angular delta (insertion vs withdrawal): ${session.angularDelta.toStringAsFixed(1)} deg, ${session.correspondenceResult}\n'
+        'Overall rubric: ${session.overallScore}/5'
+        '${session.flagged ? '\nFLAGGED: one or more components were undetectable' : ''}';
   }
 }
 
 /// Orchestrates AI feedback generation and Firestore session persistence.
 class FeedbackService {
   final _client = OpenRouterApiClient();
-  final _db = FirebaseFirestore.instance;
 
-  /// Builds prompt, calls OpenRouter, writes to Firestore.
-  /// Returns the generated sessionId.
-  Future<String> submitSession(
-      SessionStateProvider session, String userId) async {
+  /// Builds prompt, calls OpenRouter, and returns a new SessionModel with the AI feedback populated.
+  Future<SessionModel> generateFeedbackForSession(SessionModel session) async {
     final prompt = PayloadBuilder.buildPrompt(session);
     String feedbackText = '';
     String feedbackStatus = 'Pending';
+
+    String instructorNote = session.instructorNote;
 
     try {
       feedbackText = await _client.generateFeedback(prompt);
     } on FeedbackTimeoutException {
       feedbackText = '';
       feedbackStatus = 'Feedback Generation Failed';
-    } on FeedbackApiException {
+      instructorNote = 'AI Error: Request timed out. Please try again later.\n\n$instructorNote';
+    } on FeedbackApiException catch (e) {
       feedbackText = '';
       feedbackStatus = 'Feedback Generation Failed';
+      instructorNote = 'AI Error (HTTP ${e.statusCode}): ${e.body}\n\n$instructorNote';
+    } catch (e) {
+      feedbackText = '';
+      feedbackStatus = 'Feedback Generation Failed';
+      instructorNote = 'AI Error: $e\n\n$instructorNote';
     }
 
-    final doc = await _db.collection('sessions').add({
-      'userId': userId,
-      'timestamp': FieldValue.serverTimestamp(),
-      'injectionType': session.currentConfig?.type ?? '',
-      'insertionAngle': session.insertionAngle ?? 0.0,
-      'insertionScore': session.insertionScore ?? 1,
-      'aspirationResult': session.aspirationResult ?? 'Not Detected',
-      'aspirationDuration': session.aspirationDuration ?? 0.0,
-      'motionSmoothness': session.motionSmoothness ?? 'Good',
-      'withdrawalAngle': session.withdrawalAngle ?? 0.0,
-      'withdrawalScore': session.withdrawalScore ?? 1,
-      'correspondenceResult': session.correspondenceResult ?? 'Deviates',
-      'angularDelta': session.angularDelta ?? 0.0,
-      'overallScore': session.overallScore ?? 1,
-      'aiFeedbackText': feedbackText,
-      'feedbackStatus': feedbackStatus,
-      'releaseTimestamp': null,
-      'instructorNote': '',
-      'flagged': session.flagged,
-    });
+    return SessionModel(
+      sessionId: session.sessionId,
+      userId: session.userId,
+      studentName: session.studentName,
+      timestamp: session.timestamp,
+      injectionType: session.injectionType,
+      insertionAngle: session.insertionAngle,
+      insertionScore: session.insertionScore,
+      aspirationResult: session.aspirationResult,
+      aspirationDuration: session.aspirationDuration,
+      motionSmoothness: session.motionSmoothness,
+      withdrawalAngle: session.withdrawalAngle,
+      withdrawalScore: session.withdrawalScore,
+      correspondenceResult: session.correspondenceResult,
+      angularDelta: session.angularDelta,
+      overallScore: session.overallScore,
+      aiFeedbackText: feedbackText,
+      feedbackStatus: feedbackStatus,
+      releaseTimestamp: session.releaseTimestamp,
+      instructorNote: instructorNote,
+      flagged: session.flagged,
+    );
+  }
 
-    return doc.id;
+  /// Fire-and-forget background task that updates Firestore once generation completes.
+  Future<void> generateAndSaveFeedbackInBackground(SessionModel session) async {
+    try {
+      final updatedSession = await generateFeedbackForSession(session);
+      await FirebaseFirestore.instance.collection('sessions').doc(session.sessionId).update({
+        'aiFeedbackText': updatedSession.aiFeedbackText,
+        'feedbackStatus': updatedSession.feedbackStatus,
+        'instructorNote': updatedSession.instructorNote,
+      });
+    } catch (e) {
+      await FirebaseFirestore.instance.collection('sessions').doc(session.sessionId).update({
+        'feedbackStatus': 'Feedback Generation Failed',
+        'instructorNote': 'AI Background Error: $e\n\n${session.instructorNote}',
+      });
+    }
   }
 }

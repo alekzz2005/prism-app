@@ -50,8 +50,16 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       final cred = await _authService.signInWithGoogle();
       await _routeByRole(cred.user!.uid);
-    } catch (e) {
+    } on AuthException catch (e) {
       setState(() => _error = e.toString());
+    } catch (e) {
+      // Catch Google Play Services unavailability (Huawei, etc.)
+      final msg = e.toString().toLowerCase();
+      if (msg.contains('play services') || msg.contains('unavailable') || msg.contains('api_not_available')) {
+        setState(() => _error = 'Google Sign-In is not available on this device. Please use email and password instead.');
+      } else {
+        setState(() => _error = 'Google Sign-In failed. Please try again or use email login.');
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
