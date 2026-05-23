@@ -150,13 +150,21 @@ class SessionDetailScreen extends StatelessWidget {
                           ),
                         ),
                         // Text body
-                        Padding(
+                        Container(
+                          constraints: const BoxConstraints(maxHeight: 300),
                           padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-                          child: Text(
-                            session.instructorNote.isNotEmpty
-                                ? session.instructorNote
-                                : (session.aiFeedbackText.isEmpty ? 'No feedback available yet.' : session.aiFeedbackText),
-                            style: const TextStyle(color: _textMid, fontSize: 13, height: 1.75),
+                          child: RawScrollbar(
+                            thumbColor: _border,
+                            radius: const Radius.circular(4),
+                            thickness: 4,
+                            child: SingleChildScrollView(
+                              child: Text(
+                                session.instructorNote.isNotEmpty
+                                    ? session.instructorNote
+                                    : (session.aiFeedbackText.isEmpty ? 'No feedback available yet.' : session.aiFeedbackText),
+                                style: const TextStyle(color: _textMid, fontSize: 13, height: 1.75),
+                              ),
+                            ),
                           ),
                         ),
                       ],
@@ -165,6 +173,7 @@ class SessionDetailScreen extends StatelessWidget {
                 ),
               ),
             ),
+
           ],
         ),
       ),

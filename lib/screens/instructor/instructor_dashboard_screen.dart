@@ -46,12 +46,13 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> {
   String _statusFilter = 'All';
   String _typeFilter   = 'All';
 
-  static const _statusOptions = ['All', 'Pending', 'Released'];
+  static const _statusOptions = ['All', 'Pending', 'Released', 'Failed'];
   static const _typeOptions   = ['All', 'IM', 'SubQ', 'IV', 'ID'];
 
   List<SessionModel> _applyFilters(List<SessionModel> sessions) {
     return sessions.where((s) {
-      final matchStatus = _statusFilter == 'All' || s.feedbackStatus == _statusFilter;
+      final targetStatus = _statusFilter == 'Failed' ? 'Feedback Generation Failed' : _statusFilter;
+      final matchStatus = _statusFilter == 'All' || s.feedbackStatus == targetStatus;
       final matchType   = _typeFilter   == 'All' || s.injectionType   == _typeFilter;
       return matchStatus && matchType;
     }).toList();
@@ -423,6 +424,11 @@ class _SessionCard extends StatelessWidget {
     return (bg: _redBg, border: _redBorder, text: _red);
   }
 
+  String _statusLabel(String status) {
+    if (status == 'Feedback Generation Failed') return 'Failed';
+    return status;
+  }
+
   @override
   Widget build(BuildContext context) {
     final date   = session.timestamp.toDate();
@@ -444,15 +450,23 @@ class _SessionCard extends StatelessWidget {
           children: [
             // Score circle
             Container(
-              width: 46, height: 46,
+              width: 52,
+              height: 52,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: _navy.withValues(alpha: 0.08),
+                color: Colors.deepPurple.withValues(alpha: 0.2),
+                border: Border.all(color: Colors.deepPurpleAccent.withValues(alpha: 0.3)),
               ),
-              alignment: Alignment.center,
-              child: Text(
-                '${session.overallScore ?? '-'}',
-                style: const TextStyle(color: _navy, fontSize: 18, fontWeight: FontWeight.w700),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text('Score', style: TextStyle(color: Colors.white54, fontSize: 9, fontWeight: FontWeight.bold)),
+                  Text('${session.overallScore}',
+                      style: const TextStyle(
+                          color: Colors.deepPurpleAccent,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 18)),
+                ],
               ),
             ),
             const SizedBox(width: 12),
@@ -476,14 +490,18 @@ class _SessionCard extends StatelessWidget {
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(color: colors.border),
                         ),
-                        child: Text(session.feedbackStatus,
-                            style: TextStyle(color: colors.text, fontSize: 10, fontWeight: FontWeight.w600)),
+                        child: Text(_statusLabel(session.feedbackStatus),
+                            style: TextStyle(
+                                color: colors.text,
+                                fontSize: 10, fontWeight: FontWeight.bold)),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 3),
-                  Text('${date.day}/${date.month}/${date.year}  •  ${session.userId.substring(0, 8)}…',
-                      style: const TextStyle(color: _textMid, fontSize: 12)),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${date.day}/${date.month}/${date.year}  •  ${session.studentName}',
+                    style: const TextStyle(color: _textMid, fontSize: 12),
+                  ),
                 ],
               ),
             ),

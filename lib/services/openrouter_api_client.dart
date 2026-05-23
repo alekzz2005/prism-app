@@ -11,15 +11,17 @@ const bool kUseMockFeedback = bool.fromEnvironment(
 );
 
 /// Mock feedback returned when [kUseMockFeedback] is true.
-const String _mockFeedbackText = '''
-**Overall Performance: Good effort on your first return-demonstration!**
-
-You demonstrated a solid understanding of injection technique fundamentals. Your insertion angle was well-controlled and your hand remained steady throughout the procedure. The aspiration step was performed with appropriate duration, which is critical for patient safety in intramuscular injections.
-
-Areas for improvement include maintaining a more consistent withdrawal angle that mirrors your insertion angle. Your angular delta of 8.2° slightly exceeds the accepted tolerance — practice withdrawing along the same vector as insertion to minimise tissue trauma. Consider using a wrist-pivot technique to keep the needle path linear.
-
-**Clinical tip:** Before your next RD, practice the full insertion-aspiration-withdrawal sequence on a phantom model at least 5 times, focusing specifically on keeping your elbow still during withdrawal. Consistency between insertion and withdrawal angles is a key competency marker for the CIT-U rubric.
-''';
+const String _mockFeedbackText =
+    'Your insertion angle of 88.2° was well within the ±5° tolerance for an IM injection, '
+    'earning a 4/5 on the CIT-U rubric. Aspiration technique was correctly performed with '
+    'smooth plunger retraction over 2.1 seconds, demonstrating good motor control.\n\n'
+    'Your withdrawal angle deviated 8.2° from your insertion path, which falls outside the '
+    'acceptable range and suggests lateral wrist movement during needle removal. Focus on '
+    'keeping your elbow stationary and withdrawing along the same vector as insertion to '
+    'minimise tissue trauma.\n\n'
+    'Before your next RD, practise the full sequence on a phantom model 5 times, using a '
+    'wrist-pivot technique: lock your elbow against your body and rotate only at the wrist '
+    'for both insertion and withdrawal. This builds the muscle memory needed for consistent angles.';
 
 /// HTTP client for the OpenRouter Llama 3.3 70B (free tier) API.
 ///
@@ -39,16 +41,20 @@ class OpenRouterApiClient {
   static const String _baseUrl =
       'https://openrouter.ai/api/v1/chat/completions';
 
-  // Using the free tier model (matches the :free variant)
   static const String _model =
-      'meta-llama/llama-3.3-70b-instruct:free';
+      'meta-llama/llama-3.3-70b-instruct';
 
   static const _systemPrompt =
-      'You are a clinical nursing education evaluator. Generate structured, '
-      'encouraging, and specific feedback for a nursing student\'s parenteral '
-      'injection return demonstration. Include: what was done correctly, what '
-      'needs improvement, and one specific tip. Keep the tone clinical but '
-      'supportive. Respond in 3 short paragraphs.';
+      'You are PRISM, an AI clinical nursing evaluator. '
+      'You are given ONLY numerical metrics from a parenteral injection return-demonstration (RD). '
+      'You did NOT observe the procedure — you are analyzing data values only. '
+      'Be strictly objective: if a score is low (1-2/5), state it needs significant improvement — do NOT say it was done well. '
+      'If a score is high (4-5/5), acknowledge the strong performance with the specific numbers. '
+      'Reply in EXACTLY 3 short paragraphs, no headers, no bullet points: '
+      '(1) Objectively summarize which metrics met or exceeded the target, citing the exact angles and scores, '
+      '(2) Objectively identify which metrics fell short of the target, citing the deviation and what it indicates clinically, '
+      '(3) Provide one specific, actionable practice recommendation based on the weakest metric. '
+      'Tone: professional, direct, constructive, factual. Never fabricate observations. Max 150 words total.';
 
   /// Sends [prompt] to Llama 3.3 70B free and returns the response text.
   ///
@@ -112,7 +118,8 @@ class OpenRouterApiClient {
             {'role': 'system', 'content': _systemPrompt},
             {'role': 'user', 'content': userPrompt},
           ],
-          'max_tokens': 500,
+          'max_tokens': 300,
+          'temperature': 0.7,
         }),
       );
 }

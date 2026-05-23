@@ -58,10 +58,11 @@ class _MySessionsScreenState extends State<MySessionsScreen> with SingleTickerPr
     super.dispose();
   }
 
-  Stream<QuerySnapshot> _buildAggregateQuery(String uid) {
+  Stream<QuerySnapshot> _buildAggregateQuery() {
+    final email = FirebaseAuth.instance.currentUser?.email ?? '';
     return FirebaseFirestore.instance
         .collection('sessions')
-        .where('userId', isEqualTo: uid)
+        .where('userId', isEqualTo: email)
         .snapshots();
   }
 
@@ -163,7 +164,7 @@ class _MySessionsScreenState extends State<MySessionsScreen> with SingleTickerPr
                 Padding(
                   padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
                   child: StreamBuilder<QuerySnapshot>(
-                    stream: _buildAggregateQuery(uid),
+                    stream: _buildAggregateQuery(),
                     builder: (context, snap) {
                       final sessions = snap.data?.docs.map((d) => SessionModel.fromFirestore(d)).toList() ?? [];
                       final total = sessions.length;
@@ -263,41 +264,71 @@ class _ProgressDivider extends StatelessWidget {
   }
 }
 
-class _SessionList extends StatelessWidget {
+class _SessionList extends StatefulWidget {
   final String uid;
   final String typeFilter;
 
   const _SessionList({required this.uid, required this.typeFilter});
 
-  Stream<QuerySnapshot> _buildQuery() {
-    return FirebaseFirestore.instance
+  @override
+  State<_SessionList> createState() => _SessionListState();
+}
+
+class _SessionListState extends State<_SessionList> with AutomaticKeepAliveClientMixin {
+  late final Stream<QuerySnapshot> _stream;
+
+  @override
+  bool get wantKeepAlive => true; // Prevent disposal on tab switch
+
+  @override
+  void initState() {
+    super.initState();
+    final email = FirebaseAuth.instance.currentUser?.email ?? '';
+    _stream = FirebaseFirestore.instance
         .collection('sessions')
-        .where('userId', isEqualTo: uid)
-        .orderBy('timestamp', descending: true)
+        .where('userId', isEqualTo: email)
         .snapshots();
   }
 
   @override
   Widget build(BuildContext context) {
+    super.build(context); // Required for AutomaticKeepAliveClientMixin
     return StreamBuilder<QuerySnapshot>(
-      stream: _buildQuery(),
+      stream: _stream,
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator(color: _navy));
+        }
+
+        if (snap.hasError) {
+          debugPrint('FIRESTORE ERROR in MySessionsScreen: ${snap.error}');
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Text(
+                'Unable to load sessions.\nPlease try again later.\nError: ${snap.error}',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.redAccent, height: 1.6, fontSize: 12),
+              ),
+            ),
+          );
         }
         
         final docs = snap.data?.docs ?? [];
         final sessions = docs
             .map(SessionModel.fromFirestore)
-            .where((s) => s.injectionType == typeFilter)
+            .where((s) => s.injectionType == widget.typeFilter)
             .toList();
+
+        // Sort locally to avoid needing a Firestore composite index
+        sessions.sort((a, b) => b.timestamp.compareTo(a.timestamp));
 
         if (sessions.isEmpty) {
           return Center(
             child: Padding(
               padding: const EdgeInsets.all(32),
               child: Text(
-                'No $typeFilter sessions found.\nWait for your instructor to start a demo.',
+                'No released ${widget.typeFilter} sessions found.\nCheck back after your instructor releases the feedback.',
                 textAlign: TextAlign.center,
                 style: const TextStyle(color: _textLight, fontSize: 14, height: 1.6),
               ),

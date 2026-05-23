@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import '../../models/session_model.dart';
 import '../../services/instructor_session_repository.dart';
@@ -42,20 +44,53 @@ class FeedbackReviewScreen extends StatefulWidget {
 
 class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
   late final TextEditingController _noteController;
+  late final TextEditingController _aiFeedbackController;
+
   final _releaseService = FeedbackReleaseService();
   bool _isReleasing = false;
+  Timer? _debounceTimer;
 
   @override
   void initState() {
     super.initState();
     _noteController = TextEditingController(text: widget.session.instructorNote);
+    _aiFeedbackController =
+        TextEditingController(text: widget.session.aiFeedbackText);
+
+    // Auto-save logic
+    _noteController.addListener(_debouncedSaveDraft);
+    _aiFeedbackController.addListener(_debouncedSaveDraft);
+  }
+
+  void _debouncedSaveDraft() {
+    if (_debounceTimer?.isActive ?? false) _debounceTimer!.cancel();
+    _debounceTimer = Timer(const Duration(milliseconds: 1500), () {
+      _saveDraftQuietly();
+    });
+  }
+
+  Future<void> _saveDraftQuietly() async {
+    if (!mounted || widget.session.feedbackStatus == 'Released') return;
+    try {
+      await InstructorSessionRepository().updateFeedbackDraft(
+        widget.session.sessionId,
+        _aiFeedbackController.text.trim(),
+        _noteController.text.trim(),
+      );
+    } catch (_) {
+      // Silently fail for background draft saving
+    }
   }
 
   @override
   void dispose() {
+    _debounceTimer?.cancel();
     _noteController.dispose();
+    _aiFeedbackController.dispose();
     super.dispose();
   }
+
+  bool get _isReleaseValid => _aiFeedbackController.text.trim().isNotEmpty;
 
   Future<void> _release() async {
     setState(() => _isReleasing = true);
@@ -63,6 +98,7 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
       await _releaseService.releaseSession(
         widget.session.sessionId,
         _noteController.text.trim(),
+        _aiFeedbackController.text.trim(),
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -93,6 +129,7 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
           children: [
             // ── Header ──────────────────────────────────────────────────────
             _buildHeader(s),
+
 
             // ── Scroll body ──────────────────────────────────────────────────
             Expanded(
@@ -135,8 +172,8 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
                           ),
                           _ResultRow(
                             label: 'Aspiration',
-                            value: s.aspirationResult,
-                            subValue: '(${s.aspirationDuration.toStringAsFixed(1)}s, ${s.motionSmoothness})',
+                            value: s.aspirationResult ?? 'Not Detected',
+                            subValue: '(${s.aspirationDuration?.toStringAsFixed(1) ?? "0.0"}s, ${s.motionSmoothness ?? "Low"})',
                             isValueGreen: s.aspirationResult == 'Correct',
                           ),
                           _ResultRow(
@@ -146,12 +183,12 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
                           ),
                           _ResultRow(
                             label: 'Correspondence',
-                            value: s.correspondenceResult,
+                            value: s.correspondenceResult ?? 'Deviates',
                             isValueGreen: s.correspondenceResult == 'Matches',
                           ),
                           _ResultRow(
                             label: 'Angular Delta',
-                            value: '${s.angularDelta.toStringAsFixed(1)}\u00b0',
+                            value: '${s.angularDelta?.toStringAsFixed(1) ?? "0.0"}\u00b0',
                           ),
                           Container(height: 1, color: _cardBorder, margin: const EdgeInsets.symmetric(vertical: 6)),
                           _ResultRow(
@@ -162,6 +199,93 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
                           ),
                         ],
                       ),
+                    ),
+                    const SizedBox(height: 14),
+
+                    // ── AI Draft (editable & streaming) ──
+                    StreamBuilder<DocumentSnapshot>(
+                      stream: FirebaseFirestore.instance.collection('sessions').doc(widget.session.sessionId).snapshots(),
+                      builder: (context, snapshot) {
+                        String streamAiText = widget.session.aiFeedbackText;
+                        String streamStatus = widget.session.feedbackStatus;
+
+                        if (snapshot.hasData && snapshot.data!.exists) {
+                          final data = snapshot.data!.data() as Map<String, dynamic>;
+                          streamAiText = data['aiFeedbackText'] as String? ?? '';
+                          streamStatus = data['feedbackStatus'] as String? ?? 'Pending';
+
+                          if (_aiFeedbackController.text.isEmpty && streamAiText.isNotEmpty) {
+                            WidgetsBinding.instance.addPostFrameCallback((_) {
+                              if (mounted) {
+                                _aiFeedbackController.text = streamAiText;
+                              }
+                            });
+                          }
+                        }
+
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                _sectionHeader('AI Assisted Feedback'),
+                                if (!isReleased && streamAiText.isNotEmpty)
+                                  TextButton.icon(
+                                    onPressed: () {
+                                      _aiFeedbackController.text = streamAiText;
+                                    },
+                                    icon: const Icon(Icons.restore, size: 16, color: _textMid),
+                                    label: const Text('Revert to Original', style: TextStyle(color: _textMid, fontSize: 12)),
+                                    style: TextButton.styleFrom(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      minimumSize: Size.zero,
+                                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            if (streamAiText.isEmpty && streamStatus == 'Pending')
+                              Container(
+                                padding: const EdgeInsets.all(20),
+                                decoration: BoxDecoration(
+                                  color: _cardBg,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: _cardBorder),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: const [
+                                    SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: _navy, strokeWidth: 2)),
+                                    SizedBox(width: 12),
+                                    Flexible(child: Text('Generating AI feedback.\nPlease wait for a while...', style: TextStyle(color: _textMid, fontStyle: FontStyle.italic, fontSize: 13))),
+                                  ],
+                                ),
+                              )
+                            else
+                              Container(
+                                decoration: BoxDecoration(
+                                  color: _inputBg,
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(color: _inputBorder, width: 1.5),
+                                ),
+                                child: TextField(
+                                  controller: _aiFeedbackController,
+                                  maxLines: 8,
+                                  enabled: !isReleased,
+                                  style: const TextStyle(color: _textDark, fontSize: 13, height: 1.6),
+                                  decoration: const InputDecoration(
+                                    hintText: 'No AI feedback was generated...',
+                                    hintStyle: TextStyle(color: _textMid, fontSize: 13, height: 1.6),
+                                    border: InputBorder.none,
+                                    contentPadding: EdgeInsets.all(14),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        );
+                      },
                     ),
                     const SizedBox(height: 14),
 
@@ -192,15 +316,7 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
                       const SizedBox(height: 14),
                     ],
 
-                    // AI Draft Feedback
-                    _sectionHeader('AI Draft Feedback'),
-                    _Card(
-                      child: Text(
-                        s.aiFeedbackText.isEmpty ? 'No AI feedback was generated.' : s.aiFeedbackText,
-                        style: const TextStyle(color: _textMid, fontSize: 13.5, height: 1.65),
-                      ),
-                    ),
-                    const SizedBox(height: 14),
+
 
                     // Instructor Note
                     _sectionHeader('Instructor Note (optional)'),
@@ -280,6 +396,7 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
                 ),
               ),
             ),
+          // No leftover release button needed, it's already rendered from origin/main.
           ],
         ),
       ),

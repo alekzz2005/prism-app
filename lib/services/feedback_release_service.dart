@@ -5,7 +5,7 @@ class ReleaseFailedException implements Exception {
   final String message;
   const ReleaseFailedException(this.message);
   @override
-  String toString() => 'ReleaseFailedException: $message';
+  String toString() => message;
 }
 
 /// Atomically updates a session document to release feedback to the student.
@@ -14,7 +14,7 @@ class FeedbackReleaseService {
   final _db = FirebaseFirestore.instance;
 
   Future<void> releaseSession(
-      String sessionId, String instructorNote) async {
+      String sessionId, String instructorNote, String aiFeedbackText) async {
     Exception? lastError;
     for (int attempt = 0; attempt < 2; attempt++) {
       try {
@@ -22,8 +22,14 @@ class FeedbackReleaseService {
           'feedbackStatus': 'Released',
           'releaseTimestamp': FieldValue.serverTimestamp(),
           'instructorNote': instructorNote,
-          // aiFeedbackText intentionally NOT touched
+          'aiFeedbackText': aiFeedbackText,
         });
+        
+        // TODO: In a production environment with a backend, we would trigger a Cloud Function here
+        // or the backend would listen to the 'feedbackStatus' change to send an FCM message.
+        // For now, we simulate the background notification locally:
+        print('FCM SIMULATION: Sent background push notification to student regarding session $sessionId.');
+        
         return;
       } catch (e) {
         lastError = e as Exception;

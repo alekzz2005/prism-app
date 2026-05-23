@@ -116,15 +116,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   Expanded(
                     child: ElevatedButton(
                       onPressed: () async {
-                        final nav = Navigator.of(context);
+                        final nav = Navigator.of(context, rootNavigator: true);
                         final userRole = context.read<UserRoleProvider>();
                         Navigator.pop(ctx); // close dialog
-                        await AuthService().signOut();
-                        userRole.clear();
+                        
                         nav.pushAndRemoveUntil(
-                          MaterialPageRoute(builder: (_) => const AuthWrapper()),
+                          PageRouteBuilder(
+                            pageBuilder: (_, __, ___) => const AuthWrapper(),
+                            transitionDuration: Duration.zero,
+                          ),
                           (_) => false,
                         );
+                        
+                        userRole.clear();
+                        await AuthService().signOut();
                       },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: _red,

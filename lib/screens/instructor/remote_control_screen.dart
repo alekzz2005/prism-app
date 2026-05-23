@@ -6,6 +6,7 @@ import '../../services/live_session_service.dart';
 import '../../services/instructor_session_repository.dart';
 import '../../models/session_model.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../services/feedback_service.dart';
 
 // ─── Brand Colours ─────────────────────────────────────────────────────────
 const _navy       = Color(0xFF003366);
@@ -31,42 +32,90 @@ class RemoteControlScreen extends StatefulWidget {
 
 class _RemoteControlScreenState extends State<RemoteControlScreen> {
   final _liveService = LiveSessionService();
-  final _repo        = InstructorSessionRepository();
+  final _repo = InstructorSessionRepository();
+  final _feedbackService = FeedbackService();
+  bool _completing = false;
 
   void _updatePhase(String instructorId, String newPhase) {
     _liveService.updatePhase(instructorId, newPhase);
   }
 
   void _completeSession(String instructorId, LiveSessionModel session) async {
-    final finalSession = SessionModel(
-      sessionId:           '',
-      userId:              session.studentEmail,
-      timestamp:           Timestamp.now(),
-      injectionType:       session.injectionType,
-      insertionAngle:      session.finalInsertionAngle ?? 0,
-      insertionScore:      session.insertionScore ?? 1,
-      aspirationResult:    session.aspirationResult ?? 'Not Detected',
-      aspirationDuration:  session.aspirationDuration ?? 0,
-      motionSmoothness:    session.motionSmoothness ?? 'Low',
-      withdrawalAngle:     session.finalWithdrawalAngle ?? 0,
-      withdrawalScore:     session.withdrawalScore ?? 1,
+    setState(() => _completing = true);
+
+    String finalUserId = session.studentEmail;
+
+    // Build final session model
+    // For ID injections, aspiration is N/A per the rubric
+    final isID = session.injectionType == 'ID';
+    final aspirationResult = isID ? 'N/A' : (session.aspirationResult ?? 'Not Detected');
+    final aspirationScore = isID ? 0 : ((aspirationResult == 'Correct') ? 5 : 1);
+
+    // ID averages 2 components (insertion + withdrawal), others average 3 (+ aspiration)
+    final overallScore = isID
+        ? (((session.insertionScore ?? 1) + (session.withdrawalScore ?? 1)) / 2).round()
+        : (((session.insertionScore ?? 1) + (session.withdrawalScore ?? 1) + aspirationScore) / 3).round();
+
+    // Build final session model with empty feedback
+    SessionModel initialSession = SessionModel(
+      sessionId: '', // Auto-generated
+      userId: finalUserId, 
+      studentName: session.studentName,
+      timestamp: Timestamp.now(), 
+      injectionType: session.injectionType,
+      insertionAngle: session.finalInsertionAngle ?? 0,
+      insertionScore: session.insertionScore ?? 1,
+      aspirationResult: aspirationResult,
+      aspirationDuration: isID ? 0 : (session.aspirationDuration ?? 0),
+      motionSmoothness: isID ? 'N/A' : (session.motionSmoothness ?? 'Low'),
+      withdrawalAngle: session.finalWithdrawalAngle ?? 0,
+      withdrawalScore: session.withdrawalScore ?? 1,
       correspondenceResult: session.correspondenceResult ?? 'Deviates',
-      angularDelta:        session.angularDelta ?? 0,
-      overallScore:        (((session.insertionScore ?? 1) +
-                             (session.withdrawalScore ?? 1) +
-                             ((session.aspirationResult == 'Correct') ? 5 : 1)) /
-                            3)
-                           .round(),
-      aiFeedbackText:  '',
-      feedbackStatus:  'Pending',
-      instructorNote:  '',
-      flagged:         false,
+      angularDelta: session.angularDelta ?? 0,
+      overallScore: overallScore,
+      aiFeedbackText: '',
+      feedbackStatus: 'Pending',
+      instructorNote: '',
+      flagged: false,
     );
 
-    await _repo.saveSession(finalSession);
-    _liveService.clearSession(instructorId);
+    // Save immediately and get ID
+    final generatedSessionId = await _repo.saveSession(initialSession);
+    
+    // Reconstruct with ID for background task
+    SessionModel sessionWithId = SessionModel(
+      sessionId: generatedSessionId,
+      userId: finalUserId, 
+      studentName: session.studentName,
+      timestamp: initialSession.timestamp, 
+      injectionType: session.injectionType,
+      insertionAngle: session.finalInsertionAngle ?? 0,
+      insertionScore: session.insertionScore ?? 1,
+      aspirationResult: aspirationResult,
+      aspirationDuration: isID ? 0 : (session.aspirationDuration ?? 0),
+      motionSmoothness: isID ? 'N/A' : (session.motionSmoothness ?? 'Low'),
+      withdrawalAngle: session.finalWithdrawalAngle ?? 0,
+      withdrawalScore: session.withdrawalScore ?? 1,
+      correspondenceResult: session.correspondenceResult ?? 'Deviates',
+      angularDelta: session.angularDelta ?? 0,
+      overallScore: overallScore,
+      aiFeedbackText: '',
+      feedbackStatus: 'Pending',
+      instructorNote: '',
+      flagged: false,
+    );
+
+    // Fire and forget background generation
+    _feedbackService.generateAndSaveFeedbackInBackground(sessionWithId);
+
     if (!mounted) return;
-    Navigator.pop(context);
+    setState(() => _completing = false);
+    Navigator.pop(context); // Go back instantly
+    
+    // Clear live session AFTER popping animation finishes to avoid jitter
+    Future.delayed(const Duration(milliseconds: 400), () {
+      _liveService.clearSession(instructorId);
+    });
   }
 
   @override
@@ -286,6 +335,7 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
                   '${session.injectionType} Injection \u00b7 Target: ${session.targetAngle.toStringAsFixed(0)}\u00b0',
                   style: const TextStyle(color: _accentBlue, fontSize: 13, fontWeight: FontWeight.w600),
                 ),
+              // UI design from origin/main keeps it empty here.
               ],
             ),
           ),
@@ -341,9 +391,9 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
 
   Widget _buildPhaseBar(LiveSessionModel session) {
     return Container(
-      color: _cardBg,
       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 20),
       decoration: const BoxDecoration(
+        color: _cardBg,
         border: Border(bottom: BorderSide(color: _cardBorder)),
       ),
       child: Row(
@@ -382,35 +432,113 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
 
   Widget _buildControlButton(String instructorId, LiveSessionModel session) {
     if (session.phase == 'waiting') {
-      return _ControlButton(label: 'Start Insertion Phase', color: _navy,
-          hint: 'Tap to begin tracking',
-          onPressed: () => _updatePhase(instructorId, 'insertion'));
-    } else if (session.phase == 'insertion') {
-      return _ControlButton(label: 'Confirm Needle Insertion', color: const Color(0xFF92400E),
-          hint: 'Tap when the needle is fully inserted',
-          onPressed: () => _updatePhase(instructorId, 'insertion_locked'));
-    } else if (session.phase == 'insertion_locked') {
-      return _ControlButton(label: 'Proceed to Aspiration', color: _navy,
-          hint: 'Tap to begin aspiration hold',
-          onPressed: () => _updatePhase(instructorId, 'aspiration'));
-    } else if (session.phase == 'aspiration') {
-      return _ControlButton(label: 'Done Aspirating', color: const Color(0xFF92400E),
-          hint: 'Tap when the student completes the aspiration hold',
-          onPressed: () => _updatePhase(instructorId, 'aspiration_locked'));
-    } else if (session.phase == 'aspiration_locked') {
-      return _ControlButton(label: 'Proceed to Withdrawal', color: _navy,
-          hint: 'Tap to begin withdrawal tracking',
-          onPressed: () => _updatePhase(instructorId, 'withdrawal'));
-    } else if (session.phase == 'withdrawal') {
-      return _ControlButton(label: 'Confirm Withdrawal', color: const Color(0xFF92400E),
-          hint: 'Tap when the needle is fully withdrawn',
-          onPressed: () => _updatePhase(instructorId, 'withdrawal_locked'));
-    } else if (session.phase == 'withdrawal_locked') {
-      return _ControlButton(label: 'Complete & Save Session', color: const Color(0xFF16A34A),
-          hint: 'Tap to finalize and generate feedback',
-          onPressed: () => _completeSession(instructorId, session));
+      final canStart = session.cameraNodeActive;
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _ControlButton(
+            label: canStart ? 'Start Insertion Phase' : 'Waiting for Camera...',
+            hint: canStart ? 'Tap to begin tracking' : 'Ensure camera is running',
+            color: canStart ? _navy : Colors.grey,
+            onPressed: canStart ? () => _updatePhase(instructorId, 'insertion') : () {},
+          ),
+          if (!canStart)
+            const Padding(
+              padding: EdgeInsets.only(top: 8.0),
+              child: Text('Please open Camera Node on the tripod device.', style: TextStyle(color: Colors.redAccent, fontSize: 12)),
+            )
+        ],
+      );
+    } 
+
+    if (session.phase == 'withdrawal_locked') {
+      return _ControlButton(
+        label: _completing ? 'Generating AI Feedback...' : 'Complete & Save Session',
+        hint: _completing ? 'Please wait' : 'Tap to finalize and generate feedback',
+        color: const Color(0xFF16A34A),
+        onPressed: _completing ? () {} : () => _completeSession(instructorId, session),
+      );
     }
-    return const SizedBox();
+
+    // Common Guardrails for active tracking phases
+    final bool guardrailBlocked = !session.cameraNodeActive || session.detectionLost;
+    
+    Widget button;
+    if (session.phase == 'insertion') {
+      button = _ControlButton(
+        label: 'Confirm Needle Insertion',
+        hint: 'Tap when the needle is fully inserted',
+        color: const Color(0xFF92400E),
+        onPressed: guardrailBlocked ? () {} : () => _updatePhase(instructorId, 'insertion_locked'),
+      );
+    } else if (session.phase == 'insertion_locked') {
+      final isID = session.injectionType == 'ID';
+      button = _ControlButton(
+        label: isID ? 'Inject Medication (10s/ml)' : 'Proceed to Aspiration',
+        hint: isID ? 'Student pushes medication' : 'Tap to begin aspiration hold',
+        color: _navy,
+        onPressed: guardrailBlocked ? () {} : () => _updatePhase(instructorId, isID ? 'medication_push' : 'aspiration'),
+      );
+    } else if (session.phase == 'aspiration') {
+      button = _ControlButton(
+        label: 'Done Aspirating',
+        hint: 'Tap when the student completes the aspiration hold',
+        color: const Color(0xFF92400E),
+        onPressed: guardrailBlocked ? () {} : () => _updatePhase(instructorId, 'aspiration_locked'),
+      );
+    } else if (session.phase == 'aspiration_locked') {
+      button = _ControlButton(
+        label: 'Inject Medication (10s/ml)',
+        hint: 'Student pushes medication slowly',
+        color: _navy,
+        onPressed: guardrailBlocked ? () {} : () => _updatePhase(instructorId, 'medication_push'),
+      );
+    } else if (session.phase == 'medication_push') {
+      button = _ControlButton(
+        label: 'Done Injecting',
+        hint: 'Tap when medication is fully injected',
+        color: const Color(0xFF92400E),
+        onPressed: guardrailBlocked ? () {} : () => _updatePhase(instructorId, 'medication_push_locked'),
+      );
+    } else if (session.phase == 'medication_push_locked') {
+      button = _ControlButton(
+        label: 'Proceed to Withdrawal',
+        hint: 'Tap to begin withdrawal tracking',
+        color: _navy,
+        onPressed: guardrailBlocked ? () {} : () => _updatePhase(instructorId, 'withdrawal'),
+      );
+    } else if (session.phase == 'withdrawal') {
+      button = _ControlButton(
+        label: 'Confirm Withdrawal',
+        hint: 'Tap when the needle is fully withdrawn',
+        color: const Color(0xFF92400E),
+        onPressed: guardrailBlocked ? () {} : () => _updatePhase(instructorId, 'withdrawal_locked'),
+      );
+    } else {
+      button = const SizedBox();
+    }
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (guardrailBlocked)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 20),
+                const SizedBox(width: 8),
+                Text(
+                  !session.cameraNodeActive ? 'Camera disconnected' : 'Detection lost. Reposition hand.', 
+                  style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)
+                ),
+              ],
+            ),
+          ),
+        button,
+      ],
+    );
   }
 
   // 0: inactive, 1: active, 2: done
