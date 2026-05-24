@@ -474,9 +474,16 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
       );
     } else if (session.phase == 'aspiration') {
       button = _ControlButton(
-        label: 'Awaiting Auto-Detect (Tap to Override)',
-        hint: 'Camera Node will auto-advance, or tap to manually proceed to withdrawal',
+        label: 'Done Aspirating',
+        hint: 'Tap to stop timer',
         color: const Color(0xFF92400E),
+        onPressed: guardrailBlocked ? () {} : () => _updatePhase(instructorId, 'aspiration_locked'),
+      );
+    } else if (session.phase == 'aspiration_locked') {
+      button = _ControlButton(
+        label: 'Proceed to Withdrawal',
+        hint: 'Tap to advance phase',
+        color: _navy,
         onPressed: guardrailBlocked ? () {} : () => _updatePhase(instructorId, 'withdrawal'),
       );
     } else if (session.phase == 'withdrawal') {

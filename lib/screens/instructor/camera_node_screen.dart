@@ -215,19 +215,6 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                 sensorOrientation: _sensorOrientation);
                 
             if (angle >= 0) _liveAngle = angle;
-            
-              if (_currentPhase == 'aspiration') {
-                _aspirationService.update(_hands, sensorOrientation: _sensorOrientation);
-
-                if (_aspirationService.isFinished) {
-                  final instructorId = _instructorId;
-                  if (instructorId != null) {
-                    _liveService.saveAspirationMetrics(instructorId, _aspirationService.result,
-                        _aspirationService.duration, _aspirationService.smoothness);
-                    _liveService.updatePhase(instructorId, 'withdrawal');
-                  }
-                }
-              }
           }
         });
       }
@@ -256,13 +243,11 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
     } else if (session.phase == 'aspiration' && oldPhase == 'insertion_locked') {
       _aspirationService.reset();
       AngleComputationUtil.resetSmoothing();
-    } else if (session.phase == 'withdrawal' && oldPhase == 'aspiration') {
-      // Manual override edge-case: If the instructor manually hits "override" on the remote
-      // before the camera node auto-detects, we save whatever metrics we have currently.
-      if (!_aspirationService.isFinished) {
-        _liveService.saveAspirationMetrics(instructorId, _aspirationService.result,
-            _aspirationService.duration, _aspirationService.smoothness);
-      }
+    } else if (session.phase == 'aspiration_locked' && oldPhase == 'aspiration') {
+      _liveService.saveAspirationMetrics(instructorId, _aspirationService.result,
+          _aspirationService.duration, _aspirationService.smoothness);
+      AngleComputationUtil.resetSmoothing();
+    } else if (session.phase == 'withdrawal' && oldPhase == 'aspiration_locked') {
       AngleComputationUtil.resetSmoothing();
     } else if (session.phase == 'withdrawal_locked' && oldPhase == 'withdrawal') {
       final score = _scoreAngle(_liveAngle, session.targetAngle);
