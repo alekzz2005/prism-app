@@ -234,9 +234,53 @@ class PoseLandmarkService {
     double leftLikelihood = (leftArm.shoulder?.likelihood ?? 0) + (leftArm.elbow?.likelihood ?? 0) + (leftArm.wrist?.likelihood ?? 0);
     double rightLikelihood = (rightArm.shoulder?.likelihood ?? 0) + (rightArm.elbow?.likelihood ?? 0) + (rightArm.wrist?.likelihood ?? 0);
 
-    // If locked to an arm, prefer it slightly
     double leftScore = leftLikelihood;
     double rightScore = rightLikelihood;
+
+    if (ignoredHand != null) {
+      // Find the arm closest to the active hand!
+      double hx = ignoredHand.landmarks[0].x;
+      double hy = ignoredHand.landmarks[0].y;
+      if (sensorOrientation == 90) {
+        hx = 1.0 - ignoredHand.landmarks[0].y;
+        hy = ignoredHand.landmarks[0].x;
+      } else if (sensorOrientation == 270) {
+        hx = ignoredHand.landmarks[0].y;
+        hy = 1.0 - ignoredHand.landmarks[0].x;
+      }
+      // ML Kit Pose landmarks are absolute pixels. We need to normalize them.
+      double rw = imageSize.width;
+      double rh = imageSize.height;
+      if (sensorOrientation == 90 || sensorOrientation == 270) {
+        rw = imageSize.height;
+        rh = imageSize.width;
+      }
+      
+      double getMinDist(ArmLandmark? s, ArmLandmark? e, ArmLandmark? w) {
+        double minDist = double.infinity;
+        for (var lm in [s, e, w]) {
+          if (lm != null) {
+            double dx = (lm.x / rw) - hx;
+            double dy = (lm.y / rh) - hy;
+            double dist = dx * dx + dy * dy;
+            if (dist < minDist) minDist = dist;
+          }
+        }
+        return minDist;
+      }
+
+      double distLeft = getMinDist(leftArm.shoulder, leftArm.elbow, leftArm.wrist);
+      double distRight = getMinDist(rightArm.shoulder, rightArm.elbow, rightArm.wrist);
+
+      // If hand is significantly closer to one arm, heavily bias towards it
+      if (distLeft < distRight - 0.02) {
+        leftScore += 10.0;
+      } else if (distRight < distLeft - 0.02) {
+        rightScore += 10.0;
+      }
+    }
+
+    // If locked to an arm, prefer it slightly (acts as tie-breaker or fallback)
     if (_lockedIsLeft == true) leftScore += 2.0;
     if (_lockedIsLeft == false) rightScore += 2.0;
 

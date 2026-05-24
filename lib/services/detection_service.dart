@@ -107,7 +107,7 @@ class AngleComputationUtil {
     return _smoothAngle(rawAngle);
   }
 
-  static bool isFallbackModeActive = false;
+
 
   static double computeRelativeInjectionAngle(
       List<Hand> hands, List<Pose> poses, Size imageSize,
@@ -117,55 +117,44 @@ class AngleComputationUtil {
     ArmLandmark? distalPoint;
 
     final patientArm = PoseLandmarkService.getPatientArm(poses, hands.isNotEmpty ? hands.first : null, imageSize, sensorOrientation: sensorOrientation);
-    
-    isFallbackModeActive = (patientArm == null);
 
-    if (patientArm == null) {
-      // 1. Fallback: Body not detected (e.g. extreme close-up). 
-      // We assume the arm is perfectly vertical across the camera frame (armAngle = 90).
-      final rawSyringeAngle = _computeRawDartGripAngle(hands, imageSize, sensorOrientation: sensorOrientation);
-      if (rawSyringeAngle < 0) return -1;
-      
-      final armAngle = 90.0;
-      double relativeAngle = (rawSyringeAngle - armAngle).abs();
-      if (relativeAngle > 180) {
-        relativeAngle = 360 - relativeAngle;
-      }
-      // We want the acute angle
-      if (relativeAngle > 90) {
-        relativeAngle = 180 - relativeAngle;
+    double armAngle = 0.0;
+    bool hasValidArm = false;
+
+    if (patientArm != null) {
+      if (injectionType == 'IM') {
+        basePoint = patientArm.shoulder;
+        distalPoint = patientArm.elbow;
+      } else if (injectionType == 'SubQ') {
+        basePoint = patientArm.shoulder;
+        distalPoint = patientArm.elbow;
+      } else if (injectionType == 'ID' || injectionType == 'IV') {
+        basePoint = patientArm.elbow;
+        distalPoint = patientArm.wrist;
       }
 
+      if (basePoint != null && distalPoint != null) {
+        // ML Kit returns absolute pixel coordinates
+        // We adjust them based on orientation to match the screen's logical coordinate space
+        final baseCoords = _transformPoseCoords(basePoint.x, basePoint.y, imageSize, sensorOrientation);
+        final distalCoords = _transformPoseCoords(distalPoint.x, distalPoint.y, imageSize, sensorOrientation);
+        
+        final armDx = distalCoords[0] - baseCoords[0];
+        final armDy = distalCoords[1] - baseCoords[1];
+        armAngle = math.atan2(armDy.abs(), armDx.abs()) * 180 / math.pi;
+        hasValidArm = true;
+      }
+    }
+
+    if (!hasValidArm) {
+      // Fallback for fixed closed position (close-up camera shots where torso is cut off)
+      // Assume the arm is oriented consistently relative to the camera frame.
       if (injectionType == 'IM' || injectionType == 'SubQ') {
-        // In Dart Grip, the syringe is held perpendicularly to the hand axis.
-        // If the hand is parallel to the arm (0° offset), the needle is perfectly 90° to the arm.
-        relativeAngle = (90.0 - relativeAngle).abs();
+        armAngle = 90.0; // Assume arm is vertical in the frame
+      } else {
+        armAngle = 0.0; // Assume arm is horizontal in the frame
       }
-
-      return _smoothAngle(relativeAngle.abs());
     }
-
-    if (injectionType == 'IM') {
-      basePoint = patientArm.shoulder;
-      distalPoint = patientArm.elbow;
-    } else if (injectionType == 'SubQ') {
-      basePoint = patientArm.shoulder;
-      distalPoint = patientArm.elbow;
-    } else if (injectionType == 'ID' || injectionType == 'IV') {
-      basePoint = patientArm.elbow;
-      distalPoint = patientArm.wrist;
-    }
-
-    if (basePoint == null || distalPoint == null) return -1;
-
-    // ML Kit returns absolute pixel coordinates
-    // We adjust them based on orientation to match the screen's logical coordinate space
-    final baseCoords = _transformPoseCoords(basePoint.x, basePoint.y, imageSize, sensorOrientation);
-    final distalCoords = _transformPoseCoords(distalPoint.x, distalPoint.y, imageSize, sensorOrientation);
-    
-    final armDx = distalCoords[0] - baseCoords[0];
-    final armDy = distalCoords[1] - baseCoords[1];
-    final armAngle = math.atan2(armDy.abs(), armDx.abs()) * 180 / math.pi;
 
     // 2. Compute Syringe Vector from Hand dart-grip
     // Hand Landmarker returns normalized coordinates (0.0-1.0)
@@ -222,27 +211,28 @@ class AngleComputationUtil {
     final wrist = HandLandmarkService.getWrist(hands);
     if (wrist == null) return -1;
 
-    final indexMcp = HandLandmarkService.getIndexMcp(hands);
-    final middleMcp = HandLandmarkService.getMiddleMcp(hands);
+    final indexTip = HandLandmarkService.getIndexTip(hands);   // L8
+    final pinkyTip = HandLandmarkService.getPinkyTip(hands);   // L20
+    final indexMcp = HandLandmarkService.getIndexMcp(hands);   // L5
+    final indexPip = HandLandmarkService.getIndexPip(hands);   // L6
 
-    // Attempt 1: L0 → midpoint(L5, L9) — center of finger base
-    if (indexMcp != null && middleMcp != null) {
-      return _angleFromWristToMidpoint(
-          wrist, indexMcp, middleMcp, imageSize, sensorOrientation);
+    // Attempt 1: L8 → L20 (Fingertip vector: Index Tip to Pinky Tip)
+    // This perfectly traces the syringe barrel resting across the fingers in a dart grip.
+    if (indexTip != null && pinkyTip != null) {
+      return _angleFromLandmarkPair(indexTip, pinkyTip, imageSize, sensorOrientation);
     }
 
-    // Attempt 2: L0 → L9 (middle MCP — center of palm)
-    if (middleMcp != null) {
-      return _angleFromLandmarkPair(wrist, middleMcp, imageSize, sensorOrientation);
+    // Attempt 2: L5 → L6 (Outer index finger proximal phalanx - fallback for 3-finger grip)
+    if (indexMcp != null && indexPip != null) {
+      return _angleFromLandmarkPair(indexMcp, indexPip, imageSize, sensorOrientation);
     }
 
-    // Attempt 3: L0 → L5 (index MCP)
+    // Attempt 2: L0 → L5 (Wrist to index MCP - legacy fallback)
     if (indexMcp != null) {
       return _angleFromLandmarkPair(wrist, indexMcp, imageSize, sensorOrientation);
     }
 
-    // Attempt 4: L0 → L8 (index tip — legacy fallback)
-    final indexTip = HandLandmarkService.getIndexTip(hands);
+    // Attempt 3: L0 → L8 (Wrist to index tip - legacy fallback)
     if (indexTip != null) {
       return _angleFromLandmarkPair(wrist, indexTip, imageSize, sensorOrientation);
     }

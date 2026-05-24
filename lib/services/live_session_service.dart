@@ -75,7 +75,6 @@ class LiveSessionModel {
 class LiveSessionService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
-  /// Starts a new live session by overwriting the instructor's live document.
   Future<void> startSession({
     required String instructorId,
     required String studentName,
@@ -90,8 +89,6 @@ class LiveSessionService {
       'targetAngle': targetAngle,
       'phase': 'waiting',
       'liveAngle': 0.0,
-      'cameraNodeActive': false,
-      'detectionLost': false,
       'liveAspirationResult': 'Not Detected',
       'liveAspirationDuration': 0.0,
       'finalInsertionAngle': null,
@@ -103,7 +100,7 @@ class LiveSessionService {
       'withdrawalScore': null,
       'correspondenceResult': null,
       'angularDelta': null,
-    });
+    }, SetOptions(merge: true));
   }
 
   /// Watches the live session state for both nodes.

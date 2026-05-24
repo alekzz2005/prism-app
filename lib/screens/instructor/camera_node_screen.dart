@@ -56,12 +56,17 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
   @override
   void initState() {
     super.initState();
-    _landmarkService.init();
     // Cache instructorId so dispose() and timers don't need context
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _instructorId = context.read<UserRoleProvider>().uid;
+      
+      // Defer heavy initialization until after the route transition finishes
+      // This prevents the dashboard button from freezing when clicked.
+      Future.delayed(const Duration(milliseconds: 350), () {
+        if (!mounted) return;
+        _initCamera();
+      });
     });
-    _initCamera();
   }
 
   @override
@@ -90,6 +95,18 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
       await _camera!.initialize();
       await _camera!.startImageStream(_onFrame);
       if (mounted) setState(() => _cameraReady = true);
+      
+      // Delay ML initialization so the camera preview can render smoothly first
+      Future.delayed(const Duration(milliseconds: 150), () {
+        if (!mounted) return;
+        _landmarkService.init(minConfidence: 0.01);
+      });
+      
+      // Notify remote control that camera is now active
+      if (_instructorId != null) {
+        _liveService.setCameraActive(_instructorId!, true);
+      }
+      
       // Start 2Hz sync timer
       _syncTimer = Timer.periodic(const Duration(milliseconds: 500), (_) => _syncMetrics());
     } catch (_) {
@@ -154,7 +171,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
 
           for (final pw in patientWrists) {
             double distSq = (hx - pw.dx) * (hx - pw.dx) + (hy - pw.dy) * (hy - pw.dy);
-            if (distSq < 0.05) { // If MediaPipe hand is very close to Patient's Pose wrist
+            if (distSq < 0.01) { // 10% screen radius
               return true; // Exclude it! It's the patient's resting hand.
             }
           }
@@ -255,7 +272,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
             }
 
             // Exclude hands that are too far from the injection site (e.g. stabilizing hands)
-            if (score < bestScore && distToWrist2 < 0.15) { 
+            if (score < bestScore) { 
               bestScore = score;
               activeHand = h;
             }
@@ -264,7 +281,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
       }
       
       // Fallback: If still no active hand, and we didn't have a target site, just pick the first candidate
-      if (activeHand == null && candidateHands.isNotEmpty && targetSite == null) {
+      if (activeHand == null && candidateHands.isNotEmpty) {
          activeHand = candidateHands.first;
       }
     }
@@ -318,18 +335,18 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                 
             if (angle >= 0) _liveAngle = angle;
             
-            if (_currentPhase == 'aspiration') {
-              _aspirationService.update(_hands, sensorOrientation: _sensorOrientation);
+              if (_currentPhase == 'aspiration') {
+                _aspirationService.update(_hands, sensorOrientation: _sensorOrientation);
 
-              if (_aspirationService.isFinished) {
-                final instructorId = _instructorId;
-                if (instructorId != null) {
-                  _liveService.saveAspirationMetrics(instructorId, _aspirationService.result,
-                      _aspirationService.duration, _aspirationService.smoothness);
-                  _liveService.updatePhase(instructorId, 'medication_push');
+                if (_aspirationService.isFinished) {
+                  final instructorId = _instructorId;
+                  if (instructorId != null) {
+                    _liveService.saveAspirationMetrics(instructorId, _aspirationService.result,
+                        _aspirationService.duration, _aspirationService.smoothness);
+                    _liveService.updatePhase(instructorId, 'withdrawal');
+                  }
                 }
               }
-            }
           }
         });
       }
@@ -358,10 +375,13 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
     } else if (session.phase == 'aspiration' && oldPhase == 'insertion_locked') {
       _aspirationService.reset();
       AngleComputationUtil.resetSmoothing();
-    } else if (session.phase == 'aspiration_locked' && oldPhase == 'aspiration') {
-      _liveService.saveAspirationMetrics(instructorId, _aspirationService.result,
-          _aspirationService.duration, _aspirationService.smoothness);
-    } else if (session.phase == 'withdrawal' && (oldPhase == 'medication_push_locked' || oldPhase == 'medication_push')) {
+    } else if (session.phase == 'withdrawal' && oldPhase == 'aspiration') {
+      // Manual override edge-case: If the instructor manually hits "override" on the remote
+      // before the camera node auto-detects, we save whatever metrics we have currently.
+      if (!_aspirationService.isFinished) {
+        _liveService.saveAspirationMetrics(instructorId, _aspirationService.result,
+            _aspirationService.duration, _aspirationService.smoothness);
+      }
       AngleComputationUtil.resetSmoothing();
     } else if (session.phase == 'withdrawal_locked' && oldPhase == 'withdrawal') {
       final score = _scoreAngle(_liveAngle, session.targetAngle);
@@ -397,71 +417,23 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
             WidgetsBinding.instance.addPostFrameCallback((_) {
               _handlePhaseChange(instructorId, session, _currentPhase);
             });
+          } else if (session == null && _currentPhase != 'waiting') {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) {
+                setState(() {
+                  _currentPhase = 'waiting';
+                  _lastInsertionAngle = null;
+                });
+                _aspirationService.reset();
+                AngleComputationUtil.resetSmoothing();
+              }
+            });
           }
 
-          // ── Waiting state ─────────────────────────────────────────────────
-          if (session == null || session.phase == 'waiting') {
-            return Stack(
-              fit: StackFit.expand,
-              children: [
-                Container(
-                  decoration: const BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [Color(0xFF001428), Color(0xFF001C38), Color(0xFF000E1E)],
-                    ),
-                  ),
-                ),
-                Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Container(
-                        width: 80, height: 80,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: const Color(0xFF003366).withValues(alpha: 0.15),
-                          border: Border.all(color: _accentBlue.withValues(alpha: 0.4), width: 2),
-                        ),
-                        child: const Icon(Icons.cast_connected, color: _accentBlue, size: 36),
-                      ),
-                      const SizedBox(height: 24),
-                      const Text(
-                        'CAMERA NODE ACTIVE',
-                        style: TextStyle(color: Colors.white, fontSize: 16,
-                            fontWeight: FontWeight.w700, letterSpacing: 2),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Place on tripod and wait for remote start...',
-                        style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 13),
-                      ),
-                      const SizedBox(height: 48),
-                      GestureDetector(
-                        onTap: () => Navigator.pop(context),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF003366).withValues(alpha: 0.35),
-                            border: Border.all(color: _accentBlue.withValues(alpha: 0.2)),
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          child: const Text('Exit Camera Mode',
-                              style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            );
-          }
+          final isWaiting = session == null || session.phase == 'waiting';
+          final isTrackingActive = session != null && (session.phase == 'insertion' || session.phase == 'withdrawal');
 
-          final isTrackingActive =
-              session.phase == 'insertion' || session.phase == 'withdrawal';
-
-          // ── Active session ────────────────────────────────────────────────
+          // ── Camera & Overlays ─────────────────────────────────────────────
           return Stack(
             fit: StackFit.expand,
             children: [
@@ -475,6 +447,10 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                   ),
                 ),
               ),
+              if (!_cameraReady)
+                const Center(
+                  child: CircularProgressIndicator(color: _accentBlue),
+                ),
               if (_cameraReady && _camera?.value.previewSize != null) 
                 SizedBox.expand(
                   child: FittedBox(
@@ -502,84 +478,132 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                 ),
 
               // Corner guides – accent blue
-              ..._buildCornerGuides(),
+              if (!isWaiting) ..._buildCornerGuides(),
 
-              if (_cameraReady && _currentPhase != 'waiting' && _hands.isEmpty)
+              if (isWaiting)
                 Container(
-                  color: Colors.redAccent.withValues(alpha: 0.3),
-                  child: const Center(
+                  color: Colors.black.withValues(alpha: 0.65),
+                  child: Center(
                     child: Column(
-                      mainAxisSize: MainAxisSize.min,
+                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.warning_amber_rounded, color: Colors.white, size: 64),
-                        SizedBox(height: 16),
-                        Text('DETECTION LOST', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold, letterSpacing: 2)),
-                        Text('Please readjust hand or camera placement', style: TextStyle(color: Colors.white, fontSize: 16)),
+                        Container(
+                          width: 80, height: 80,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: const Color(0xFF003366).withValues(alpha: 0.35),
+                            border: Border.all(color: _accentBlue.withValues(alpha: 0.6), width: 2),
+                          ),
+                          child: const Icon(Icons.cast_connected, color: _accentBlue, size: 36),
+                        ),
+                        const SizedBox(height: 24),
+                        const Text(
+                          'CAMERA NODE STANDBY',
+                          style: TextStyle(color: Colors.white, fontSize: 16,
+                              fontWeight: FontWeight.w700, letterSpacing: 2),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Frame the patient. Waiting for remote start...',
+                          style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 13),
+                        ),
+                        const SizedBox(height: 48),
+                        GestureDetector(
+                          onTap: () => Navigator.pop(context),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF003366).withValues(alpha: 0.5),
+                              border: Border.all(color: _accentBlue.withValues(alpha: 0.4)),
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: const Text('Exit Camera Mode',
+                                style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
+                          ),
+                        ),
                       ],
                     ),
                   ),
                 ),
 
-              // Top banner
-              Positioned(
-                top: 0, left: 0, right: 0,
-                child: Container(
-                  color: Colors.black.withValues(alpha: 0.88),
-                  padding: const EdgeInsets.fromLTRB(18, 48, 18, 14),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+              if (!isWaiting && session != null) ...[
+                if (_cameraReady && _currentPhase != 'waiting' && _hands.isEmpty)
+                  Container(
+                    color: Colors.redAccent.withValues(alpha: 0.3),
+                    child: const Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          Text(
-                            '${session.studentName} \u2014 ${session.injectionType} Injection',
-                            style: const TextStyle(color: Colors.white, fontSize: 16,
-                                fontWeight: FontWeight.w700, height: 1.2),
-                          ),
-                          const SizedBox(height: 4),
-                          Row(
-                            children: [
-                              Container(
-                                width: 7, height: 7,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: _accentBlue,
-                                  boxShadow: [BoxShadow(color: _accentBlue.withValues(alpha: 0.25), blurRadius: 0, spreadRadius: 3)],
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                '${session.phase.toUpperCase().replaceAll("_", " ")} PHASE ACTIVE',
-                                style: const TextStyle(color: _accentBlue, fontSize: 11,
-                                    fontWeight: FontWeight.w700, letterSpacing: 0.5),
-                              ),
-                            ],
-                          ),
+                          Icon(Icons.warning_amber_rounded, color: Colors.white, size: 64),
+                          SizedBox(height: 16),
+                          Text('DETECTION LOST', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold, letterSpacing: 2)),
+                          Text('Please readjust hand or camera placement', style: TextStyle(color: Colors.white, fontSize: 16)),
                         ],
                       ),
-                      GestureDetector(
-                        onTap: () {
-                          _liveService.clearSession(instructorId);
-                          Navigator.pop(context);
-                        },
-                        child: Container(
-                          width: 30, height: 30,
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.07),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          alignment: Alignment.center,
-                          child: SvgPicture.string(
-                            '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 3l8 8M11 3l-8 8" stroke="rgba(255,255,255,0.4)" stroke-width="1.5" stroke-linecap="round"/></svg>',
+                    ),
+                  ),
+
+                // Top banner
+                Positioned(
+                  top: 0, left: 0, right: 0,
+                  child: Container(
+                    color: Colors.black.withValues(alpha: 0.88),
+                    padding: const EdgeInsets.fromLTRB(18, 48, 18, 14),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '${session.studentName} \u2014 ${session.injectionType} Injection',
+                              style: const TextStyle(color: Colors.white, fontSize: 16,
+                                  fontWeight: FontWeight.w700, height: 1.2),
+                            ),
+                            const SizedBox(height: 4),
+                            Row(
+                              children: [
+                                Container(
+                                  width: 7, height: 7,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: _accentBlue,
+                                    boxShadow: [BoxShadow(color: _accentBlue.withValues(alpha: 0.25), blurRadius: 0, spreadRadius: 3)],
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  '${session.phase.toUpperCase().replaceAll("_", " ")} PHASE ACTIVE',
+                                  style: const TextStyle(color: _accentBlue, fontSize: 11,
+                                      fontWeight: FontWeight.w700, letterSpacing: 0.5),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                        GestureDetector(
+                          onTap: () {
+                            _liveService.clearSession(instructorId);
+                            Navigator.pop(context);
+                          },
+                          child: Container(
+                            width: 30, height: 30,
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.07),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            alignment: Alignment.center,
+                            child: SvgPicture.string(
+                              '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 3l8 8M11 3l-8 8" stroke="rgba(255,255,255,0.4)" stroke-width="1.5" stroke-linecap="round"/></svg>',
+                            ),
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
-              ),
+              ],
 
               // Angle chip – centered
               if (isTrackingActive)
@@ -588,25 +612,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      if (AngleComputationUtil.isFallbackModeActive)
-                        Container(
-                          margin: const EdgeInsets.only(bottom: 16),
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: Colors.orange.shade800.withValues(alpha: 0.85),
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: Colors.orangeAccent.withValues(alpha: 0.5)),
-                          ),
-                          child: const Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.screen_rotation, color: Colors.white, size: 16),
-                              SizedBox(width: 8),
-                              Text('Body not detected: Align camera vertically with arm', 
-                                style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
-                            ],
-                          ),
-                        ),
+
                       Container(
                     padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
                     decoration: BoxDecoration(
@@ -637,95 +643,96 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                 ),
 
               // Bottom status panel
-              Positioned(
-                bottom: 0, left: 0, right: 0,
-                child: Container(
-                  color: Colors.black.withValues(alpha: 0.90),
-                  padding: const EdgeInsets.fromLTRB(20, 14, 20, 30),
-                  child: Column(
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Row(
-                            children: [
-                              Container(
-                                width: 7, height: 7,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: _greenDark,
-                                  boxShadow: [BoxShadow(color: _greenDark.withValues(alpha: 0.25), blurRadius: 0, spreadRadius: 3)],
+              if (!isWaiting && session != null)
+                Positioned(
+                  bottom: 0, left: 0, right: 0,
+                  child: Container(
+                    color: Colors.black.withValues(alpha: 0.90),
+                    padding: const EdgeInsets.fromLTRB(20, 14, 20, 30),
+                    child: Column(
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Row(
+                              children: [
+                                Container(
+                                  width: 7, height: 7,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: _greenDark,
+                                    boxShadow: [BoxShadow(color: _greenDark.withValues(alpha: 0.25), blurRadius: 0, spreadRadius: 3)],
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(width: 8),
-                              const Text('TRACKING ACTIVE',
-                                  style: TextStyle(color: _green, fontSize: 11,
-                                      fontWeight: FontWeight.w700, letterSpacing: 0.8)),
-                            ],
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF991B1B).withValues(alpha: 0.3),
-                              border: Border.all(color: const Color(0xFF991B1B).withValues(alpha: 0.5)),
-                              borderRadius: BorderRadius.circular(6),
+                                const SizedBox(width: 8),
+                                const Text('TRACKING ACTIVE',
+                                    style: TextStyle(color: _green, fontSize: 11,
+                                        fontWeight: FontWeight.w700, letterSpacing: 0.8)),
+                              ],
                             ),
-                            child: const Text('\u25cf REC',
-                                style: TextStyle(color: Color(0xFFFCA5A5), fontSize: 10,
-                                    fontWeight: FontWeight.w700, letterSpacing: 0.8)),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          _buildMetricCard('Insertion Angle',
-                            session.finalInsertionAngle != null
-                                ? '${session.finalInsertionAngle!.toStringAsFixed(1)}\u00b0'
-                                : '--',
-                            _accentBlue),
-                          const SizedBox(width: 10),
-                          _buildMetricCard('Landmarks',
-                            'H: ${_hands.isNotEmpty ? 21 : 0} | P: ${_poses.isNotEmpty ? 33 : 0}',
-                            _green),
-                          const SizedBox(width: 10),
-                          _buildMetricCard('Phase',
-                            session.phase.split('_')[0],
-                            const Color(0xFFFCD34D)),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      GestureDetector(
-                        onTap: () {
-                          _liveService.clearSession(instructorId);
-                          Navigator.pop(context);
-                        },
-                        child: Container(
-                          width: double.infinity, height: 46,
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF003366).withValues(alpha: 0.35),
-                            border: Border.all(color: _accentBlue.withValues(alpha: 0.2)),
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          alignment: Alignment.center,
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              SvgPicture.string(
-                                '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M10 7.5H3M6 4.5L3 7.5L6 10.5" stroke="rgba(255,255,255,0.55)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 3h4v9H8" stroke="rgba(255,255,255,0.55)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF991B1B).withValues(alpha: 0.3),
+                                border: Border.all(color: const Color(0xFF991B1B).withValues(alpha: 0.5)),
+                                borderRadius: BorderRadius.circular(6),
                               ),
-                              const SizedBox(width: 7),
-                              Text('Exit Camera Mode',
-                                style: TextStyle(color: Colors.white.withValues(alpha: 0.55),
-                                    fontSize: 13, fontWeight: FontWeight.w600)),
-                            ],
+                              child: const Text('\u25cf REC',
+                                  style: TextStyle(color: Color(0xFFFCA5A5), fontSize: 10,
+                                      fontWeight: FontWeight.w700, letterSpacing: 0.8)),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            _buildMetricCard('Insertion Angle',
+                              session.finalInsertionAngle != null
+                                  ? '${session.finalInsertionAngle!.toStringAsFixed(1)}\u00b0'
+                                  : '--',
+                              _accentBlue),
+                            const SizedBox(width: 10),
+                            _buildMetricCard('Landmarks',
+                              'H: ${_hands.isNotEmpty ? 21 : 0} | P: ${_poses.isNotEmpty ? 33 : 0}',
+                              _green),
+                            const SizedBox(width: 10),
+                            _buildMetricCard('Phase',
+                              session.phase.split('_')[0],
+                              const Color(0xFFFCD34D)),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        GestureDetector(
+                          onTap: () {
+                            _liveService.clearSession(instructorId);
+                            Navigator.pop(context);
+                          },
+                          child: Container(
+                            width: double.infinity, height: 46,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF003366).withValues(alpha: 0.35),
+                              border: Border.all(color: _accentBlue.withValues(alpha: 0.2)),
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            alignment: Alignment.center,
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                SvgPicture.string(
+                                  '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M10 7.5H3M6 4.5L3 7.5L6 10.5" stroke="rgba(255,255,255,0.55)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 3h4v9H8" stroke="rgba(255,255,255,0.55)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+                                ),
+                                const SizedBox(width: 7),
+                                Text('Exit Camera Mode',
+                                  style: TextStyle(color: Colors.white.withValues(alpha: 0.55),
+                                      fontSize: 13, fontWeight: FontWeight.w600)),
+                              ],
+                            ),
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
-              ),
             ],
           );
         },

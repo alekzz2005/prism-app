@@ -120,18 +120,19 @@ class _LiveDemoSetupScreenState extends State<LiveDemoSetupScreen> {
     }
   }
 
-  void _startSession(String instructorId, StudentRoster student) async {
+  void _startSession(String instructorId, StudentRoster student) {
     final config = InjectionConfigService.getConfig(_selectedType);
-    await _liveSessionService.startSession(
+    
+    // Fire and forget so we don't block the UI
+    _liveSessionService.startSession(
       instructorId:  instructorId,
       studentName:   '${student.firstName} ${student.lastName}',
       studentEmail:  student.email,
       injectionType: _selectedType,
       targetAngle:   config.targetAngle,
     );
-    if (mounted) {
-      Navigator.push(context, MaterialPageRoute(builder: (_) => const RemoteControlScreen()));
-    }
+    
+    Navigator.push(context, MaterialPageRoute(builder: (_) => const RemoteControlScreen()));
   }
 
   Color _avatarColor(String email) {

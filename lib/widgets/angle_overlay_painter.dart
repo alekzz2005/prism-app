@@ -101,42 +101,27 @@ class AngleOverlayPainter extends CustomPainter {
         canvas.drawCircle(_scale(lms[HandLandmarkIndices.middleMcp], size), 7, mcpPaint);
       }
 
-      // Draw the primary syringe axis
-      if (lms.length > HandLandmarkIndices.middleMcp) {
-        final wristPt = _scale(lms[HandLandmarkIndices.wrist], size);
-        final indexMcpPt = _scale(lms[HandLandmarkIndices.indexMcp], size);
-        final middleMcpPt = _scale(lms[HandLandmarkIndices.middleMcp], size);
-        final midpoint = Offset(
-          (indexMcpPt.dx + middleMcpPt.dx) / 2.0,
-          (indexMcpPt.dy + middleMcpPt.dy) / 2.0,
-        );
+      // Draw the primary syringe axis (L8 -> L20 - Fingertips)
+      if (lms.length > HandLandmarkIndices.pinkyTip) {
+        final indexTipPt = _scale(lms[HandLandmarkIndices.indexTip], size);
+        final pinkyTipPt = _scale(lms[HandLandmarkIndices.pinkyTip], size);
         
-        Offset axisEnd = wristPt; // Default (fallback)
+        // Calculate the direction vector
+        double dx = pinkyTipPt.dx - indexTipPt.dx;
+        double dy = pinkyTipPt.dy - indexTipPt.dy;
         
-        if (injectionType == 'IM' || injectionType == 'SubQ') {
-          // Dart grip: The syringe points perpendicularly outward from the hand axis.
-          // Calculate the hand axis vector (wrist -> midpoint)
-          double dx = midpoint.dx - wristPt.dx;
-          double dy = midpoint.dy - wristPt.dy;
-          
-          // Compute a perpendicular vector. We swap dx and dy, and negate one.
-          // Because the syringe points "forward" from the palm, we just need a visual representation.
-          // We'll normalize it to the same length as the hand axis so it looks nice.
-          double len = math.sqrt(dx * dx + dy * dy);
-          if (len > 0) {
-            double pdx = -dy;
-            double pdy = dx;
-            // The syringe is held near the midpoint (knuckles). We draw it extending outward from there.
-            axisEnd = Offset(midpoint.dx + pdx, midpoint.dy + pdy);
-            canvas.drawLine(midpoint, axisEnd, syringeAxisPaint);
-          }
-        } else {
-          // Flat grip: Syringe runs along the hand axis
-          canvas.drawLine(wristPt, midpoint, syringeAxisPaint);
-        }
+        // Ensure the vector always points "forward" from the index finger towards the pinky
+        // The barrel of the syringe lies along this line. Let's draw it from slightly behind index 
+        // to slightly past pinky to make it look like a syringe.
+        Offset syringeStart = Offset(indexTipPt.dx - dx * 0.2, indexTipPt.dy - dy * 0.2);
+        Offset syringeEnd = Offset(pinkyTipPt.dx + dx * 0.5, pinkyTipPt.dy + dy * 0.5);
+        
+        // Draw the syringe barrel line
+        canvas.drawLine(syringeStart, syringeEnd, syringeAxisPaint);
 
-        // Draw a small diamond at the midpoint target
-        canvas.drawCircle(midpoint, 5, mcpPaint);
+        // Draw a small diamond at the pivot points
+        canvas.drawCircle(indexTipPt, 5, mcpPaint);
+        canvas.drawCircle(pinkyTipPt, 5, mcpPaint);
       }
     }
 
@@ -167,26 +152,19 @@ class AngleOverlayPainter extends CustomPainter {
       if (baseLm != null && distalLm != null) {
         final axisPaint = Paint()
           ..color = Colors.orangeAccent
-          ..strokeWidth = 4.0
+          ..strokeWidth = 3.0
           ..style = PaintingStyle.stroke;
 
         final jointPaint = Paint()
           ..color = Colors.orangeAccent
           ..style = PaintingStyle.fill;
 
-        final glowPaint = Paint()
-          ..color = Colors.orangeAccent.withValues(alpha: 0.3)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2.5;
-
         final basePt = _scalePose(baseLm, size);
         final distalPt = _scalePose(distalLm, size);
 
         canvas.drawLine(basePt, distalPt, axisPaint);
-        canvas.drawCircle(basePt, 7, jointPaint);
-        canvas.drawCircle(basePt, 10, glowPaint);
-        canvas.drawCircle(distalPt, 7, jointPaint);
-        canvas.drawCircle(distalPt, 10, glowPaint);
+        canvas.drawCircle(basePt, 5, jointPaint);
+        canvas.drawCircle(distalPt, 5, jointPaint);
       }
     }
   }

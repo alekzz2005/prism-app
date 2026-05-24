@@ -432,21 +432,15 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
 
   Widget _buildControlButton(String instructorId, LiveSessionModel session) {
     if (session.phase == 'waiting') {
-      final canStart = session.cameraNodeActive;
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           _ControlButton(
-            label: canStart ? 'Start Insertion Phase' : 'Waiting for Camera...',
-            hint: canStart ? 'Tap to begin tracking' : 'Ensure camera is running',
-            color: canStart ? _navy : Colors.grey,
-            onPressed: canStart ? () => _updatePhase(instructorId, 'insertion') : () {},
+            label: 'Start Insertion Phase',
+            hint: 'Tap to begin tracking',
+            color: _navy,
+            onPressed: () => _updatePhase(instructorId, 'insertion'),
           ),
-          if (!canStart)
-            const Padding(
-              padding: EdgeInsets.only(top: 8.0),
-              child: Text('Please open Camera Node on the tripod device.', style: TextStyle(color: Colors.redAccent, fontSize: 12)),
-            )
         ],
       );
     } 
@@ -461,7 +455,7 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
     }
 
     // Common Guardrails for active tracking phases
-    final bool guardrailBlocked = !session.cameraNodeActive || session.detectionLost;
+    final bool guardrailBlocked = session.detectionLost;
     
     Widget button;
     if (session.phase == 'insertion') {
@@ -472,43 +466,28 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
         onPressed: guardrailBlocked ? () {} : () => _updatePhase(instructorId, 'insertion_locked'),
       );
     } else if (session.phase == 'insertion_locked') {
-      final isID = session.injectionType == 'ID';
       button = _ControlButton(
-        label: isID ? 'Inject Medication (10s/ml)' : 'Proceed to Aspiration',
-        hint: isID ? 'Student pushes medication' : 'Tap to begin aspiration hold',
+        label: 'Proceed to Aspiration',
+        hint: 'Tap to begin aspiration hold',
         color: _navy,
-        onPressed: guardrailBlocked ? () {} : () => _updatePhase(instructorId, isID ? 'medication_push' : 'aspiration'),
+        onPressed: guardrailBlocked ? () {} : () => _updatePhase(instructorId, 'aspiration'),
       );
     } else if (session.phase == 'aspiration') {
       button = _ControlButton(
-        label: 'Done Aspirating',
-        hint: 'Tap when the student completes the aspiration hold',
+        label: 'Awaiting Auto-Detect (Tap to Override)',
+        hint: 'Camera Node will auto-advance, or tap to manually proceed to withdrawal',
         color: const Color(0xFF92400E),
-        onPressed: guardrailBlocked ? () {} : () => _updatePhase(instructorId, 'aspiration_locked'),
-      );
-    } else if (session.phase == 'aspiration_locked') {
-      button = _ControlButton(
-        label: 'Inject Medication (10s/ml)',
-        hint: 'Student pushes medication slowly',
-        color: _navy,
-        onPressed: guardrailBlocked ? () {} : () => _updatePhase(instructorId, 'medication_push'),
-      );
-    } else if (session.phase == 'medication_push') {
-      button = _ControlButton(
-        label: 'Proceed to Withdrawal',
-        hint: 'Tap when medication is fully injected',
-        color: _navy,
         onPressed: guardrailBlocked ? () {} : () => _updatePhase(instructorId, 'withdrawal'),
       );
     } else if (session.phase == 'withdrawal') {
       button = _ControlButton(
-        label: 'Confirm Withdrawal',
+        label: 'Confirm Needle Withdrawal',
         hint: 'Tap when the needle is fully withdrawn',
         color: const Color(0xFF92400E),
         onPressed: guardrailBlocked ? () {} : () => _updatePhase(instructorId, 'withdrawal_locked'),
       );
     } else {
-      button = const SizedBox();
+      button = const SizedBox.shrink();
     }
 
     return Column(
@@ -522,9 +501,9 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
               children: [
                 const Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 20),
                 const SizedBox(width: 8),
-                Text(
-                  !session.cameraNodeActive ? 'Camera disconnected' : 'Detection lost. Reposition hand.', 
-                  style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)
+                const Text(
+                  'Detection lost. Reposition hand.', 
+                  style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)
                 ),
               ],
             ),
