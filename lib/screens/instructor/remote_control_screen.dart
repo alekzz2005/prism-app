@@ -37,8 +37,21 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
   final _repo = InstructorSessionRepository();
   final _feedbackService = FeedbackService();
 
+  DateTime? _aspirationStartTime;
+
   void _updatePhase(String instructorId, String newPhase) {
-    _liveService.updatePhase(instructorId, newPhase);
+    if (newPhase == 'aspiration') {
+      _aspirationStartTime = DateTime.now();
+      _liveService.updatePhase(instructorId, newPhase);
+    } else if (newPhase == 'aspiration_locked') {
+      _liveService.updatePhase(instructorId, newPhase);
+      if (_aspirationStartTime != null) {
+        final duration = DateTime.now().difference(_aspirationStartTime!).inMilliseconds / 1000.0;
+        _liveService.saveAspirationMetrics(instructorId, 'Correct', duration, 'N/A');
+      }
+    } else {
+      _liveService.updatePhase(instructorId, newPhase);
+    }
   }
 
   void _completeSession(String instructorId, LiveSessionModel session) async {

@@ -10,7 +10,6 @@ import 'dart:math' as math;
 import '../../providers/user_role_provider.dart';
 import '../../services/hand_landmark_service.dart';
 import '../../services/detection_service.dart';
-import '../../services/aspiration_detection_service.dart';
 import '../../services/live_session_service.dart';
 import '../../widgets/angle_overlay_painter.dart';
 
@@ -36,7 +35,6 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
   bool _processing = false;
   List<Hand> _hands = [];
   final LiveSessionService _liveService = LiveSessionService();
-  final AspirationDetectionService _aspirationService = AspirationDetectionService();
 
   double _liveAngle = 0;
   String _currentPhase = 'waiting';
@@ -125,8 +123,6 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
       if (_liveAngle >= 0) {
         _liveService.updateLiveAngle(instructorId, _liveAngle);
       }
-    } else if (_currentPhase == 'aspiration') {
-      _liveService.updateLiveAspiration(instructorId, _aspirationService.result, _aspirationService.duration);
     }
   }
 
@@ -209,16 +205,12 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
           _sensorOrientation = sensorOrientation;
           
           if (_hands.isNotEmpty && _currentSession != null) {
-            if (_currentPhase == 'aspiration') {
-              _aspirationService.update(_hands, _currentSession!.targetAngle, sensorOrientation: _sensorOrientation);
-            } else {
-              final angle = AngleComputationUtil.computeAbsoluteInjectionAngle(
-                  _hands, _imageSize!, 
-                  injectionType: _currentSession!.injectionType, 
-                  sensorOrientation: _sensorOrientation);
-                  
-              if (angle >= 0) _liveAngle = angle;
-            }
+            final angle = AngleComputationUtil.computeAbsoluteInjectionAngle(
+                _hands, _imageSize!, 
+                injectionType: _currentSession!.injectionType, 
+                sensorOrientation: _sensorOrientation);
+                
+            if (angle >= 0) _liveAngle = angle;
           }
         });
       }
@@ -246,11 +238,8 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
       _liveService.saveInsertionMetrics(instructorId, _liveAngle, score);
     } else if (session.phase == 'aspiration' && oldPhase == 'insertion_locked') {
       _lockedWristPos = null; // Drop lock for pulling hand
-      _aspirationService.reset();
       AngleComputationUtil.resetSmoothing();
     } else if (session.phase == 'aspiration_locked' && oldPhase == 'aspiration') {
-      _liveService.saveAspirationMetrics(instructorId, _aspirationService.result,
-          _aspirationService.duration, _aspirationService.smoothness);
       AngleComputationUtil.resetSmoothing();
     } else if (session.phase == 'withdrawal' && oldPhase == 'aspiration_locked') {
       AngleComputationUtil.resetSmoothing();
@@ -295,7 +284,6 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                   _currentPhase = 'waiting';
                   _lastInsertionAngle = null;
                 });
-                _aspirationService.reset();
                 AngleComputationUtil.resetSmoothing();
               }
             });
