@@ -399,7 +399,7 @@ class _DetectionScreenState extends State<DetectionScreen> {
           else ...[
             // Skeletons
             if (_hands.isNotEmpty && _imageSize != null)
-              CustomPaint(painter: AngleOverlayPainter(hands: _hands, poses: const [], imageSize: _imageSize!, sensorOrientation: _sensorOrientation)),
+              CustomPaint(painter: AngleOverlayPainter(hands: _hands, imageSize: _imageSize!, sensorOrientation: _sensorOrientation)),
 
             if (isLocked) ...[
               Container(color: const Color(0xFF22C55E).withValues(alpha: 0.07)),

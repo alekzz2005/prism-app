@@ -1,13 +1,14 @@
 import 'dart:math';
 import 'package:hand_landmarker/hand_landmarker.dart';
 import 'hand_landmark_service.dart';
+import 'detection_service.dart';
 
 /// Detects aspiration technique by tracking relative distance between
 /// L4 (thumb tip) and the barrel-holding fingers (L8 index, L12 middle).
 /// Aspiration is "Correct" when this distance increases (plunger pull).
 class AspirationDetectionService {
   static const double _displacementThreshold = 0.025; // 1-handed threshold
-  static const double _twoHandDisplacementThreshold = 0.08; // 2-handed threshold requires more movement to avoid false positives
+  static const double _twoHandDisplacementThreshold = 0.04; // 2-handed threshold
   static const double _minDurationSeconds = 1.0;
 
   double? _initialDistance;
@@ -53,10 +54,31 @@ class AspirationDetectionService {
     bool isTwoHanded = hands.length >= 2;
 
     if (isTwoHanded) {
-      // 2-Handed Technique: Measure distance between the two hands (Wrists L0)
-      final wrist1 = hands[0].landmarks[0];
-      final wrist2 = hands[1].landmarks[0];
-      distance = sqrt(pow(wrist1.x - wrist2.x, 2) + pow(wrist1.y - wrist2.y, 2));
+      // 2-Handed Technique: Project the plunger hand's movement onto the syringe axis!
+      // This prevents false positives if the student just raises their second hand vertically.
+      final dartVector = AngleComputationUtil.getDartGripVector([hands[0]]);
+      
+      if (dartVector == null) {
+        if (_aspirationStart != null) _isFinished = true;
+        return;
+      }
+
+      final dartDip = dartVector[0]; // Base
+      final dartTip = dartVector[1]; // Distal
+
+      // Compute Syringe unit vector (pointing towards needle)
+      double dx = dartTip.x - dartDip.x;
+      double dy = dartTip.y - dartDip.y;
+      double len = sqrt(dx * dx + dy * dy);
+      if (len == 0) return;
+      double ux = dx / len;
+      double uy = dy / len;
+
+      // Use the thumb tip of the second hand (plunger hand)
+      final plungerThumb = hands[1].landmarks.length > 4 ? hands[1].landmarks[4] : hands[1].landmarks[0];
+      
+      // Project the plunger point onto the syringe axis (dot product)
+      distance = (plungerThumb.x * ux) + (plungerThumb.y * uy);
     } else {
       // 1-Handed Technique: Measure finger spread on the single hand
       final thumb = HandLandmarkService.getThumbTip(hands);
@@ -86,8 +108,9 @@ class AspirationDetectionService {
     _currentDisplacement = (distance - _initialDistance!).abs();
     _distanceHistory.add(distance);
 
-    // If hand has moved away significantly (e.g. > 0.2) after starting, finish.
-    if (_aspirationStart != null && _currentDisplacement > 0.2) {
+    // If hand has moved away significantly (e.g. > 0.5) after starting, finish.
+    // Shallow injections require pulling further or more dragging.
+    if (_aspirationStart != null && _currentDisplacement > 0.5) {
       _isFinished = true;
       return;
     }

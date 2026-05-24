@@ -109,51 +109,18 @@ class AngleComputationUtil {
 
 
 
-  static double computeRelativeInjectionAngle(
-      List<Hand> hands, List<Pose> poses, Size imageSize,
+  static double computeAbsoluteInjectionAngle(
+      List<Hand> hands, Size imageSize,
       {required String injectionType, int sensorOrientation = 90}) {
-    // 1. Compute Arm/Body Baseline Vector from Pose based on injection type
-    ArmLandmark? basePoint;
-    ArmLandmark? distalPoint;
-
-    final patientArm = PoseLandmarkService.getPatientArm(poses, hands.isNotEmpty ? hands.first : null, imageSize, sensorOrientation: sensorOrientation);
-
+    
     double armAngle = 0.0;
-    bool hasValidArm = false;
-
-    if (patientArm != null) {
-      if (injectionType == 'IM') {
-        basePoint = patientArm.shoulder;
-        distalPoint = patientArm.elbow;
-      } else if (injectionType == 'SubQ') {
-        basePoint = patientArm.shoulder;
-        distalPoint = patientArm.elbow;
-      } else if (injectionType == 'ID' || injectionType == 'IV') {
-        basePoint = patientArm.elbow;
-        distalPoint = patientArm.wrist;
-      }
-
-      if (basePoint != null && distalPoint != null) {
-        // ML Kit returns absolute pixel coordinates
-        // We adjust them based on orientation to match the screen's logical coordinate space
-        final baseCoords = _transformPoseCoords(basePoint.x, basePoint.y, imageSize, sensorOrientation);
-        final distalCoords = _transformPoseCoords(distalPoint.x, distalPoint.y, imageSize, sensorOrientation);
-        
-        final armDx = distalCoords[0] - baseCoords[0];
-        final armDy = distalCoords[1] - baseCoords[1];
-        armAngle = math.atan2(armDy.abs(), armDx.abs()) * 180 / math.pi;
-        hasValidArm = true;
-      }
-    }
-
-    if (!hasValidArm) {
-      // Fallback for fixed closed position (close-up camera shots where torso is cut off)
-      // Assume the arm is oriented consistently relative to the camera frame.
-      if (injectionType == 'IM' || injectionType == 'SubQ') {
-        armAngle = 90.0; // Assume arm is vertical in the frame
-      } else {
-        armAngle = 0.0; // Assume arm is horizontal in the frame
-      }
+    // Fallback for fixed closed position
+    // Assume the arm is oriented consistently relative to the camera frame.
+    // Per user request: Y-axis (vertical) is 0 degrees, X-axis (horizontal) is 90 degrees.
+    if (injectionType == 'IM' || injectionType == 'SubQ') {
+      armAngle = 0.0; // Assume arm is vertical in the frame (0 deg)
+    } else {
+      armAngle = 90.0; // Assume arm is horizontal in the frame (90 deg)
     }
 
     // 2. Compute Syringe Vector from Hand dart-grip
@@ -162,7 +129,7 @@ class AngleComputationUtil {
     if (rawSyringeAngle < 0) return -1;
 
     // 3. Compute relative angle
-    // The relative angle is the absolute difference between the arm axis and syringe axis.
+    // The relative angle is the absolute difference between the assumed arm axis and syringe axis.
     double relativeAngle = (rawSyringeAngle - armAngle).abs();
     if (relativeAngle > 180) {
       relativeAngle = 360 - relativeAngle;
@@ -171,12 +138,6 @@ class AngleComputationUtil {
     // We want the acute angle
     if (relativeAngle > 90) {
       relativeAngle = 180 - relativeAngle;
-    }
-
-    if (injectionType == 'IM' || injectionType == 'SubQ') {
-      // In Dart Grip, the syringe is held perpendicularly to the hand axis.
-      // If the hand is parallel to the arm (0° offset), the needle is perfectly 90° to the arm.
-      relativeAngle = (90.0 - relativeAngle).abs();
     }
 
     return _smoothAngle(relativeAngle);
@@ -195,49 +156,41 @@ class AngleComputationUtil {
     return [t[0] * logicalW, t[1] * logicalH];
   }
 
-  static List<double> _transformPoseCoords(double x, double y, Size imageSize, int sensorOrientation) {
-    double rw = imageSize.width;
-    double rh = imageSize.height;
-    if (sensorOrientation == 90 || sensorOrientation == 270) {
-      rw = imageSize.height;
-      rh = imageSize.width;
-    }
-    return [x / rw, y / rh];
+    // _transformPoseCoords removed as Pose is removed
+
+  /// Returns the optimal [base, distal] landmarks for the dart grip vector,
+  /// falling back to alternative landmarks if primary ones are hidden.
+  static List<Landmark>? getDartGripVector(List<Hand> hands) {
+    final wrist = HandLandmarkService.getWrist(hands);
+    if (wrist == null) return null;
+
+    final indexTip = HandLandmarkService.getIndexTip(hands);   // L8
+    final indexDip = HandLandmarkService.getIndexDip(hands);   // L7
+    final indexPip = HandLandmarkService.getIndexPip(hands);   // L6
+    final indexMcp = HandLandmarkService.getIndexMcp(hands);   // L5
+
+    // Attempt 1: L7 → L8 (Fingertip vector)
+    if (indexDip != null && indexTip != null) return [indexDip, indexTip];
+
+    // Attempt 2: L5 → L8 (Index MCP to Tip - user requested for shallow angles)
+    if (indexMcp != null && indexTip != null) return [indexMcp, indexTip];
+
+    // Attempt 3: L5 → L6 (Index proximal phalanx)
+    if (indexMcp != null && indexPip != null) return [indexMcp, indexPip];
+
+    // Legacy fallbacks
+    if (indexMcp != null) return [wrist, indexMcp];
+    if (indexTip != null) return [wrist, indexTip];
+
+    return null;
   }
 
   /// Raw (un-smoothed) dart-grip angle computation with fallback chain.
   static double _computeRawDartGripAngle(List<Hand> hands, Size imageSize,
       {int sensorOrientation = 90}) {
-    final wrist = HandLandmarkService.getWrist(hands);
-    if (wrist == null) return -1;
-
-    final indexTip = HandLandmarkService.getIndexTip(hands);   // L8
-    final pinkyTip = HandLandmarkService.getPinkyTip(hands);   // L20
-    final indexMcp = HandLandmarkService.getIndexMcp(hands);   // L5
-    final indexPip = HandLandmarkService.getIndexPip(hands);   // L6
-
-    // Attempt 1: L8 → L20 (Fingertip vector: Index Tip to Pinky Tip)
-    // This perfectly traces the syringe barrel resting across the fingers in a dart grip.
-    if (indexTip != null && pinkyTip != null) {
-      return _angleFromLandmarkPair(indexTip, pinkyTip, imageSize, sensorOrientation);
-    }
-
-    // Attempt 2: L5 → L6 (Outer index finger proximal phalanx - fallback for 3-finger grip)
-    if (indexMcp != null && indexPip != null) {
-      return _angleFromLandmarkPair(indexMcp, indexPip, imageSize, sensorOrientation);
-    }
-
-    // Attempt 2: L0 → L5 (Wrist to index MCP - legacy fallback)
-    if (indexMcp != null) {
-      return _angleFromLandmarkPair(wrist, indexMcp, imageSize, sensorOrientation);
-    }
-
-    // Attempt 3: L0 → L8 (Wrist to index tip - legacy fallback)
-    if (indexTip != null) {
-      return _angleFromLandmarkPair(wrist, indexTip, imageSize, sensorOrientation);
-    }
-
-    return -1;
+    final vector = getDartGripVector(hands);
+    if (vector == null) return -1;
+    return _angleFromLandmarkPair(vector[0], vector[1], imageSize, sensorOrientation);
   }
 
   /// Computes the angle from [wrist] to the midpoint of [a] and [b],
@@ -254,7 +207,8 @@ class AngleComputationUtil {
 
     final dx = midX - wCoords[0];
     final dy = midY - wCoords[1];
-    final radians = math.atan2(dy.abs(), dx.abs());
+    // Swapped dy and dx: Y-axis is now 0 degrees, X-axis is 90 degrees.
+    final radians = math.atan2(dx.abs(), dy.abs());
     return radians * 180 / math.pi;
   }
 
@@ -267,18 +221,11 @@ class AngleComputationUtil {
 
     final dx = dCoords[0] - bCoords[0];
     final dy = dCoords[1] - bCoords[1];
-    final radians = math.atan2(dy.abs(), dx.abs());
+    // Swapped dy and dx: Y-axis is now 0 degrees, X-axis is 90 degrees.
+    final radians = math.atan2(dx.abs(), dy.abs());
     return radians * 180 / math.pi;
   }
 
-  static double _computeBodyAngle(
-      PoseLandmark base, PoseLandmark distal, Size imageSize, int sensorOrientation) {
-    final bCoords = _transformPoseCoords(base.x, base.y, imageSize, sensorOrientation);
-    final dCoords = _transformPoseCoords(distal.x, distal.y, imageSize, sensorOrientation);
-    final dx = dCoords[0] - bCoords[0];
-    final dy = dCoords[1] - bCoords[1];
-    return math.atan2(dy, dx) * 180 / math.pi;
-  }
 
   // ── Legacy Angle (Deprecated) ──────────────────────────────────────────
 
