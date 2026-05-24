@@ -123,16 +123,16 @@ class _MySessionsScreenState extends State<MySessionsScreen> with SingleTickerPr
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    // Left spacer (replacing back button)
-                    const SizedBox(width: 40),
                     // Title
                     Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('PRISM', style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w900, letterSpacing: 5, height: 1)),
+                        const Text('PRISM', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w800, letterSpacing: 3, height: 1.0)),
                         const SizedBox(height: 3),
-                        const Text('MY SESSIONS', style: TextStyle(color: _accent, fontSize: 9, fontWeight: FontWeight.w400, letterSpacing: 1.5)),
+                        const Text('MY SESSIONS', style: TextStyle(color: _accent, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.5)),
                       ],
                     ),
+                    const Spacer(),
                     // Profile / Sign-out
                     GestureDetector(
                       key: const Key('student_signout'),
@@ -181,27 +181,28 @@ class _MySessionsScreenState extends State<MySessionsScreen> with SingleTickerPr
                         ),
                         child: Row(
                           children: [
-                            _ProgressStat(val: '$total', label: 'Total Sessions', align: CrossAxisAlignment.start),
+                            _ProgressStat(val: '$total', label: 'Total Sessions', align: CrossAxisAlignment.center),
                             _ProgressDivider(),
                             Expanded(
                               child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.center,
                                 children: [
                                   Row(
                                     mainAxisSize: MainAxisSize.min,
                                     crossAxisAlignment: CrossAxisAlignment.baseline,
                                     textBaseline: TextBaseline.alphabetic,
                                     children: [
-                                      Text(avg.toStringAsFixed(1), style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700, height: 1)),
-                                      Text('/5', style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 13, fontWeight: FontWeight.w400)),
+                                      Text(avg.toStringAsFixed(1), style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w700, height: 1)),
+                                      Text('/5', style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 16, fontWeight: FontWeight.w400)),
                                     ],
                                   ),
-                                  const SizedBox(height: 4),
-                                  const Text('Avg. Score', style: TextStyle(color: _accent, fontSize: 10, fontWeight: FontWeight.w400)),
+                                  const SizedBox(height: 6),
+                                  const Text('Avg. Score', style: TextStyle(color: _accent, fontSize: 13, fontWeight: FontWeight.w600)),
                                 ],
                               ),
                             ),
                             _ProgressDivider(),
-                            _ProgressStat(val: '$released', label: 'Released', align: CrossAxisAlignment.end),
+                            _ProgressStat(val: '$released', label: 'Released', align: CrossAxisAlignment.center),
                           ],
                         ),
                       );
@@ -221,7 +222,7 @@ class _MySessionsScreenState extends State<MySessionsScreen> with SingleTickerPr
                   indicatorSize: TabBarIndicatorSize.label,
                   labelColor: Colors.white,
                   unselectedLabelColor: Colors.white.withValues(alpha: 0.40),
-                  labelStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, letterSpacing: 0.5),
+                  labelStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, letterSpacing: 0.5),
                   tabs: _tabs.map((t) => Tab(text: t)).toList(),
                 ),
               ),
@@ -244,9 +245,9 @@ class _ProgressStat extends StatelessWidget {
       child: Column(
         crossAxisAlignment: align,
         children: [
-          Text(val, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700, height: 1)),
-          const SizedBox(height: 4),
-          Text(label, style: const TextStyle(color: _accent, fontSize: 10, fontWeight: FontWeight.w400)),
+          Text(val, style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w700, height: 1)),
+          const SizedBox(height: 6),
+          Text(label, style: const TextStyle(color: _accent, fontSize: 13, fontWeight: FontWeight.w600)),
         ],
       ),
     );
@@ -376,7 +377,7 @@ class _SectionLabel extends StatelessWidget {
       child: Text(
         text.toUpperCase(),
         style: const TextStyle(
-          color: _textLight, fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 0.8,
+          color: _textLight, fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 1.0,
         ),
       ),
     );
@@ -410,7 +411,26 @@ class _SessionTile extends StatelessWidget {
           Navigator.push(context, MaterialPageRoute(builder: (_) => SessionDetailScreen(session: session)));
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('This session is still pending instructor review. Please wait.')),
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.hourglass_empty_rounded, color: Colors.white, size: 20),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Text(
+                      'This session is still pending instructor review. Please wait.',
+                      style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ],
+              ),
+              backgroundColor: const Color(0xFFD97706), // Amber
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              margin: const EdgeInsets.all(16),
+              elevation: 6,
+              duration: const Duration(seconds: 3),
+            ),
           );
         }
       },
@@ -434,7 +454,7 @@ class _SessionTile extends StatelessWidget {
               alignment: Alignment.center,
               child: isReleased
                   ? Text("${session.overallScore ?? '—'}/5",
-                      style: TextStyle(color: sbColor, fontSize: 13, fontWeight: FontWeight.w700, fontFeatures: const [FontFeature.tabularFigures()]))
+                      style: TextStyle(color: sbColor, fontSize: 16, fontWeight: FontWeight.w700, fontFeatures: const [FontFeature.tabularFigures()]))
                   : SvgPicture.string(
                       '<svg width="22" height="22" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="11" r="8" stroke="#D97706" stroke-width="1.6"/><path d="M11 7v4.5l3 2" stroke="#D97706" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
                     ),
@@ -448,7 +468,7 @@ class _SessionTile extends StatelessWidget {
                 children: [
                   Row(
                     children: [
-                      Text(session.injectionType, style: const TextStyle(color: _textDark, fontSize: 15, fontWeight: FontWeight.w700)),
+                      Text(session.injectionType, style: const TextStyle(color: _textDark, fontSize: 16, fontWeight: FontWeight.w700)),
                       const SizedBox(width: 8),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
@@ -457,12 +477,12 @@ class _SessionTile extends StatelessWidget {
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: Text(isReleased ? 'Released' : 'Pending',
-                            style: TextStyle(color: isReleased ? const Color(0xFF15803D) : const Color(0xFFB45309), fontSize: 9, fontWeight: FontWeight.w700, letterSpacing: 0.5)),
+                            style: TextStyle(color: isReleased ? const Color(0xFF15803D) : const Color(0xFFB45309), fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.5)),
                       ),
                     ],
                   ),
                   const SizedBox(height: 3),
-                  Text(formatted, style: const TextStyle(color: _textLight, fontSize: 11)),
+                  Text(formatted, style: const TextStyle(color: _textLight, fontSize: 13)),
                 ],
               ),
             ),

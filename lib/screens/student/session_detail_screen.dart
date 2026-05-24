@@ -51,6 +51,34 @@ class SessionDetailScreen extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    // ── Pending Banner ───────────────────────────────────────────────
+                    if (session.feedbackStatus == 'Pending Review')
+                      Container(
+                        margin: const EdgeInsets.only(bottom: 16),
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: const Color(0x1AF59E0B),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFD97706).withValues(alpha: 0.3)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.hourglass_empty_rounded, color: Color(0xFFD97706), size: 20),
+                            const SizedBox(width: 12),
+                            const Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text('Pending Review', style: TextStyle(color: Color(0xFFB45309), fontSize: 14, fontWeight: FontWeight.w700)),
+                                  SizedBox(height: 2),
+                                  Text('This session is still pending instructor review. Please wait.', style: TextStyle(color: Color(0xFFB45309), fontSize: 12, height: 1.4)),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+
                     // Section 1: Insertion
                     _SectionCard(
                       themeColor: _navy,
@@ -142,8 +170,8 @@ class SessionDetailScreen extends StatelessWidget {
                               const SizedBox(width: 8),
                               const Expanded(
                                 child: Text(
-                                  'Reviewed and released by your clinical instructor',
-                                  style: TextStyle(color: _textLight, fontSize: 11),
+                                  'AI-Assisted and reviewed by your clinical instructor.',
+                                  style: TextStyle(color: _textLight, fontSize: 13),
                                 ),
                               ),
                             ],
@@ -159,11 +187,11 @@ class SessionDetailScreen extends StatelessWidget {
                             thickness: 4,
                             child: SingleChildScrollView(
                               child: Text(
-                                session.instructorNote.isNotEmpty
-                                    ? session.instructorNote
-                                    : (session.aiFeedbackText.isEmpty ? 'No feedback available yet.' : session.aiFeedbackText),
-                                style: const TextStyle(color: _textMid, fontSize: 13, height: 1.75),
-                              ),
+                                  session.instructorNote.isNotEmpty
+                                      ? session.instructorNote
+                                      : (session.aiFeedbackText.isEmpty ? 'No feedback available yet.' : session.aiFeedbackText),
+                                  style: const TextStyle(color: _textMid, fontSize: 15, height: 1.6),
+                                ),
                             ),
                           ),
                         ),
@@ -227,9 +255,9 @@ class SessionDetailScreen extends StatelessWidget {
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('PRISM', style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w900, letterSpacing: 5, height: 1)),
-                        const SizedBox(height: 2),
-                        const Text('SESSION DETAIL', style: TextStyle(color: _accent, fontSize: 9, fontWeight: FontWeight.w400, letterSpacing: 1.5)),
+                        const Text('PRISM', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w800, letterSpacing: 3, height: 1.0)),
+                        const SizedBox(height: 3),
+                        const Text('SESSION DETAIL', style: TextStyle(color: _accent, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.5)),
                       ],
                     ),
                   ],
@@ -263,11 +291,11 @@ class SessionDetailScreen extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('OVERALL SCORE', style: TextStyle(color: _accent, fontSize: 10, fontWeight: FontWeight.w400, letterSpacing: 1.2)),
+                          const Text('OVERALL SCORE', style: TextStyle(color: _accent, fontSize: 12, fontWeight: FontWeight.w400, letterSpacing: 1.2)),
                           const SizedBox(height: 6),
                           Text('${_fullType(session.injectionType)} (${session.injectionType})', style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700, height: 1.1)),
                           const SizedBox(height: 4),
-                          Text(formattedDate, style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 11)),
+                          Text(formattedDate, style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 13)),
                         ],
                       ),
                     ),
@@ -341,7 +369,7 @@ class _SectionCard extends StatelessWidget {
                 const SizedBox(width: 10),
                 Text(
                   title.toUpperCase(),
-                  style: TextStyle(color: titleColor ?? themeColor, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.8),
+                  style: TextStyle(color: titleColor ?? themeColor, fontSize: 13, fontWeight: FontWeight.w700, letterSpacing: 0.8),
                 ),
               ],
             ),
@@ -378,12 +406,12 @@ class _DataRow extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: const TextStyle(color: _textMid, fontSize: 13)),
+          Text(label, style: const TextStyle(color: _textMid, fontSize: 15)),
           if (trailing != null) trailing! else Text(
             value,
             style: const TextStyle(
               color: _textDark,
-              fontSize: 13,
+              fontSize: 15,
               fontWeight: FontWeight.w600,
               fontFeatures: [FontFeature.tabularFigures()],
             ),
@@ -413,7 +441,7 @@ class _Chip extends StatelessWidget {
         text,
         style: TextStyle(
           color: textColor,
-          fontSize: 11,
+          fontSize: 13,
           fontWeight: FontWeight.w700,
           letterSpacing: 0.3,
         ),

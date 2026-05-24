@@ -362,36 +362,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                 ),
               ),
 
-              // Angle chip – centered
-              if (isTrackingActive)
-                Align(
-                  alignment: const Alignment(0, -0.2),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.85),
-                      border: Border.all(color: _accentBlue.withValues(alpha: 0.3), width: 1.5),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text('Live Angle',
-                          style: TextStyle(color: Colors.white.withValues(alpha: 0.35),
-                              fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 1.2, height: 1.2)),
-                        const SizedBox(height: 2),
-                        Text('${_liveAngle.toStringAsFixed(0)}\u00b0',
-                          style: const TextStyle(color: Colors.white, fontSize: 38,
-                              fontWeight: FontWeight.w700, fontFamily: 'DM Mono', height: 1.1)),
-                        const SizedBox(height: 2),
-                        Text(
-                          'Target: ${session.targetAngle.toStringAsFixed(0)}\u00b0 \u00b7 \u0394 ${(_liveAngle - session.targetAngle).abs().toStringAsFixed(0)}\u00b0',
-                          style: const TextStyle(color: _accentBlue, fontSize: 11, fontWeight: FontWeight.w600),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+
 
               // Bottom status panel
               Positioned(

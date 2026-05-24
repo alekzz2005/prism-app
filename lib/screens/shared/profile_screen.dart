@@ -190,7 +190,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   Padding(
                     padding: const EdgeInsets.fromLTRB(20, 16, 20, 120),
                     child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         GestureDetector(
                           onTap: () => Navigator.pop(context),
@@ -207,14 +206,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             ),
                           ),
                         ),
+                        const SizedBox(width: 14),
                         Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('PRISM', style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w900, letterSpacing: 5, height: 1)),
+                            const Text('PRISM', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w800, letterSpacing: 3, height: 1.0)),
                             const SizedBox(height: 3),
-                            const Text('PROFILE', style: TextStyle(color: _accent, fontSize: 9, fontWeight: FontWeight.w400, letterSpacing: 1.5)),
+                            const Text('PROFILE', style: TextStyle(color: _accent, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.5)),
                           ],
                         ),
-                        const SizedBox(width: 40), // Balance the back button
+                        const Spacer(),
                       ],
                     ),
                   ),
@@ -242,9 +243,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  Text(formattedName, style: const TextStyle(color: _textDark, fontSize: 22, fontWeight: FontWeight.w800, letterSpacing: -0.5)),
+                  Text(formattedName, style: const TextStyle(color: _textDark, fontSize: 24, fontWeight: FontWeight.w800, letterSpacing: -0.5)),
                   const SizedBox(height: 4),
-                  Text(email, style: const TextStyle(color: _textMid, fontSize: 14)),
+                  Text(email, style: const TextStyle(color: _textMid, fontSize: 15)),
                   const SizedBox(height: 8),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -254,7 +255,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                     child: Text(
                       roleProvider.isInstructor ? 'Clinical Instructor' : 'Nursing Student',
-                      style: const TextStyle(color: _navy, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.5),
+                      style: const TextStyle(color: _navy, fontSize: 13, fontWeight: FontWeight.w700, letterSpacing: 0.5),
                     ),
                   ),
                 ],
@@ -268,7 +269,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 child: ListView(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   children: [
-                    const Text('ACCOUNT SETTINGS', style: TextStyle(color: _textLight, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.2)),
+                    const Text('ACCOUNT SETTINGS', style: TextStyle(color: _textLight, fontSize: 13, fontWeight: FontWeight.w700, letterSpacing: 1.2)),
                     const SizedBox(height: 12),
                     
                     // Notifications Toggle
@@ -314,7 +315,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           children: [
                             SvgPicture.string('<svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" stroke="#DC2626" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
                             const SizedBox(width: 10),
-                            const Text('Sign Out', style: TextStyle(color: _red, fontSize: 14, fontWeight: FontWeight.w700)),
+                            const Text('Sign Out', style: TextStyle(color: _red, fontSize: 15, fontWeight: FontWeight.w700)),
                           ],
                         ),
                       ),
@@ -359,9 +360,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: const TextStyle(color: _textDark, fontSize: 14, fontWeight: FontWeight.w600)),
+                  Text(title, style: const TextStyle(color: _textDark, fontSize: 15, fontWeight: FontWeight.w600)),
                   const SizedBox(height: 2),
-                  Text(subtitle, style: const TextStyle(color: _textLight, fontSize: 12)),
+                  Text(subtitle, style: const TextStyle(color: _textLight, fontSize: 13)),
                 ],
               ),
             ),
