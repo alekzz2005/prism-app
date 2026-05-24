@@ -27,10 +27,10 @@ class _DetectionScreenState extends State<DetectionScreen> {
   bool _cameraReady = false;
   int _sensorOrientation = 90;
 
-  // ── Hand Landmarker ──
   final HandLandmarkService _landmarkService = HandLandmarkService();
   bool _processing = false;
   List<Hand> _hands = [];
+  Size? _imageSize;
 
   // ── Phase & Tracking States ──
   DetectionPhase _phase = DetectionPhase.insertion;
@@ -90,10 +90,11 @@ class _DetectionScreenState extends State<DetectionScreen> {
         setState(() {
           _hands = detected;
           _sensorOrientation = cam.sensorOrientation;
+          _imageSize = Size(image.width.toDouble(), image.height.toDouble());
           
-          if (_hands.isNotEmpty) {
+          if (_hands.isNotEmpty && _imageSize != null) {
             _isTrackingLost = false;
-            final angle = AngleComputationUtil.computeDartGripAngle(_hands, sensorOrientation: _sensorOrientation);
+            final angle = AngleComputationUtil.computeDartGripAngle(_hands, _imageSize!, sensorOrientation: _sensorOrientation);
             if (angle >= 0) {
               _liveAngle = angle;
               _updateAngleState();
@@ -397,8 +398,8 @@ class _DetectionScreenState extends State<DetectionScreen> {
             )
           else ...[
             // Skeletons
-            if (_hands.isNotEmpty)
-              CustomPaint(painter: AngleOverlayPainter(hands: _hands, sensorOrientation: _sensorOrientation)),
+            if (_hands.isNotEmpty && _imageSize != null)
+              CustomPaint(painter: AngleOverlayPainter(hands: _hands, poses: const [], imageSize: _imageSize!, sensorOrientation: _sensorOrientation)),
 
             if (isLocked) ...[
               Container(color: const Color(0xFF22C55E).withValues(alpha: 0.07)),

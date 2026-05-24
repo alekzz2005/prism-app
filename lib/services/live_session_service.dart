@@ -118,65 +118,67 @@ class LiveSessionService {
 
   /// Updates the phase. Called by the Remote Control node.
   Future<void> updatePhase(String instructorId, String phase) async {
-    await _db.collection('live_sessions').doc(instructorId).update({
+    await _db.collection('live_sessions').doc(instructorId).set({
       'phase': phase,
-    });
+    }, SetOptions(merge: true));
   }
 
   /// Sets whether the camera node is actively listening.
+  /// Uses merge-set so this works even if the doc hasn't been created yet
+  /// by the remote device (race-condition safe).
   Future<void> setCameraActive(String instructorId, bool isActive) async {
-    await _db.collection('live_sessions').doc(instructorId).update({
+    await _db.collection('live_sessions').doc(instructorId).set({
       'cameraNodeActive': isActive,
-    });
+    }, SetOptions(merge: true));
   }
 
   /// Sets whether the camera has lost hand detection.
   Future<void> setDetectionLost(String instructorId, bool isLost) async {
-    await _db.collection('live_sessions').doc(instructorId).update({
+    await _db.collection('live_sessions').doc(instructorId).set({
       'detectionLost': isLost,
-    });
+    }, SetOptions(merge: true));
   }
 
   /// Pushes the live angle. Called by the Camera node at ~2Hz.
   Future<void> updateLiveAngle(String instructorId, double angle) async {
-    await _db.collection('live_sessions').doc(instructorId).update({
+    await _db.collection('live_sessions').doc(instructorId).set({
       'liveAngle': angle,
-    });
+    }, SetOptions(merge: true));
   }
 
   /// Pushes the live aspiration metrics. Called by the Camera node at ~2Hz during aspiration.
   Future<void> updateLiveAspiration(String instructorId, String result, double duration) async {
-    await _db.collection('live_sessions').doc(instructorId).update({
+    await _db.collection('live_sessions').doc(instructorId).set({
       'liveAspirationResult': result,
       'liveAspirationDuration': duration,
-    });
+    }, SetOptions(merge: true));
   }
 
   /// Saves insertion metrics. Called by Camera node when phase changes.
   Future<void> saveInsertionMetrics(String instructorId, double angle, int score) async {
-    await _db.collection('live_sessions').doc(instructorId).update({
+    await _db.collection('live_sessions').doc(instructorId).set({
       'finalInsertionAngle': angle,
       'insertionScore': score,
-    });
+    }, SetOptions(merge: true));
   }
 
   /// Saves aspiration metrics.
   Future<void> saveAspirationMetrics(String instructorId, String result, double duration, String smoothness) async {
-    await _db.collection('live_sessions').doc(instructorId).update({
+    await _db.collection('live_sessions').doc(instructorId).set({
       'aspirationResult': result,
       'aspirationDuration': duration,
       'motionSmoothness': smoothness,
-    });
+    }, SetOptions(merge: true));
   }
 
   /// Saves withdrawal metrics.
   Future<void> saveWithdrawalMetrics(String instructorId, double angle, int score, String correspondence, double delta) async {
-    await _db.collection('live_sessions').doc(instructorId).update({
+    await _db.collection('live_sessions').doc(instructorId).set({
       'finalWithdrawalAngle': angle,
       'withdrawalScore': score,
       'correspondenceResult': correspondence,
       'angularDelta': delta,
-    });
+    }, SetOptions(merge: true));
   }
 
   /// Clears the session entirely.

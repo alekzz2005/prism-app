@@ -1,17 +1,30 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:hand_landmarker/hand_landmarker.dart';
+import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
 import '../services/hand_landmark_service.dart';
+import '../services/pose_landmark_service.dart';
 
 /// CustomPainter that draws the hand skeleton overlay on top of the camera preview.
 /// Highlights the key PRISM landmarks:
 ///   L0 (wrist) — cyan, L4 (thumb tip) — amber,
 ///   L5 (index MCP) — yellow, L9 (middle MCP) — yellow.
 /// Primary syringe axis: L0 → midpoint(L5, L9) — hand longitudinal axis.
+/// Arm baseline axis: Shoulder → Elbow (from Pose tracking).
 class AngleOverlayPainter extends CustomPainter {
   final List<Hand> hands;
+  final List<Pose> poses;
+  final Size imageSize;
   final int sensorOrientation;
+  final String? injectionType;
 
-  AngleOverlayPainter({required this.hands, this.sensorOrientation = 90});
+  AngleOverlayPainter({
+    required this.hands, 
+    required this.poses,
+    required this.imageSize,
+    this.sensorOrientation = 90,
+    this.injectionType,
+  });
 
   // MediaPipe hand connections (simplified to the connections relevant
   // to the wrist → index / wrist → thumb paths).
@@ -88,7 +101,7 @@ class AngleOverlayPainter extends CustomPainter {
         canvas.drawCircle(_scale(lms[HandLandmarkIndices.middleMcp], size), 7, mcpPaint);
       }
 
-      // Draw the primary syringe axis: L0 → midpoint(L5, L9)
+      // Draw the primary syringe axis
       if (lms.length > HandLandmarkIndices.middleMcp) {
         final wristPt = _scale(lms[HandLandmarkIndices.wrist], size);
         final indexMcpPt = _scale(lms[HandLandmarkIndices.indexMcp], size);
@@ -97,9 +110,83 @@ class AngleOverlayPainter extends CustomPainter {
           (indexMcpPt.dx + middleMcpPt.dx) / 2.0,
           (indexMcpPt.dy + middleMcpPt.dy) / 2.0,
         );
-        canvas.drawLine(wristPt, midpoint, syringeAxisPaint);
+        
+        Offset axisEnd = wristPt; // Default (fallback)
+        
+        if (injectionType == 'IM' || injectionType == 'SubQ') {
+          // Dart grip: The syringe points perpendicularly outward from the hand axis.
+          // Calculate the hand axis vector (wrist -> midpoint)
+          double dx = midpoint.dx - wristPt.dx;
+          double dy = midpoint.dy - wristPt.dy;
+          
+          // Compute a perpendicular vector. We swap dx and dy, and negate one.
+          // Because the syringe points "forward" from the palm, we just need a visual representation.
+          // We'll normalize it to the same length as the hand axis so it looks nice.
+          double len = math.sqrt(dx * dx + dy * dy);
+          if (len > 0) {
+            double pdx = -dy;
+            double pdy = dx;
+            // The syringe is held near the midpoint (knuckles). We draw it extending outward from there.
+            axisEnd = Offset(midpoint.dx + pdx, midpoint.dy + pdy);
+            canvas.drawLine(midpoint, axisEnd, syringeAxisPaint);
+          }
+        } else {
+          // Flat grip: Syringe runs along the hand axis
+          canvas.drawLine(wristPt, midpoint, syringeAxisPaint);
+        }
+
         // Draw a small diamond at the midpoint target
         canvas.drawCircle(midpoint, 5, mcpPaint);
+      }
+    }
+
+    // ── Draw Body Baseline Axis (injection-type specific) ─────────────
+    // Only the two landmarks relevant to the current injection type:
+    //   IM  → Shoulder → Elbow
+    //   SubQ → Shoulder → Elbow (upper arm)
+    //   IV/ID → Elbow → Wrist (forearm)
+    if (poses.isNotEmpty) {
+      final patientArm = PoseLandmarkService.getPatientArm(poses, hands.isNotEmpty ? hands.first : null, imageSize, sensorOrientation: sensorOrientation);
+
+      ArmLandmark? baseLm;
+      ArmLandmark? distalLm;
+
+      if (patientArm != null) {
+        if (injectionType == 'IM' || injectionType == null) {
+          baseLm = patientArm.shoulder;
+          distalLm = patientArm.elbow;
+        } else if (injectionType == 'SubQ') {
+          baseLm = patientArm.shoulder;
+          distalLm = patientArm.elbow;
+        } else if (injectionType == 'ID' || injectionType == 'IV') {
+          baseLm = patientArm.elbow;
+          distalLm = patientArm.wrist;
+        }
+      }
+
+      if (baseLm != null && distalLm != null) {
+        final axisPaint = Paint()
+          ..color = Colors.orangeAccent
+          ..strokeWidth = 4.0
+          ..style = PaintingStyle.stroke;
+
+        final jointPaint = Paint()
+          ..color = Colors.orangeAccent
+          ..style = PaintingStyle.fill;
+
+        final glowPaint = Paint()
+          ..color = Colors.orangeAccent.withValues(alpha: 0.3)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.5;
+
+        final basePt = _scalePose(baseLm, size);
+        final distalPt = _scalePose(distalLm, size);
+
+        canvas.drawLine(basePt, distalPt, axisPaint);
+        canvas.drawCircle(basePt, 7, jointPaint);
+        canvas.drawCircle(basePt, 10, glowPaint);
+        canvas.drawCircle(distalPt, 7, jointPaint);
+        canvas.drawCircle(distalPt, 10, glowPaint);
       }
     }
   }
@@ -118,6 +205,24 @@ class AngleOverlayPainter extends CustomPainter {
     return Offset(x * canvas.width, y * canvas.height);
   }
 
+  /// Scales absolute ML Kit Pose coordinates to canvas size.
+  ///
+  /// ML Kit returns absolute pixel coords in the *rotated* sensor frame.
+  /// We simply normalise against the rotated dimensions and scale to canvas.
+  Offset _scalePose(ArmLandmark lm, Size canvas) {
+    double rw = imageSize.width;
+    double rh = imageSize.height;
+    if (sensorOrientation == 90 || sensorOrientation == 270) {
+      rw = imageSize.height;
+      rh = imageSize.width;
+    }
+    
+    double nx = lm.x / rw;
+    double ny = lm.y / rh;
+
+    return Offset(nx * canvas.width, ny * canvas.height);
+  }
+
   @override
-  bool shouldRepaint(AngleOverlayPainter old) => old.hands != hands;
+  bool shouldRepaint(AngleOverlayPainter old) => old.hands != hands || old.poses != poses;
 }

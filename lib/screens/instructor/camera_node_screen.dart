@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:hand_landmarker/hand_landmarker.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'dart:math' as math;
 
 import '../../providers/user_role_provider.dart';
 import '../../services/hand_landmark_service.dart';
@@ -11,6 +13,8 @@ import '../../services/detection_service.dart';
 import '../../services/aspiration_detection_service.dart';
 import '../../services/live_session_service.dart';
 import '../../widgets/angle_overlay_painter.dart';
+import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
+import '../../services/pose_landmark_service.dart';
 
 // ─── Brand Colours ─────────────────────────────────────────────────────────
 const _accentBlue = Color(0xFFA8C4E0);
@@ -33,21 +37,44 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
   final HandLandmarkService _landmarkService = HandLandmarkService();
   bool _processing = false;
   List<Hand> _hands = [];
+  List<Pose> _poses = [];
 
   final LiveSessionService _liveService = LiveSessionService();
   final AspirationDetectionService _aspirationService = AspirationDetectionService();
+  final PoseLandmarkService _poseService = PoseLandmarkService();
 
   double _liveAngle = 0;
   String _currentPhase = 'waiting';
+  Size? _imageSize;
+  LiveSessionModel? _currentSession;
 
   Timer? _syncTimer;
   double? _lastInsertionAngle;
+  math.Point<double>? _lockedWristPos;
+  String? _instructorId;  // cached to avoid context.read in dispose/timers
 
   @override
   void initState() {
     super.initState();
     _landmarkService.init();
+    // Cache instructorId so dispose() and timers don't need context
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _instructorId = context.read<UserRoleProvider>().uid;
+    });
     _initCamera();
+  }
+
+  @override
+  void dispose() {
+    _syncTimer?.cancel();
+    _camera?.stopImageStream();
+    _camera?.dispose();
+    _landmarkService.dispose();
+    _poseService.dispose();
+    if (_instructorId != null) {
+      _liveService.setCameraActive(_instructorId!, false);
+    }
+    super.dispose();
   }
 
   Future<void> _initCamera() async {
@@ -75,11 +102,12 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
     // Wait for insertion or withdrawal or aspiration
     if (_currentPhase != 'insertion' && _currentPhase != 'withdrawal' && _currentPhase != 'aspiration') return;
     if (_liveAngle < 0 && _currentPhase != 'aspiration') return;
-    final instructorId = context.read<UserRoleProvider>().uid;
+    final instructorId = _instructorId;
     if (instructorId == null) return;
 
     // Sync detection state
-    _liveService.setDetectionLost(instructorId, _hands.isEmpty);
+    bool isLost = _hands.isEmpty;
+    _liveService.setDetectionLost(instructorId, isLost);
 
     if (_currentPhase == 'insertion' || _currentPhase == 'withdrawal') {
       if (_liveAngle >= 0) {
@@ -90,24 +118,217 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
     }
   }
 
-  void _onFrame(CameraImage image) {
+  List<Hand> _sortAndLockActiveHand(List<Hand> detectedHands, List<Pose> poses) {
+    if (detectedHands.isEmpty) return detectedHands;
+
+    List<Hand> candidateHands = List.from(detectedHands);
+
+    // 1. Identify and exclude the patient's resting hands
+    if (_imageSize != null && poses.isNotEmpty) {
+      final patientPose = PoseLandmarkService.getPatientPose(poses, _imageSize!, _sensorOrientation);
+      if (patientPose != null) {
+        double rw = _imageSize!.width;
+        double rh = _imageSize!.height;
+        if (_sensorOrientation == 90 || _sensorOrientation == 270) {
+          rw = _imageSize!.height;
+          rh = _imageSize!.width;
+        }
+
+        final lw = patientPose.landmarks[PoseLandmarkType.leftWrist];
+        final rwPos = patientPose.landmarks[PoseLandmarkType.rightWrist];
+        
+        List<Offset> patientWrists = [];
+        if (lw != null && lw.likelihood > 0.4) patientWrists.add(Offset(lw.x / rw, lw.y / rh));
+        if (rwPos != null && rwPos.likelihood > 0.4) patientWrists.add(Offset(rwPos.x / rw, rwPos.y / rh));
+
+        candidateHands.removeWhere((h) {
+          double hx = h.landmarks[0].x;
+          double hy = h.landmarks[0].y;
+          if (_sensorOrientation == 90) {
+            hx = 1.0 - h.landmarks[0].y;
+            hy = h.landmarks[0].x;
+          } else if (_sensorOrientation == 270) {
+            hx = h.landmarks[0].y;
+            hy = 1.0 - h.landmarks[0].x;
+          }
+
+          for (final pw in patientWrists) {
+            double distSq = (hx - pw.dx) * (hx - pw.dx) + (hy - pw.dy) * (hy - pw.dy);
+            if (distSq < 0.05) { // If MediaPipe hand is very close to Patient's Pose wrist
+              return true; // Exclude it! It's the patient's resting hand.
+            }
+          }
+          return false;
+        });
+      }
+    }
+
+    Hand? activeHand;
+
+    // 2. Try to maintain existing lock on the instructor's hand
+    if (_lockedWristPos != null) {
+      double minLockDist = double.infinity;
+      for (final h in candidateHands) {
+        final w = h.landmarks[0];
+        final dist = math.pow(w.x - _lockedWristPos!.x, 2) + math.pow(w.y - _lockedWristPos!.y, 2);
+        if (dist < minLockDist) {
+          minLockDist = dist.toDouble();
+          activeHand = h;
+        }
+      }
+
+      if (minLockDist > 0.05) {
+        _lockedWristPos = null; // Lock broken
+        activeHand = null;
+      }
+    }
+
+    // 3. If no lock, find the hand closest to the injection site (max threshold to avoid stabilizing hands)
+    if (_lockedWristPos == null) {
+      ArmLandmark? targetSite;
+      if (_currentSession != null && poses.isNotEmpty && _imageSize != null) {
+        final type = _currentSession!.injectionType;
+        if (type == 'IM') {
+          targetSite = PoseLandmarkService.getShoulder(poses, _imageSize!, _sensorOrientation);
+        } else if (type == 'SubQ') {
+          targetSite = PoseLandmarkService.getElbow(poses, _imageSize!, _sensorOrientation);
+        } else if (type == 'ID' || type == 'IV') {
+          targetSite = PoseLandmarkService.getWrist(poses, _imageSize!, _sensorOrientation);
+        }
+
+        if (targetSite != null) {
+          double rw = _imageSize!.width;
+          double rh = _imageSize!.height;
+          if (_sensorOrientation == 90 || _sensorOrientation == 270) {
+            rw = _imageSize!.height;
+            rh = _imageSize!.width;
+          }
+          double px = targetSite.x / rw;
+          double py = targetSite.y / rh;
+
+          double bestScore = double.infinity;
+          for (final h in candidateHands) {
+            Offset getScaled(Landmark lm) {
+              double hx = lm.x;
+              double hy = lm.y;
+              if (_sensorOrientation == 90) {
+                hx = 1.0 - lm.y;
+                hy = lm.x;
+              } else if (_sensorOrientation == 270) {
+                hx = lm.y;
+                hy = 1.0 - lm.x;
+              }
+              return Offset(hx, hy);
+            }
+
+            final w = getScaled(h.landmarks[0]);
+            Offset m = w;
+            if (h.landmarks.length > 9) {
+              final l5 = getScaled(h.landmarks[5]);
+              final l9 = getScaled(h.landmarks[9]);
+              m = Offset((l5.dx + l9.dx) / 2, (l5.dy + l9.dy) / 2);
+            }
+
+            double dx = m.dx - w.dx;
+            double dy = m.dy - w.dy;
+            double len2 = dx * dx + dy * dy;
+
+            double wx = px - w.dx;
+            double wy = py - w.dy;
+
+            double score = 0.0;
+            double distToWrist2 = wx * wx + wy * wy;
+
+            if (len2 < 0.0001) {
+              score = distToWrist2;
+            } else {
+              double t = (wx * dx + wy * dy) / len2;
+              double cx = w.dx + t * dx;
+              double cy = w.dy + t * dy;
+              double distToLine2 = (px - cx) * (px - cx) + (py - cy) * (py - cy);
+
+              if (t < 0) {
+                score = 10.0 + distToWrist2;
+              } else {
+                score = distToLine2 * 2.0 + distToWrist2 * 0.5;
+              }
+            }
+
+            // Exclude hands that are too far from the injection site (e.g. stabilizing hands)
+            if (score < bestScore && distToWrist2 < 0.15) { 
+              bestScore = score;
+              activeHand = h;
+            }
+          }
+        }
+      }
+      
+      // Fallback: If still no active hand, and we didn't have a target site, just pick the first candidate
+      if (activeHand == null && candidateHands.isNotEmpty && targetSite == null) {
+         activeHand = candidateHands.first;
+      }
+    }
+
+    if (activeHand != null) {
+      final w = activeHand.landmarks[0];
+      _lockedWristPos = math.Point(w.x, w.y);
+
+      final sorted = [activeHand];
+      for (final h in detectedHands) {
+        if (h != activeHand) sorted.add(h);
+      }
+      return sorted;
+    } else {
+      // If no valid active hand (e.g. only stabilizing hand detected), don't put it at index 0.
+      // But we still want to draw it! 
+      // We return an empty list so that the detection engine skips this frame, 
+      // but we lose the drawing of the stabilizing hand. That's acceptable for correct tracking.
+      return []; 
+    }
+  }
+
+  Future<void> _onFrame(CameraImage image) async {
     if (_processing) return;
     if (_currentPhase == 'waiting') return;
     _processing = true;
     try {
       final cam = _camera?.description;
       if (cam == null) return;
-      final detected = _landmarkService.detect(image, cam.sensorOrientation);
+      
+      final sensorOrientation = cam.sensorOrientation;
+      
+      // Run both models
+      final detectedHands = _landmarkService.detect(image, sensorOrientation);
+      final detectedPoses = await _poseService.detect(image, sensorOrientation);
+      
       if (mounted) {
         setState(() {
-          _hands = detected;
-          _sensorOrientation = cam.sensorOrientation;
-          if (_hands.isNotEmpty) {
-            final angle = AngleComputationUtil.computeDartGripAngle(_hands,
+          _imageSize = Size(image.width.toDouble(), image.height.toDouble());
+          _hands = _sortAndLockActiveHand(detectedHands, detectedPoses ?? _poses);
+          if (detectedPoses != null) {
+            _poses = detectedPoses;
+          }
+          _sensorOrientation = sensorOrientation;
+          
+          if (_hands.isNotEmpty && _currentSession != null) {
+            final angle = AngleComputationUtil.computeRelativeInjectionAngle(
+                _hands, _poses, _imageSize!, 
+                injectionType: _currentSession!.injectionType, 
                 sensorOrientation: _sensorOrientation);
+                
             if (angle >= 0) _liveAngle = angle;
+            
             if (_currentPhase == 'aspiration') {
               _aspirationService.update(_hands, sensorOrientation: _sensorOrientation);
+
+              if (_aspirationService.isFinished) {
+                final instructorId = _instructorId;
+                if (instructorId != null) {
+                  _liveService.saveAspirationMetrics(instructorId, _aspirationService.result,
+                      _aspirationService.duration, _aspirationService.smoothness);
+                  _liveService.updatePhase(instructorId, 'medication_push');
+                }
+              }
             }
           }
         });
@@ -140,7 +361,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
     } else if (session.phase == 'aspiration_locked' && oldPhase == 'aspiration') {
       _liveService.saveAspirationMetrics(instructorId, _aspirationService.result,
           _aspirationService.duration, _aspirationService.smoothness);
-    } else if (session.phase == 'withdrawal' && oldPhase == 'medication_push_locked') {
+    } else if (session.phase == 'withdrawal' && (oldPhase == 'medication_push_locked' || oldPhase == 'medication_push')) {
       AngleComputationUtil.resetSmoothing();
     } else if (session.phase == 'withdrawal_locked' && oldPhase == 'withdrawal') {
       final score = _scoreAngle(_liveAngle, session.targetAngle);
@@ -150,22 +371,13 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
     }
   }
 
-  @override
-  void dispose() {
-    _syncTimer?.cancel();
-    _camera?.stopImageStream();
-    _camera?.dispose();
-    _landmarkService.dispose();
-    final instructorId = context.read<UserRoleProvider>().uid;
-    if (instructorId != null) {
-      _liveService.setCameraActive(instructorId, false);
-    }
-    super.dispose();
-  }
+
 
   @override
   Widget build(BuildContext context) {
     final instructorId = context.watch<UserRoleProvider>().uid;
+    // Keep cached ID up to date
+    _instructorId = instructorId;
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -173,6 +385,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
         stream: _liveService.watchSession(instructorId!),
         builder: (context, snapshot) {
           final session = snapshot.data;
+          _currentSession = session;
 
           if (session != null && !session.cameraNodeActive) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -272,9 +485,15 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                       child: Stack(
                         children: [
                           CameraPreview(_camera!),
-                          if (_hands.isNotEmpty)
+                          if ((_hands.isNotEmpty || _poses.isNotEmpty) && _imageSize != null)
                             Positioned.fill(
-                              child: CustomPaint(painter: AngleOverlayPainter(hands: _hands, sensorOrientation: _sensorOrientation)),
+                              child: CustomPaint(painter: AngleOverlayPainter(
+                                hands: _hands, 
+                                poses: _poses,
+                                imageSize: _imageSize!,
+                                sensorOrientation: _sensorOrientation,
+                                injectionType: _currentSession?.injectionType,
+                              )),
                             ),
                         ],
                       ),
@@ -366,7 +585,29 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
               if (isTrackingActive)
                 Align(
                   alignment: const Alignment(0, -0.2),
-                  child: Container(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (AngleComputationUtil.isFallbackModeActive)
+                        Container(
+                          margin: const EdgeInsets.only(bottom: 16),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: Colors.orange.shade800.withValues(alpha: 0.85),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: Colors.orangeAccent.withValues(alpha: 0.5)),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.screen_rotation, color: Colors.white, size: 16),
+                              SizedBox(width: 8),
+                              Text('Body not detected: Align camera vertically with arm', 
+                                style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
+                            ],
+                          ),
+                        ),
+                      Container(
                     padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
                     decoration: BoxDecoration(
                       color: Colors.black.withValues(alpha: 0.85),
@@ -390,6 +631,8 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                         ),
                       ],
                     ),
+                  ),
+                    ],
                   ),
                 ),
 
@@ -443,7 +686,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                             _accentBlue),
                           const SizedBox(width: 10),
                           _buildMetricCard('Landmarks',
-                            _hands.isNotEmpty ? '21 / 21' : '0 / 21',
+                            'H: ${_hands.isNotEmpty ? 21 : 0} | P: ${_poses.isNotEmpty ? 33 : 0}',
                             _green),
                           const SizedBox(width: 10),
                           _buildMetricCard('Phase',

@@ -25,6 +25,9 @@ class AspirationDetectionService {
   double get duration => _duration;
   String get smoothness => _smoothness;
 
+  bool _isFinished = false;
+  bool get isFinished => _isFinished;
+
   void reset() {
     _initialDistance = null;
     _aspirationStart = null;
@@ -32,11 +35,19 @@ class AspirationDetectionService {
     _duration = 0.0;
     _smoothness = 'Good';
     _distanceHistory = [];
+    _isFinished = false;
   }
 
   /// Call on each frame. [hands] is the hand detection result.
   void update(List<Hand> hands, {int sensorOrientation = 90}) {
-    if (hands.isEmpty) return;
+    if (_isFinished) return;
+
+    if (hands.isEmpty) {
+      if (_aspirationStart != null) {
+        _isFinished = true;
+      }
+      return;
+    }
 
     double distance = 0.0;
     bool isTwoHanded = hands.length >= 2;
@@ -52,7 +63,12 @@ class AspirationDetectionService {
       final index = HandLandmarkService.getIndexTip(hands);
       final middle = HandLandmarkService.getMiddleTip(hands);
 
-      if (thumb == null || index == null || middle == null) return;
+      if (thumb == null || index == null || middle == null) {
+        if (_aspirationStart != null) {
+          _isFinished = true;
+        }
+        return;
+      }
 
       // Calculate midpoint of index and middle tips (representing the barrel grip)
       final midX = (index.x + middle.x) / 2;
@@ -69,6 +85,12 @@ class AspirationDetectionService {
 
     _currentDisplacement = (distance - _initialDistance!).abs();
     _distanceHistory.add(distance);
+
+    // If hand has moved away significantly (e.g. > 0.2) after starting, finish.
+    if (_aspirationStart != null && _currentDisplacement > 0.2) {
+      _isFinished = true;
+      return;
+    }
 
     final threshold = isTwoHanded ? _twoHandDisplacementThreshold : _displacementThreshold;
 

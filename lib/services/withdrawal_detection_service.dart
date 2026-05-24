@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:hand_landmarker/hand_landmarker.dart';
 import 'detection_service.dart';
 
@@ -33,9 +34,10 @@ class WithdrawalDetectionService {
     required double insertionAngle,
     required double targetAngle,
     required double tolerance,
+    required Size imageSize,
     int sensorOrientation = 90,
   }) {
-    final angle = AngleComputationUtil.computeDartGripAngle(hands, sensorOrientation: sensorOrientation);
+    final angle = AngleComputationUtil.computeDartGripAngle(hands, imageSize, sensorOrientation: sensorOrientation);
     if (angle < 0) return;
 
     _withdrawalAngle = angle;

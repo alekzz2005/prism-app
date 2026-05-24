@@ -495,15 +495,8 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
       );
     } else if (session.phase == 'medication_push') {
       button = _ControlButton(
-        label: 'Done Injecting',
-        hint: 'Tap when medication is fully injected',
-        color: const Color(0xFF92400E),
-        onPressed: guardrailBlocked ? () {} : () => _updatePhase(instructorId, 'medication_push_locked'),
-      );
-    } else if (session.phase == 'medication_push_locked') {
-      button = _ControlButton(
         label: 'Proceed to Withdrawal',
-        hint: 'Tap to begin withdrawal tracking',
+        hint: 'Tap when medication is fully injected',
         color: _navy,
         onPressed: guardrailBlocked ? () {} : () => _updatePhase(instructorId, 'withdrawal'),
       );
