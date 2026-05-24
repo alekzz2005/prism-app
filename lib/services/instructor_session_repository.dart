@@ -6,10 +6,11 @@ class InstructorSessionRepository {
   final _db = FirebaseFirestore.instance;
 
   /// Streams all sessions ordered by timestamp descending.
-  /// Optional [statusFilter] and [typeFilter] narrow the query.
+  /// Optional [statusFilter], [typeFilter], and [sectionFilter] narrow the query.
   Stream<List<SessionModel>> watchAllSessions({
     String? statusFilter,
     String? typeFilter,
+    String? sectionFilter,
   }) {
     Query<Map<String, dynamic>> query = _db
         .collection('sessions')
@@ -20,6 +21,9 @@ class InstructorSessionRepository {
     }
     if (typeFilter != null) {
       query = query.where('injectionType', isEqualTo: typeFilter);
+    }
+    if (sectionFilter != null) {
+      query = query.where('sectionName', isEqualTo: sectionFilter);
     }
 
     return query.snapshots().map(

@@ -4,7 +4,7 @@
     <uses-feature android:name="android.hardware.camera" android:required="true"/>
 
     <application
-        android:label="prism_app"
+        android:label="PRISM"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

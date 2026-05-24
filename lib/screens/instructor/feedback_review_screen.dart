@@ -10,11 +10,12 @@ import '../../services/feedback_release_service.dart';
 const _navy        = Color(0xFF003366);
 const _navyMid     = Color(0xFF004080);
 const _navyDark    = Color(0xFF002244);
-const _bg          = Color(0xFFF0F4F8);
+const _bg          = Color(0xFFF8FAFC);
 const _cardBg      = Color(0xFFFFFFFF);
 const _cardBorder  = Color(0xFFE2EAF4);
-const _textDark    = Color(0xFF003366);
-const _textMid     = Color(0xFF8A9BB0);
+const _textDark    = Color(0xFF1A2B3C);
+const _textMid     = Color(0xFF4A5568);
+const _textLight   = Color(0xFF8A9BB0);
 const _inputBg     = Color(0xFFF8FAFC);
 const _inputBorder = Color(0xFF1A2B3C);
 const _green       = Color(0xFF1A7A4A);
@@ -118,7 +119,6 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
   @override
   Widget build(BuildContext context) {
     final s          = widget.session;
-    final date       = s.timestamp.toDate();
     final isReleased = s.feedbackStatus == 'Released';
 
     return Scaffold(
@@ -130,7 +130,6 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
             // ── Header ──────────────────────────────────────────────────────
             _buildHeader(s),
 
-
             // ── Scroll body ──────────────────────────────────────────────────
             Expanded(
               child: SingleChildScrollView(
@@ -138,25 +137,10 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Meta row
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('${date.day}/${date.month}/${date.year}',
-                                style: const TextStyle(color: _textMid, fontSize: 13)),
-                            const SizedBox(height: 3),
-                            Text(
-                              'Student: ${s.userId.length > 8 ? "${s.userId.substring(0, 8)}..." : s.userId}',
-                              style: const TextStyle(color: _textMid, fontSize: 12),
-                            ),
-                          ],
-                        ),
-                        _StatusChip(status: s.feedbackStatus),
-                      ],
+                    // Status chip
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: _StatusChip(status: s.feedbackStatus),
                     ),
                     const SizedBox(height: 14),
 
@@ -404,6 +388,11 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
   }
 
   Widget _buildHeader(SessionModel s) {
+    final date = s.timestamp.toDate();
+    final months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    final dateStr = '${months[date.month - 1]} ${date.day}, ${date.year}';
+    final sectionStr = (s.sectionName != null && s.sectionName!.isNotEmpty) ? s.sectionName! : 'No Section';
+
     return Container(
       color: _navy,
       child: Stack(
@@ -430,27 +419,49 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 18),
-            child: Row(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                GestureDetector(
-                  onTap: () => Navigator.pop(context),
-                  child: Container(
-                    width: 36, height: 36,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(10),
+                // Back button row
+                Row(
+                  children: [
+                    GestureDetector(
+                      onTap: () => Navigator.pop(context),
+                      child: Container(
+                        width: 36, height: 36,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        alignment: Alignment.center,
+                        child: SvgPicture.string(
+                          '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M10 12L5 8L10 4" stroke="rgba(255,255,255,0.8)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+                        ),
+                      ),
                     ),
-                    alignment: Alignment.center,
-                    child: SvgPicture.string(
-                      '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M10 12L5 8L10 4" stroke="rgba(255,255,255,0.8)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+                    const SizedBox(width: 10),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: const [
+                        Text('PRISM', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w800, letterSpacing: 3, height: 1.0)),
+                        SizedBox(height: 3),
+                        Text('SESSION REVIEW', style: TextStyle(color: Color(0xFFA8C4E0), fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.5)),
+                      ],
                     ),
-                  ),
+                  ],
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(height: 14),
+                // Student name
                 Text(
-                  '${s.injectionType} Injection Review',
-                  style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700),
+                  s.studentName,
+                  style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700, height: 1.2),
+                ),
+                const SizedBox(height: 4),
+                // Date · Section · Injection type
+                Text(
+                  '$dateStr  ·  $sectionStr  ·  ${s.injectionType} Injection',
+                  style: const TextStyle(color: Color(0xFFA8C4E0), fontSize: 12, fontWeight: FontWeight.w500),
                 ),
               ],
             ),

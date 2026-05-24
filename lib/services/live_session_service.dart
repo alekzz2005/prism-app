@@ -24,6 +24,7 @@ class LiveSessionModel {
   final int? withdrawalScore;
   final String? correspondenceResult;
   final double? angularDelta;
+  final String? sectionName;
 
   LiveSessionModel({
     required this.studentName,
@@ -36,6 +37,7 @@ class LiveSessionModel {
     required this.detectionLost,
     required this.liveAspirationResult,
     required this.liveAspirationDuration,
+    this.sectionName,
     this.finalInsertionAngle,
     this.insertionScore,
     this.aspirationResult,
@@ -59,6 +61,7 @@ class LiveSessionModel {
       detectionLost: data['detectionLost'] ?? false,
       liveAspirationResult: data['liveAspirationResult'] ?? 'Not Detected',
       liveAspirationDuration: (data['liveAspirationDuration'] ?? 0).toDouble(),
+      sectionName: data['sectionName'] as String?,
       finalInsertionAngle: data['finalInsertionAngle']?.toDouble(),
       insertionScore: data['insertionScore'],
       aspirationResult: data['aspirationResult'],
@@ -81,12 +84,14 @@ class LiveSessionService {
     required String studentEmail,
     required String injectionType,
     required double targetAngle,
+    String? sectionName,
   }) async {
     await _db.collection('live_sessions').doc(instructorId).set({
       'studentName': studentName,
       'studentEmail': studentEmail,
       'injectionType': injectionType,
       'targetAngle': targetAngle,
+      'sectionName': sectionName,
       'phase': 'waiting',
       'liveAngle': 0.0,
       'liveAspirationResult': 'Not Detected',

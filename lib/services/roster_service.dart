@@ -88,6 +88,37 @@ class RosterService {
             .toList());
   }
 
+  /// Adds a single student to the given section's roster.
+  Future<void> addStudent(
+    String instructorId,
+    String sectionName, {
+    required String firstName,
+    required String lastName,
+    required String middleInitial,
+    required String email,
+  }) async {
+    // Ensure the parent section document exists
+    await _db
+        .collection('instructor_roster')
+        .doc(instructorId)
+        .collection('sections')
+        .doc(sectionName)
+        .set({'createdAt': FieldValue.serverTimestamp()}, SetOptions(merge: true));
+
+    await _db
+        .collection('instructor_roster')
+        .doc(instructorId)
+        .collection('sections')
+        .doc(sectionName)
+        .collection('students')
+        .add({
+      'firstName': firstName.trim(),
+      'lastName': lastName.trim(),
+      'middleInitial': middleInitial.trim(),
+      'email': email.trim().toLowerCase(),
+    });
+  }
+
   /// Parses a spreadsheet file (CSV, XLSX, XLS) and uploads to the roster section.
   Future<void> importRoster(String instructorId, String sectionName, Uint8List fileBytes, String fileName) async {
     try {

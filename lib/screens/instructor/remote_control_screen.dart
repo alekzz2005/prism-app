@@ -13,10 +13,12 @@ const _navy       = Color(0xFF003366);
 const _navyMid    = Color(0xFF004080);
 const _navyDark   = Color(0xFF002244);
 const _accentBlue = Color(0xFFA8C4E0);
+const _bg         = Color(0xFFF8FAFC);
 const _cardBg     = Color(0xFFFFFFFF);
 const _cardBorder = Color(0xFFE2EAF4);
-const _bg         = Color(0xFFF0F4F8);
-const _textMid    = Color(0xFF8A9BB0);
+const _textDark   = Color(0xFF1A2B3C);
+const _textMid    = Color(0xFF4A5568);
+const _textLight  = Color(0xFF8A9BB0);
 const _green      = Color(0xFF1A7A4A);
 const _greenBg    = Color(0xFFEEF9F3);
 const _greenBorder = Color(0xFFA8D5B8);
@@ -63,6 +65,7 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
       studentName: session.studentName,
       timestamp: Timestamp.now(), 
       injectionType: session.injectionType,
+      sectionName: session.sectionName,
       insertionAngle: session.finalInsertionAngle ?? 0,
       insertionScore: session.insertionScore ?? 1,
       aspirationResult: aspirationResult,
@@ -89,6 +92,7 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
       studentName: session.studentName,
       timestamp: initialSession.timestamp, 
       injectionType: session.injectionType,
+      sectionName: session.sectionName,
       insertionAngle: session.finalInsertionAngle ?? 0,
       insertionScore: session.insertionScore ?? 1,
       aspirationResult: aspirationResult,
@@ -322,8 +326,14 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
                       ),
                     ),
                     const SizedBox(width: 10),
-                    const Text('Live Demo Control',
-                        style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: const [
+                        Text('PRISM', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w800, letterSpacing: 3, height: 1.0)),
+                        SizedBox(height: 3),
+                        Text('LIVE DEMO CONTROL', style: TextStyle(color: Color(0xFFA8C4E0), fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.5)),
+                      ],
+                    ),
                   ],
                 ),
                 const SizedBox(height: 16),

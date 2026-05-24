@@ -13,7 +13,6 @@ class AspirationDetectionService {
 
   double? _initialDistance;
   double _currentDisplacement = 0.0;
-  double get displacement => _currentDisplacement;
 
   DateTime? _aspirationStart;
   String _result = 'Not Detected';
@@ -25,6 +24,7 @@ class AspirationDetectionService {
   String get result => _result;
   double get duration => _duration;
   String get smoothness => _smoothness;
+  double get displacement => _currentDisplacement * 1000;
 
   bool _isFinished = false;
   bool get isFinished => _isFinished;
@@ -35,6 +35,7 @@ class AspirationDetectionService {
     _result = 'Not Detected';
     _duration = 0.0;
     _smoothness = 'Good';
+    _currentDisplacement = 0.0;
     _distanceHistory = [];
     _isFinished = false;
   }

@@ -84,18 +84,35 @@ class _LoadingScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => const Scaffold(
-        backgroundColor: Color(0xFF0D0D1A),
+        backgroundColor: Color(0xFF003366), // Navy
         body: Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              CircularProgressIndicator(color: Colors.deepPurpleAccent),
-              SizedBox(height: 16),
-              Text('PRISM',
-                  style: TextStyle(
-                      color: Colors.white54,
-                      fontSize: 18,
-                      letterSpacing: 4)),
+              CircularProgressIndicator(
+                color: Colors.white,
+                strokeWidth: 3,
+              ),
+              SizedBox(height: 24),
+              Text(
+                'PRISM',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 6,
+                ),
+              ),
+              SizedBox(height: 8),
+              Text(
+                'INITIALIZING...',
+                style: TextStyle(
+                  color: Color(0xFFA8C4E0), // Accent Blue
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 2,
+                ),
+              ),
             ],
           ),
         ),
