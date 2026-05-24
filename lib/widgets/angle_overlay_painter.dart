@@ -99,12 +99,12 @@ class AngleOverlayPainter extends CustomPainter {
         Offset syringeStart = Offset(basePt.dx - dx * 0.5, basePt.dy - dy * 0.5);
         Offset syringeEnd = Offset(distalPt.dx + dx * 0.5, distalPt.dy + dy * 0.5);
         
-        // Draw the syringe barrel line
-        canvas.drawLine(syringeStart, syringeEnd, syringeAxisPaint);
+        // Draw the syringe barrel line (commented out for production per user request)
+        // canvas.drawLine(syringeStart, syringeEnd, syringeAxisPaint);
 
-        // Draw circles at the pivot points
-        canvas.drawCircle(basePt, 5, indexDipPaint);
-        canvas.drawCircle(distalPt, 5, indexTipPaint);
+        // Draw circles at the pivot points (commented out for production)
+        // canvas.drawCircle(basePt, 5, indexDipPaint);
+        // canvas.drawCircle(distalPt, 5, indexTipPaint);
       }
     }
   }

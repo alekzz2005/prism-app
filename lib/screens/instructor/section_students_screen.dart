@@ -31,6 +31,19 @@ class SectionStudentsScreen extends StatefulWidget {
 class _SectionStudentsScreenState extends State<SectionStudentsScreen> {
   final _rosterService = RosterService();
   String _searchQuery = '';
+  bool _showArchived = false;
+  Stream<List<StudentRoster>>? _rosterStream;
+  String? _lastInstructorId;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final instructorId = context.read<UserRoleProvider>().uid;
+    if (_lastInstructorId != instructorId && instructorId != null) {
+      _lastInstructorId = instructorId;
+      _rosterStream = _rosterService.watchRoster(instructorId, widget.sectionName);
+    }
+  }
 
   void _showAddStudentModal(String instructorId) {
     showModalBottomSheet(
@@ -105,9 +118,14 @@ class _SectionStudentsScreenState extends State<SectionStudentsScreen> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: TextButton(
-                      onPressed: () {
+                      onPressed: () async {
                         Navigator.pop(context);
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Archive not fully implemented on backend yet.')));
+                        try {
+                          await _rosterService.archiveStudent(instructorId, widget.sectionName, student.id);
+                          if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${student.firstName} archived.')));
+                        } catch (e) {
+                          if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+                        }
                       },
                       style: TextButton.styleFrom(
                         backgroundColor: _redBg,
@@ -152,6 +170,7 @@ class _SectionStudentsScreenState extends State<SectionStudentsScreen> {
           children: [
             _buildHeader(),
             _buildSearch(),
+            _buildTabs(),
             _buildSwipeHint(),
             Expanded(
               child: _buildStudentList(instructorId),
@@ -295,10 +314,49 @@ class _SectionStudentsScreenState extends State<SectionStudentsScreen> {
     );
   }
 
+  Widget _buildTabs() {
+    return Container(
+      color: _bg,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Row(
+        children: [
+          _buildTabButton('Active', !_showArchived),
+          const SizedBox(width: 8),
+          _buildTabButton('Archived', _showArchived),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTabButton(String label, bool isSelected) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => setState(() => _showArchived = label == 'Archived'),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          decoration: BoxDecoration(
+            color: isSelected ? _navy : _cardBg,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: isSelected ? _navy : _cardBorder),
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            label,
+            style: TextStyle(
+              color: isSelected ? Colors.white : _textMid,
+              fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+              fontSize: 13,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildSwipeHint() {
     return Container(
       color: _bg,
-      padding: const EdgeInsets.fromLTRB(16, 6, 16, 2),
+      padding: const EdgeInsets.fromLTRB(16, 2, 16, 2),
       alignment: Alignment.centerRight,
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -307,23 +365,25 @@ class _SectionStudentsScreenState extends State<SectionStudentsScreen> {
             '<svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M8 6.5H2M2 6.5L4.5 4M2 6.5L4.5 9" stroke="#8A9BB0" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M11 6.5H9.5" stroke="#8A9BB0" stroke-width="1.3" stroke-linecap="round"/></svg>',
           ),
           const SizedBox(width: 4),
-          const Text('Swipe left to archive', style: TextStyle(color: _textMid, fontSize: 11)),
+          Text(_showArchived ? 'Swipe left to restore' : 'Swipe left to archive', style: const TextStyle(color: _textMid, fontSize: 11)),
         ],
       ),
     );
   }
 
   Widget _buildStudentList(String? instructorId) {
-    if (instructorId == null) return const SizedBox.shrink();
+    if (instructorId == null || _rosterStream == null) return const SizedBox.shrink();
 
     return StreamBuilder<List<StudentRoster>>(
-      stream: _rosterService.watchRoster(instructorId, widget.sectionName),
+      stream: _rosterStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator(color: _navy));
         }
 
         var students = snapshot.data ?? [];
+        students = students.where((s) => s.isArchived == _showArchived).toList();
+
         if (_searchQuery.isNotEmpty) {
           students = students.where((s) =>
             s.formattedFullName.toLowerCase().contains(_searchQuery) ||
@@ -370,24 +430,34 @@ class _SectionStudentsScreenState extends State<SectionStudentsScreen> {
         direction: DismissDirection.endToStart,
         background: Container(
           decoration: BoxDecoration(
-            color: _redBg,
+            color: _showArchived ? const Color(0xFF16A34A).withValues(alpha: 0.1) : _redBg,
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: _redBorder),
+            border: Border.all(color: _showArchived ? const Color(0xFF16A34A).withValues(alpha: 0.3) : _redBorder),
           ),
           alignment: Alignment.centerRight,
           padding: const EdgeInsets.only(right: 20),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.archive, color: _red, size: 24),
+              Icon(_showArchived ? Icons.unarchive : Icons.archive, color: _showArchived ? const Color(0xFF16A34A) : _red, size: 24),
               const SizedBox(height: 3),
-              const Text('Archive', style: TextStyle(color: _red, fontSize: 10, fontWeight: FontWeight.w700)),
+              Text(_showArchived ? 'Restore' : 'Archive', style: TextStyle(color: _showArchived ? const Color(0xFF16A34A) : _red, fontSize: 10, fontWeight: FontWeight.w700)),
             ],
           ),
         ),
         confirmDismiss: (direction) async {
-          _confirmArchive(instructorId, student);
-          return false;
+          if (_showArchived) {
+            try {
+              await _rosterService.unarchiveStudent(instructorId, widget.sectionName, student.id);
+              if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${student.firstName} restored.')));
+            } catch (e) {
+              if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error restoring: $e')));
+            }
+            return true;
+          } else {
+            _confirmArchive(instructorId, student);
+            return false;
+          }
         },
         child: Container(
           decoration: BoxDecoration(

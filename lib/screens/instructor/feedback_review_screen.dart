@@ -46,6 +46,7 @@ class FeedbackReviewScreen extends StatefulWidget {
 class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
   late final TextEditingController _noteController;
   late final TextEditingController _aiFeedbackController;
+  final UndoHistoryController _noteUndoController = UndoHistoryController();
 
   final _releaseService = FeedbackReleaseService();
   bool _isReleasing = false;
@@ -75,7 +76,6 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
     try {
       await InstructorSessionRepository().updateFeedbackDraft(
         widget.session.sessionId,
-        _aiFeedbackController.text.trim(),
         _noteController.text.trim(),
       );
     } catch (_) {
@@ -88,6 +88,7 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
     _debounceTimer?.cancel();
     _noteController.dispose();
     _aiFeedbackController.dispose();
+    _noteUndoController.dispose();
     super.dispose();
   }
 
@@ -220,7 +221,7 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
                                       _aiFeedbackController.text = streamAiText;
                                     },
                                     icon: const Icon(Icons.restore, size: 16, color: _textMid),
-                                    label: const Text('Revert to Original', style: TextStyle(color: _textMid, fontSize: 12)),
+                                    label: const Text('Revert to Original AI', style: TextStyle(color: _textMid, fontSize: 12)),
                                     style: TextButton.styleFrom(
                                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                       minimumSize: Size.zero,
@@ -303,7 +304,28 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
 
 
                     // Instructor Note
-                    _sectionHeader('Instructor Note (optional)'),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        _sectionHeader('Instructor Note (optional)'),
+                        if (!isReleased)
+                          ValueListenableBuilder<UndoHistoryValue>(
+                            valueListenable: _noteUndoController,
+                            builder: (context, value, _) {
+                              return TextButton.icon(
+                                onPressed: value.canUndo ? () => _noteUndoController.undo() : null,
+                                icon: Icon(Icons.undo, size: 16, color: value.canUndo ? _textMid : _textLight.withValues(alpha: 0.5)),
+                                label: Text('Undo', style: TextStyle(color: value.canUndo ? _textMid : _textLight.withValues(alpha: 0.5), fontSize: 12)),
+                                style: TextButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  minimumSize: Size.zero,
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                ),
+                              );
+                            },
+                          ),
+                      ],
+                    ),
                     Container(
                       decoration: BoxDecoration(
                         color: _inputBg,
@@ -313,6 +335,7 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
                       child: TextField(
                         key: const Key('instructor_note_field'),
                         controller: _noteController,
+                        undoController: _noteUndoController,
                         maxLines: 4,
                         enabled: !isReleased,
                         style: const TextStyle(color: _textDark, fontSize: 13, height: 1.6),

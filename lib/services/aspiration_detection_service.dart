@@ -41,7 +41,7 @@ class AspirationDetectionService {
   }
 
   /// Call on each frame. [hands] is the hand detection result.
-  void update(List<Hand> hands, {int sensorOrientation = 90}) {
+  void update(List<Hand> hands, double targetAngle, {int sensorOrientation = 90}) {
     if (_isFinished) return;
 
     if (hands.isEmpty) {
@@ -55,25 +55,13 @@ class AspirationDetectionService {
     bool isTwoHanded = hands.length >= 2;
 
     if (isTwoHanded) {
-      // 2-Handed Technique: Project the plunger hand's movement onto the syringe axis!
-      // This prevents false positives if the student just raises their second hand vertically.
-      final dartVector = AngleComputationUtil.getDartGripVector([hands[0]]);
+      // 2-Handed Technique: Project the plunger hand's movement onto the stable target axis!
+      // This prevents false positives from raising hand vertically or dart jitter.
       
-      if (dartVector == null) {
-        if (_aspirationStart != null) _isFinished = true;
-        return;
-      }
-
-      final dartDip = dartVector[0]; // Base
-      final dartTip = dartVector[1]; // Distal
-
-      // Compute Syringe unit vector (pointing towards needle)
-      double dx = dartTip.x - dartDip.x;
-      double dy = dartTip.y - dartDip.y;
-      double len = sqrt(dx * dx + dy * dy);
-      if (len == 0) return;
-      double ux = dx / len;
-      double uy = dy / len;
+      // Calculate unit vector for the target angle (Y-axis is 0 degrees, X-axis is 90 degrees)
+      double radians = targetAngle * pi / 180.0;
+      double ux = sin(radians); // X component
+      double uy = cos(radians); // Y component
 
       // Use the thumb tip of the second hand (plunger hand)
       final plungerThumb = hands[1].landmarks.length > 4 ? hands[1].landmarks[4] : hands[1].landmarks[0];
@@ -110,13 +98,13 @@ class AspirationDetectionService {
     _distanceHistory.add(distance);
 
     // If hand has moved away significantly (e.g. > 0.5) after starting, finish.
-    // Shallow injections require pulling further or more dragging.
     if (_aspirationStart != null && _currentDisplacement > 0.5) {
       _isFinished = true;
       return;
     }
 
-    final threshold = isTwoHanded ? _twoHandDisplacementThreshold : _displacementThreshold;
+    // Higher threshold for 2-handed to avoid false positives when dragging or raising hand
+    final threshold = isTwoHanded ? 0.07 : _displacementThreshold;
 
     if (_currentDisplacement >= threshold) {
       _aspirationStart ??= DateTime.now();

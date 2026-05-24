@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -59,8 +60,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (parts.length < 2) return fullName;
     
     if (parts.length == 2) {
-      // Inject "M." if only two words are provided
-      return '${parts[0]} M. ${parts[1]}';
+      return '${parts[0]} ${parts[1]}';
     } else {
       // e.g. First Middle Last
       final first = parts[0];
@@ -68,6 +68,80 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final last = parts.sublist(2).join(' ');
       return '$first ${middle[0].toUpperCase()}. $last';
     }
+  }
+
+  Future<void> _editName(String currentName) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    
+    final controller = TextEditingController(text: currentName);
+    
+    final newName = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: _white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Edit Name', style: TextStyle(color: _navy, fontWeight: FontWeight.bold)),
+        content: TextField(
+          controller: controller,
+          style: const TextStyle(color: Colors.black87),
+          decoration: InputDecoration(
+            hintText: 'Enter your full name',
+            hintStyle: const TextStyle(color: Colors.black54),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+            focusedBorder: OutlineInputBorder(borderSide: const BorderSide(color: _navy, width: 2), borderRadius: BorderRadius.circular(10)),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel', style: TextStyle(color: _textMid)),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final newName = controller.text.trim();
+              if (newName.isNotEmpty && newName != currentName) {
+                // Optimistic UI update
+                context.read<UserRoleProvider>().setUser(
+                  uid: user.uid,
+                  fullName: newName,
+                  role: context.read<UserRoleProvider>().role.name,
+                );
+                Navigator.pop(ctx);
+
+                try {
+                  await FirebaseFirestore.instance
+                      .collection('users')
+                      .doc(user.uid)
+                      .update({'fullName': newName});
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Name updated successfully')),
+                    );
+                  }
+                } catch (e) {
+                  // Revert Optimistic UI if failed
+                  if (mounted) {
+                    context.read<UserRoleProvider>().setUser(
+                      uid: user.uid,
+                      fullName: currentName,
+                      role: context.read<UserRoleProvider>().role.name,
+                    );
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Failed to update name: $e')),
+                    );
+                  }
+                }
+              } else {
+                Navigator.pop(ctx);
+              }
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: _navy, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+            child: const Text('Save', style: TextStyle(color: _white)),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showLogoutConfirmation() {
@@ -243,7 +317,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  Text(formattedName, style: const TextStyle(color: _textDark, fontSize: 24, fontWeight: FontWeight.w800, letterSpacing: -0.5)),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(formattedName, style: const TextStyle(color: _textDark, fontSize: 24, fontWeight: FontWeight.w800, letterSpacing: -0.5)),
+                      const SizedBox(width: 8),
+                      GestureDetector(
+                        onTap: () => _editName(rawName),
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: _surface,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: _border),
+                          ),
+                          child: const Icon(Icons.edit, size: 14, color: _textMid),
+                        ),
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: 4),
                   Text(email, style: const TextStyle(color: _textMid, fontSize: 15)),
                   const SizedBox(height: 8),

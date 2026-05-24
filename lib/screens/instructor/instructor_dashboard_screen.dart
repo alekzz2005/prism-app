@@ -76,6 +76,7 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
   }
 
   String? _lastUid;
+  List<String> _archivedEmails = [];
 
   @override
   void didChangeDependencies() {
@@ -85,10 +86,24 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
       _lastUid = uid;
       if (uid.isNotEmpty) {
         _sectionsStream = _rosterService.watchSections(uid);
+        _fetchArchivedEmails(uid);
       } else {
         _sectionsStream = Stream.value([]);
       }
     }
+  }
+
+  Future<void> _fetchArchivedEmails(String uid) async {
+    final sections = await FirebaseFirestore.instance.collection('instructor_roster').doc(uid).collection('sections').get();
+    List<String> emails = [];
+    for (var sec in sections.docs) {
+      final students = await sec.reference.collection('students').where('isArchived', isEqualTo: true).get();
+      for (var doc in students.docs) {
+        final em = doc.data()['email'] as String?;
+        if (em != null) emails.add(em.trim().toLowerCase());
+      }
+    }
+    if (mounted) setState(() => _archivedEmails = emails);
   }
 
   @override
@@ -110,6 +125,8 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
 
   List<SessionModel> _applyFilters(List<SessionModel> sessions) {
     return sessions.where((s) {
+      if (_archivedEmails.contains(s.userId.toLowerCase())) return false; // Hide archived students
+
       final targetStatus = _statusFilter == 'Flagged' ? 'Feedback Generation Failed' : _statusFilter;
       final matchStatus = _statusFilter == 'All' || s.feedbackStatus == targetStatus;
       final matchType   = _typeFilter   == 'All' || s.injectionType   == _typeFilter;
@@ -468,22 +485,15 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
               Expanded(child: _buildFilterDropdown('TYPE', _typeOptions, _typeFilter, (v) => setState(() => _typeFilter = v!))),
               const SizedBox(width: 8),
               Expanded(
-                child: Builder(
-                  builder: (context) {
-                    final uid = context.read<UserRoleProvider>().uid ?? '';
-                    return StreamBuilder<List<String>>(
-                      stream: uid.isEmpty
-                          ? Stream.value(<String>[])
-                          : _rosterService.watchSections(uid),
-                      builder: (context, snap) {
-                        final List<String> dynamicSections = ['All', ...(snap.data ?? <String>[])];
-                        String current = _sectionFilter;
-                        if (!dynamicSections.contains(current)) {
-                          current = 'All';
-                        }
-                        return _buildFilterDropdown('SECTION', dynamicSections, current, (v) => setState(() => _sectionFilter = v!));
-                      },
-                    );
+                child: StreamBuilder<List<String>>(
+                  stream: _sectionsStream,
+                  builder: (context, snap) {
+                    final List<String> dynamicSections = ['All', ...(snap.data ?? <String>[])];
+                    String current = _sectionFilter;
+                    if (!dynamicSections.contains(current)) {
+                      current = 'All';
+                    }
+                    return _buildFilterDropdown('SECTION', dynamicSections, current, (v) => setState(() => _sectionFilter = v!));
                   },
                 ),
               ),
@@ -805,7 +815,10 @@ class _StatItem extends StatelessWidget {
       children: [
         Text(value, style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w700, height: 1)),
         const SizedBox(height: 6),
-        Text(label, style: const TextStyle(color: _accentBlue, fontSize: 13, fontWeight: FontWeight.w600)),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(label, style: const TextStyle(color: _accentBlue, fontSize: 13, fontWeight: FontWeight.w600)),
+        ),
       ],
     ),
   );
@@ -1138,11 +1151,7 @@ class _AddSectionBottomSheetState extends State<_AddSectionBottomSheet> {
                         '<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M10 13V4M10 4L7 7M10 4l3 3" stroke="#003366" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 14v1a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-1" stroke="#8A9BB0" stroke-width="1.4" stroke-linecap="round"/></svg>',
                       ),
                       const SizedBox(width: 10),
-                      Text(_selectedFileName ?? 'Upload CSV', style: const TextStyle(color: _navy, fontSize: 13, fontWeight: FontWeight.bold)),
-                      if (_selectedFileName == null) ...[
-                        const SizedBox(width: 6),
-                        const Text('or add manually', style: TextStyle(color: _textMid, fontSize: 11)),
-                      ],
+                      Text(_selectedFileName ?? 'Upload Spreadsheet (CSV, XLSX)', style: const TextStyle(color: _navy, fontSize: 13, fontWeight: FontWeight.bold)),
                     ],
                   ),
                 ),
@@ -1202,6 +1211,15 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
   StudentRoster? _selectedStudent;
   String? _selectedInjectionType; // Only allowing one for now
 
+  Stream<List<String>>? _sectionsStream;
+  Stream<List<StudentRoster>>? _rosterStream;
+
+  @override
+  void initState() {
+    super.initState();
+    _sectionsStream = widget.rosterService.watchSections(widget.instructorId);
+  }
+
   // Injection Type Defs
   final List<Map<String, String>> _injectionTypes = [
     {'key': 'im', 'abbr': 'IM', 'full': 'Intramuscular', 'angle': '90°', 'sites': 'Deltoid, Vastus Lateralis'},
@@ -1254,7 +1272,7 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
 
     await widget.liveSessionService.startSession(
       instructorId: widget.instructorId,
-      studentName: "${_selectedStudent!.firstName} ${_selectedStudent!.lastName}",
+      studentName: _selectedStudent!.formattedFullName,
       studentEmail: _selectedStudent!.email,
       injectionType: typeFull,
       targetAngle: targetAngle,
@@ -1297,7 +1315,7 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
         const Text('Choose a section to see the student roster.', style: TextStyle(color: Color(0xFF8A9BB0), fontSize: 12)),
         const SizedBox(height: 14),
         StreamBuilder<List<String>>(
-          stream: widget.rosterService.watchSections(widget.instructorId),
+          stream: _sectionsStream,
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Padding(padding: EdgeInsets.all(20), child: Center(child: CircularProgressIndicator()));
@@ -1320,6 +1338,7 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
                   onTap: () {
                     setState(() {
                       _selectedSection = sec;
+                      _rosterStream = widget.rosterService.watchRoster(widget.instructorId, sec);
                       _step = 2;
                     });
                   },
@@ -1412,7 +1431,7 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
         const Text('Tap a student to expand, then select an injection type.', style: TextStyle(color: Color(0xFF8A9BB0), fontSize: 12)),
         const SizedBox(height: 12),
         StreamBuilder<List<StudentRoster>>(
-          stream: widget.rosterService.watchRoster(widget.instructorId, _selectedSection!),
+          stream: _rosterStream,
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Padding(padding: EdgeInsets.all(20), child: Center(child: CircularProgressIndicator()));
@@ -1462,7 +1481,7 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text("${s.firstName} ${s.lastName}", style: const TextStyle(color: Color(0xFF003366), fontSize: 14, fontWeight: FontWeight.w600)),
+                                    Text(s.formattedFullName, style: const TextStyle(color: Color(0xFF003366), fontSize: 14, fontWeight: FontWeight.w600)),
                                     const SizedBox(height: 1),
                                     Text(s.email, style: const TextStyle(color: Color(0xFF8A9BB0), fontSize: 11)),
                                   ],

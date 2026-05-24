@@ -79,42 +79,57 @@ class AuthWrapper extends StatelessWidget {
   }
 }
 
-class _LoadingScreen extends StatelessWidget {
+class _LoadingScreen extends StatefulWidget {
   const _LoadingScreen();
 
   @override
-  Widget build(BuildContext context) => const Scaffold(
-        backgroundColor: Color(0xFF003366), // Navy
+  State<_LoadingScreen> createState() => _LoadingScreenState();
+}
+
+class _LoadingScreenState extends State<_LoadingScreen> {
+  bool _showContent = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _showContent = true;
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        backgroundColor: const Color(0xFF003366), // Navy
         body: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CircularProgressIndicator(
-                color: Colors.white,
-                strokeWidth: 3,
-              ),
-              SizedBox(height: 24),
-              Text(
-                'PRISM',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 22,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 6,
-                ),
-              ),
-              SizedBox(height: 8),
-              Text(
-                'INITIALIZING...',
-                style: TextStyle(
-                  color: Color(0xFFA8C4E0), // Accent Blue
-                  fontSize: 10,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 2,
-                ),
-              ),
-            ],
-          ),
+          child: _showContent 
+            ? const Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(
+                    color: Colors.white,
+                    strokeWidth: 3,
+                  ),
+                  SizedBox(height: 24),
+                  Text(
+                    'PRISM',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 22,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 6,
+                    ),
+                  ),
+                  SizedBox(height: 8),
+                  Text(
+                    'INITIALIZING...',
+                    style: TextStyle(
+                      color: Color(0xFFA8C4E0), // Accent Blue
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 2,
+                    ),
+                  ),
+                ],
+              )
+            : const SizedBox.shrink(),
         ),
       );
 }

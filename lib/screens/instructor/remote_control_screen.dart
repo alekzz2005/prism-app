@@ -36,14 +36,19 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
   final _liveService = LiveSessionService();
   final _repo = InstructorSessionRepository();
   final _feedbackService = FeedbackService();
-  bool _completing = false;
 
   void _updatePhase(String instructorId, String newPhase) {
     _liveService.updatePhase(instructorId, newPhase);
   }
 
   void _completeSession(String instructorId, LiveSessionModel session) async {
-    setState(() => _completing = true);
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(
+        child: CircularProgressIndicator(color: Colors.white),
+      ),
+    );
 
     String finalUserId = session.studentEmail;
 
@@ -113,8 +118,8 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
     _feedbackService.generateAndSaveFeedbackInBackground(sessionWithId);
 
     if (!mounted) return;
-    setState(() => _completing = false);
-    Navigator.pop(context); // Go back instantly
+    Navigator.pop(context); // Pop the loading dialog
+    Navigator.pop(context); // Go back to dashboard instantly
     
     // Clear live session AFTER popping animation finishes to avoid jitter
     Future.delayed(const Duration(milliseconds: 400), () {
@@ -457,10 +462,10 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
 
     if (session.phase == 'withdrawal_locked') {
       return _ControlButton(
-        label: _completing ? 'Generating AI Feedback...' : 'Complete & Save Session',
-        hint: _completing ? 'Please wait' : 'Tap to finalize and generate feedback',
+        label: 'Complete & Save Session',
+        hint: 'Tap to finalize and generate feedback',
         color: const Color(0xFF16A34A),
-        onPressed: _completing ? () {} : () => _completeSession(instructorId, session),
+        onPressed: () => _completeSession(instructorId, session),
       );
     }
 

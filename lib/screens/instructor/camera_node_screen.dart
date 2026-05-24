@@ -209,12 +209,16 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
           _sensorOrientation = sensorOrientation;
           
           if (_hands.isNotEmpty && _currentSession != null) {
-            final angle = AngleComputationUtil.computeAbsoluteInjectionAngle(
-                _hands, _imageSize!, 
-                injectionType: _currentSession!.injectionType, 
-                sensorOrientation: _sensorOrientation);
-                
-            if (angle >= 0) _liveAngle = angle;
+            if (_currentPhase == 'aspiration') {
+              _aspirationService.update(_hands, _currentSession!.targetAngle, sensorOrientation: _sensorOrientation);
+            } else {
+              final angle = AngleComputationUtil.computeAbsoluteInjectionAngle(
+                  _hands, _imageSize!, 
+                  injectionType: _currentSession!.injectionType, 
+                  sensorOrientation: _sensorOrientation);
+                  
+              if (angle >= 0) _liveAngle = angle;
+            }
           }
         });
       }
@@ -241,6 +245,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
       _lastInsertionAngle = _liveAngle;
       _liveService.saveInsertionMetrics(instructorId, _liveAngle, score);
     } else if (session.phase == 'aspiration' && oldPhase == 'insertion_locked') {
+      _lockedWristPos = null; // Drop lock for pulling hand
       _aspirationService.reset();
       AngleComputationUtil.resetSmoothing();
     } else if (session.phase == 'aspiration_locked' && oldPhase == 'aspiration') {
@@ -517,7 +522,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                         const SizedBox(height: 12),
                         Row(
                           children: [
-                            _buildMetricCard('Insertion Angle',
+                            /* _buildMetricCard('Insertion Angle',
                               session.finalInsertionAngle != null
                                   ? '${session.finalInsertionAngle!.toStringAsFixed(1)}\u00b0'
                                   : '--',
@@ -531,7 +536,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                                 fontFamily: 'monospace',
                               ),
                             ),
-                            const SizedBox(width: 10),
+                            const SizedBox(width: 10), */
                             _buildMetricCard('Phase',
                               session.phase.split('_')[0],
                               const Color(0xFFFCD34D)),

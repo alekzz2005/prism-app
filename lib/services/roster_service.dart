@@ -10,6 +10,7 @@ class StudentRoster {
   final String lastName;
   final String middleInitial;
   final String email;
+  final bool isArchived;
 
   StudentRoster({
     required this.id,
@@ -17,6 +18,7 @@ class StudentRoster {
     required this.lastName,
     this.middleInitial = '',
     required this.email,
+    this.isArchived = false,
   });
 
   factory StudentRoster.fromMap(String id, Map<String, dynamic> data) {
@@ -26,6 +28,7 @@ class StudentRoster {
       lastName: data['lastName'] ?? '',
       middleInitial: data['middleInitial'] ?? '',
       email: data['email'] ?? '',
+      isArchived: data['isArchived'] ?? false,
     );
   }
 
@@ -172,22 +175,37 @@ class RosterService {
         SetOptions(merge: true),
       );
 
-      // Delete existing roster in this section to avoid duplicates
+      // Fetch existing students to check for duplicates
       final existing = await collRef.get();
-      for (var doc in existing.docs) {
-        batch.delete(doc.reference);
-      }
+      final existingSet = existing.docs.map((d) {
+        final data = d.data();
+        final e = (data['email'] as String?)?.trim().toLowerCase() ?? '';
+        final f = (data['firstName'] as String?)?.trim().toLowerCase() ?? '';
+        final l = (data['lastName'] as String?)?.trim().toLowerCase() ?? '';
+        return '$e|$f|$l';
+      }).toSet();
 
       for (int i = 1; i < rows.length; i++) {
         final row = rows[i];
         if (row.length <= emailIdx) continue; // skip malformed rows
-        if (row[firstNameIdx].trim().isEmpty && row[lastNameIdx].trim().isEmpty) continue; // skip empty rows
+        
+        final fName = row[firstNameIdx].trim();
+        final lName = row[lastNameIdx].trim();
+        final email = row[emailIdx].trim().toLowerCase();
+        
+        if (fName.isEmpty && lName.isEmpty) continue; // skip empty rows
+
+        // Check if this student is already in the database
+        final uniqueKey = '$email|${fName.toLowerCase()}|${lName.toLowerCase()}';
+        if (existingSet.contains(uniqueKey)) continue; // skip duplicates
+        // also just add to set to prevent duplicates WITHIN the CSV itself
+        existingSet.add(uniqueKey);
 
         String mi = middleIdx != -1 && row.length > middleIdx ? row[middleIdx].trim() : '';
 
         final docRef = collRef.doc(); // auto-ID
         batch.set(docRef, {
-          'firstName': row[firstNameIdx].trim(),
+          'firstName': fName,
           'lastName': row[lastNameIdx].trim(),
           'middleInitial': mi,
           'email': row[emailIdx].trim().toLowerCase(), // Force lowercase for reliable querying
@@ -199,5 +217,29 @@ class RosterService {
       debugPrint('Error importing roster: $e');
       rethrow;
     }
+  }
+
+  /// Archives a student by flagging them in the section's roster.
+  Future<void> archiveStudent(String instructorId, String sectionName, String studentId) async {
+    await _db
+        .collection('instructor_roster')
+        .doc(instructorId)
+        .collection('sections')
+        .doc(sectionName)
+        .collection('students')
+        .doc(studentId)
+        .update({'isArchived': true});
+  }
+
+  /// Restores an archived student in the section's roster.
+  Future<void> unarchiveStudent(String instructorId, String sectionName, String studentId) async {
+    await _db
+        .collection('instructor_roster')
+        .doc(instructorId)
+        .collection('sections')
+        .doc(sectionName)
+        .collection('students')
+        .doc(studentId)
+        .update({'isArchived': false});
   }
 }
