@@ -36,14 +36,32 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
   final _liveService = LiveSessionService();
   final _repo = InstructorSessionRepository();
   final _feedbackService = FeedbackService();
-  bool _completing = false;
+
+  DateTime? _aspirationStartTime;
 
   void _updatePhase(String instructorId, String newPhase) {
-    _liveService.updatePhase(instructorId, newPhase);
+    if (newPhase == 'aspiration') {
+      _aspirationStartTime = DateTime.now();
+      _liveService.updatePhase(instructorId, newPhase);
+    } else if (newPhase == 'aspiration_locked') {
+      _liveService.updatePhase(instructorId, newPhase);
+      if (_aspirationStartTime != null) {
+        final duration = DateTime.now().difference(_aspirationStartTime!).inMilliseconds / 1000.0;
+        _liveService.saveAspirationMetrics(instructorId, 'Correct', duration, 'N/A');
+      }
+    } else {
+      _liveService.updatePhase(instructorId, newPhase);
+    }
   }
 
   void _completeSession(String instructorId, LiveSessionModel session) async {
-    setState(() => _completing = true);
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(
+        child: CircularProgressIndicator(color: Colors.white),
+      ),
+    );
 
     String finalUserId = session.studentEmail;
 
@@ -113,8 +131,8 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
     _feedbackService.generateAndSaveFeedbackInBackground(sessionWithId);
 
     if (!mounted) return;
-    setState(() => _completing = false);
-    Navigator.pop(context); // Go back instantly
+    Navigator.pop(context); // Pop the loading dialog
+    Navigator.pop(context); // Go back to dashboard instantly
     
     // Clear live session AFTER popping animation finishes to avoid jitter
     Future.delayed(const Duration(milliseconds: 400), () {
@@ -442,36 +460,30 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
 
   Widget _buildControlButton(String instructorId, LiveSessionModel session) {
     if (session.phase == 'waiting') {
-      final canStart = session.cameraNodeActive;
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           _ControlButton(
-            label: canStart ? 'Start Insertion Phase' : 'Waiting for Camera...',
-            hint: canStart ? 'Tap to begin tracking' : 'Ensure camera is running',
-            color: canStart ? _navy : Colors.grey,
-            onPressed: canStart ? () => _updatePhase(instructorId, 'insertion') : () {},
+            label: 'Start Insertion Phase',
+            hint: 'Tap to begin tracking',
+            color: _navy,
+            onPressed: () => _updatePhase(instructorId, 'insertion'),
           ),
-          if (!canStart)
-            const Padding(
-              padding: EdgeInsets.only(top: 8.0),
-              child: Text('Please open Camera Node on the tripod device.', style: TextStyle(color: Colors.redAccent, fontSize: 12)),
-            )
         ],
       );
     } 
 
     if (session.phase == 'withdrawal_locked') {
       return _ControlButton(
-        label: _completing ? 'Generating AI Feedback...' : 'Complete & Save Session',
-        hint: _completing ? 'Please wait' : 'Tap to finalize and generate feedback',
+        label: 'Complete & Save Session',
+        hint: 'Tap to finalize and generate feedback',
         color: const Color(0xFF16A34A),
-        onPressed: _completing ? () {} : () => _completeSession(instructorId, session),
+        onPressed: () => _completeSession(instructorId, session),
       );
     }
 
     // Common Guardrails for active tracking phases
-    final bool guardrailBlocked = !session.cameraNodeActive || session.detectionLost;
+    final bool guardrailBlocked = session.detectionLost;
     
     Widget button;
     if (session.phase == 'insertion') {
@@ -482,50 +494,35 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
         onPressed: guardrailBlocked ? () {} : () => _updatePhase(instructorId, 'insertion_locked'),
       );
     } else if (session.phase == 'insertion_locked') {
-      final isID = session.injectionType == 'ID';
       button = _ControlButton(
-        label: isID ? 'Inject Medication (10s/ml)' : 'Proceed to Aspiration',
-        hint: isID ? 'Student pushes medication' : 'Tap to begin aspiration hold',
+        label: 'Proceed to Aspiration',
+        hint: 'Tap to begin aspiration hold',
         color: _navy,
-        onPressed: guardrailBlocked ? () {} : () => _updatePhase(instructorId, isID ? 'medication_push' : 'aspiration'),
+        onPressed: guardrailBlocked ? () {} : () => _updatePhase(instructorId, 'aspiration'),
       );
     } else if (session.phase == 'aspiration') {
       button = _ControlButton(
         label: 'Done Aspirating',
-        hint: 'Tap when the student completes the aspiration hold',
+        hint: 'Tap to stop timer',
         color: const Color(0xFF92400E),
         onPressed: guardrailBlocked ? () {} : () => _updatePhase(instructorId, 'aspiration_locked'),
       );
     } else if (session.phase == 'aspiration_locked') {
       button = _ControlButton(
-        label: 'Inject Medication (10s/ml)',
-        hint: 'Student pushes medication slowly',
-        color: _navy,
-        onPressed: guardrailBlocked ? () {} : () => _updatePhase(instructorId, 'medication_push'),
-      );
-    } else if (session.phase == 'medication_push') {
-      button = _ControlButton(
-        label: 'Done Injecting',
-        hint: 'Tap when medication is fully injected',
-        color: const Color(0xFF92400E),
-        onPressed: guardrailBlocked ? () {} : () => _updatePhase(instructorId, 'medication_push_locked'),
-      );
-    } else if (session.phase == 'medication_push_locked') {
-      button = _ControlButton(
         label: 'Proceed to Withdrawal',
-        hint: 'Tap to begin withdrawal tracking',
+        hint: 'Tap to advance phase',
         color: _navy,
         onPressed: guardrailBlocked ? () {} : () => _updatePhase(instructorId, 'withdrawal'),
       );
     } else if (session.phase == 'withdrawal') {
       button = _ControlButton(
-        label: 'Confirm Withdrawal',
+        label: 'Confirm Needle Withdrawal',
         hint: 'Tap when the needle is fully withdrawn',
         color: const Color(0xFF92400E),
         onPressed: guardrailBlocked ? () {} : () => _updatePhase(instructorId, 'withdrawal_locked'),
       );
     } else {
-      button = const SizedBox();
+      button = const SizedBox.shrink();
     }
 
     return Column(
@@ -539,9 +536,9 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
               children: [
                 const Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 20),
                 const SizedBox(width: 8),
-                Text(
-                  !session.cameraNodeActive ? 'Camera disconnected' : 'Detection lost. Reposition hand.', 
-                  style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)
+                const Text(
+                  'Detection lost. Reposition hand.', 
+                  style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)
                 ),
               ],
             ),

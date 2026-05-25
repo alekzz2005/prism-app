@@ -1,17 +1,24 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:hand_landmarker/hand_landmarker.dart';
 import '../services/hand_landmark_service.dart';
+import '../services/detection_service.dart';
 
 /// CustomPainter that draws the hand skeleton overlay on top of the camera preview.
-/// Highlights the key PRISM landmarks:
-///   L0 (wrist) — cyan, L4 (thumb tip) — amber,
-///   L5 (index MCP) — yellow, L9 (middle MCP) — yellow.
-/// Primary syringe axis: L0 → midpoint(L5, L9) — hand longitudinal axis.
+/// Highlights the key PRISM landmarks. The syringe axis dynamically matches the 
+/// dart grip vector (L7->L8 primarily, with fallbacks for 3-finger shallow grips).
 class AngleOverlayPainter extends CustomPainter {
   final List<Hand> hands;
+  final Size imageSize;
   final int sensorOrientation;
+  final String? injectionType;
 
-  AngleOverlayPainter({required this.hands, this.sensorOrientation = 90});
+  AngleOverlayPainter({
+    required this.hands, 
+    required this.imageSize,
+    this.sensorOrientation = 90,
+    this.injectionType,
+  });
 
   // MediaPipe hand connections (simplified to the connections relevant
   // to the wrist → index / wrist → thumb paths).
@@ -44,10 +51,10 @@ class AngleOverlayPainter extends CustomPainter {
 
     // Key landmark highlight colours
     final wristPaint = Paint()..color = Colors.cyanAccent;
-    final thumbPaint = Paint()..color = Colors.amberAccent;
-    final mcpPaint = Paint()..color = Colors.yellowAccent;   // L5, L9
+    final indexDipPaint = Paint()..color = Colors.amberAccent;
+    final indexTipPaint = Paint()..color = Colors.yellowAccent;
 
-    // L0 → midpoint(L5,L9) syringe axis (primary — dart grip hand axis)
+    // L7 → L8 syringe axis (primary — dart grip hand axis)
     final syringeAxisPaint = Paint()
       ..color = Colors.yellowAccent
       ..strokeWidth = 4.0
@@ -73,33 +80,31 @@ class AngleOverlayPainter extends CustomPainter {
         canvas.drawCircle(_scale(lm, size), 3, dotPaint);
       }
 
-      // Highlight the key PRISM landmarks (larger dots)
+      // Highlight the key PRISM landmarks
       if (lms.length > HandLandmarkIndices.wrist) {
         canvas.drawCircle(_scale(lms[HandLandmarkIndices.wrist], size), 7, wristPaint);
       }
-      if (lms.length > HandLandmarkIndices.thumbTip) {
-        canvas.drawCircle(_scale(lms[HandLandmarkIndices.thumbTip], size), 7, thumbPaint);
-      }
-      // Dart-grip key landmarks (L5, L9 — the finger base pair)
-      if (lms.length > HandLandmarkIndices.indexMcp) {
-        canvas.drawCircle(_scale(lms[HandLandmarkIndices.indexMcp], size), 7, mcpPaint);
-      }
-      if (lms.length > HandLandmarkIndices.middleMcp) {
-        canvas.drawCircle(_scale(lms[HandLandmarkIndices.middleMcp], size), 7, mcpPaint);
-      }
 
-      // Draw the primary syringe axis: L0 → midpoint(L5, L9)
-      if (lms.length > HandLandmarkIndices.middleMcp) {
-        final wristPt = _scale(lms[HandLandmarkIndices.wrist], size);
-        final indexMcpPt = _scale(lms[HandLandmarkIndices.indexMcp], size);
-        final middleMcpPt = _scale(lms[HandLandmarkIndices.middleMcp], size);
-        final midpoint = Offset(
-          (indexMcpPt.dx + middleMcpPt.dx) / 2.0,
-          (indexMcpPt.dy + middleMcpPt.dy) / 2.0,
-        );
-        canvas.drawLine(wristPt, midpoint, syringeAxisPaint);
-        // Draw a small diamond at the midpoint target
-        canvas.drawCircle(midpoint, 5, mcpPaint);
+      // Draw the primary syringe axis using the dynamic fallback logic!
+      final dartVector = AngleComputationUtil.getDartGripVector([hand]);
+      if (dartVector != null) {
+        final basePt = _scale(dartVector[0], size);
+        final distalPt = _scale(dartVector[1], size);
+        
+        // Calculate the direction vector
+        double dx = distalPt.dx - basePt.dx;
+        double dy = distalPt.dy - basePt.dy;
+        
+        // Ensure the vector always points "forward"
+        Offset syringeStart = Offset(basePt.dx - dx * 0.5, basePt.dy - dy * 0.5);
+        Offset syringeEnd = Offset(distalPt.dx + dx * 0.5, distalPt.dy + dy * 0.5);
+        
+        // Draw the syringe barrel line (commented out for production per user request)
+        // canvas.drawLine(syringeStart, syringeEnd, syringeAxisPaint);
+
+        // Draw circles at the pivot points (commented out for production)
+        // canvas.drawCircle(basePt, 5, indexDipPaint);
+        // canvas.drawCircle(distalPt, 5, indexTipPaint);
       }
     }
   }

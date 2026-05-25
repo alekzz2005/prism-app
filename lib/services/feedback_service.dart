@@ -45,18 +45,18 @@ class FeedbackService {
 
     try {
       feedbackText = await _client.generateFeedback(prompt);
-    } on FeedbackTimeoutException {
+    } on FeedbackTimeoutException catch (e) {
       feedbackText = '';
       feedbackStatus = 'Feedback Generation Failed';
-      instructorNote = 'AI Error: Request timed out. Please try again later.\n\n$instructorNote';
+      instructorNote = 'AI Timeout Error: $e';
     } on FeedbackApiException catch (e) {
       feedbackText = '';
       feedbackStatus = 'Feedback Generation Failed';
-      instructorNote = 'AI Error (HTTP ${e.statusCode}): ${e.body}\n\n$instructorNote';
+      instructorNote = 'AI API Error (Code ${e.statusCode}):\n${e.body}';
     } catch (e) {
       feedbackText = '';
       feedbackStatus = 'Feedback Generation Failed';
-      instructorNote = 'AI Error: $e\n\n$instructorNote';
+      instructorNote = 'AI Unknown Error: $e';
     }
 
     return SessionModel(
@@ -95,7 +95,6 @@ class FeedbackService {
     } catch (e) {
       await FirebaseFirestore.instance.collection('sessions').doc(session.sessionId).update({
         'feedbackStatus': 'Feedback Generation Failed',
-        'instructorNote': 'AI Background Error: $e\n\n${session.instructorNote}',
       });
     }
   }

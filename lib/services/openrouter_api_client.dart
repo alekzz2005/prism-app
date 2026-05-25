@@ -35,8 +35,7 @@ const String _mockFeedbackText =
 /// flutter run --dart-define=USE_MOCK_FEEDBACK=true
 /// ```
 class OpenRouterApiClient {
-  static const String _apiKey =
-      String.fromEnvironment('OPENROUTER_API_KEY', defaultValue: '');
+  static const String _apiKey = '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';
 
   static const String _baseUrl =
       'https://openrouter.ai/api/v1/chat/completions';

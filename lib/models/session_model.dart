@@ -62,13 +62,19 @@ class SessionModel {
 
   factory SessionModel.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>? ?? {};
+    
+    String? rawSection = data['sectionName'] as String?;
+    if (rawSection != null && rawSection.contains('_')) {
+      rawSection = rawSection.split('_').first;
+    }
+
     return SessionModel(
       sessionId: doc.id,
       userId: data['userId'] as String? ?? '',
       studentName: data['studentName'] as String? ?? 'Unknown Student',
       timestamp: data['timestamp'] as Timestamp? ?? Timestamp.now(),
       injectionType: data['injectionType'] as String? ?? 'IM',
-      sectionName: data['sectionName'] as String?,
+      sectionName: rawSection,
       insertionAngle: (data['insertionAngle'] as num?)?.toDouble() ?? 0.0,
       insertionScore: data['insertionScore'] as int? ?? 1,
       aspirationResult: data['aspirationResult'] as String? ?? 'Not Detected',

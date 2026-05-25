@@ -1,9 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import '../../services/auth_service.dart';
-import '../../providers/user_role_provider.dart';
-import '../../screens/student/injection_type_screen.dart';
-import '../../screens/instructor/instructor_dashboard_screen.dart';
 import 'register_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -33,11 +29,10 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!_formKey.currentState!.validate()) return;
     setState(() { _isLoading = true; _error = null; });
     try {
-      final cred = await _authService.signIn(
+      await _authService.signIn(
         email: _emailController.text.trim(),
         password: _passwordController.text,
       );
-      await _routeByRole(cred.user!.uid);
     } catch (e) {
       setState(() => _error = e.toString());
     } finally {
@@ -48,8 +43,7 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _loginWithGoogle() async {
     setState(() { _isLoading = true; _error = null; });
     try {
-      final cred = await _authService.signInWithGoogle();
-      await _routeByRole(cred.user!.uid);
+      await _authService.signInWithGoogle();
     } on AuthException catch (e) {
       setState(() => _error = e.toString());
     } catch (e) {
@@ -65,24 +59,7 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  Future<void> _routeByRole(String uid) async {
-    final data = await _authService.getUserData(uid);
-    if (!mounted) return;
-    final role = data?['role'] as String? ?? 'Student';
-    context.read<UserRoleProvider>().setUser(
-      uid: uid,
-      fullName: data?['fullName'] as String? ?? '',
-      role: role,
-    );
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (_) => role == 'Instructor'
-            ? const InstructorDashboardScreen()
-            : const InjectionTypeScreen(),
-      ),
-    );
-  }
+
 
   @override
   Widget build(BuildContext context) {

@@ -6,6 +6,7 @@ import '../services/auth_service.dart';
 import '../screens/auth/login_screen.dart';
 import '../screens/student/my_sessions_screen.dart';
 import '../screens/instructor/instructor_dashboard_screen.dart';
+import 'dart:async';
 
 /// Listens to Firebase Auth state changes and routes to the correct screen:
 /// - Unauthenticated → LoginScreen
@@ -19,6 +20,7 @@ class AuthWrapper extends StatelessWidget {
     final authService = AuthService();
 
     return StreamBuilder<User?>(
+      initialData: FirebaseAuth.instance.currentUser,
       stream: authService.authStateChanges,
       builder: (context, snapshot) {
         // Still waiting for auth state
@@ -83,28 +85,23 @@ class _LoadingScreen extends StatelessWidget {
   const _LoadingScreen();
 
   @override
-  Widget build(BuildContext context) => const Scaffold(
-        backgroundColor: Color(0xFF003366), // Navy
+  Widget build(BuildContext context) => Scaffold(
+        backgroundColor: const Color(0xFF003366), // Navy
         body: Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              CircularProgressIndicator(
-                color: Colors.white,
-                strokeWidth: 3,
-              ),
-              SizedBox(height: 24),
-              Text(
+              const Text(
                 'PRISM',
                 style: TextStyle(
                   color: Colors.white,
-                  fontSize: 22,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 6,
+                  fontSize: 32,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 6.0,
                 ),
               ),
-              SizedBox(height: 8),
-              Text(
+              const SizedBox(height: 12),
+              const Text(
                 'INITIALIZING...',
                 style: TextStyle(
                   color: Color(0xFFA8C4E0), // Accent Blue
@@ -112,6 +109,11 @@ class _LoadingScreen extends StatelessWidget {
                   fontWeight: FontWeight.w600,
                   letterSpacing: 2,
                 ),
+              ),
+              const SizedBox(height: 24),
+              const CircularProgressIndicator(
+                color: Colors.white,
+                strokeWidth: 3,
               ),
             ],
           ),

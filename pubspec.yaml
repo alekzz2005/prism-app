@@ -48,6 +48,7 @@ dependencies:
   excel: ^4.0.6
   flutter_svg: ^2.3.0
   shared_preferences: ^2.5.5
+  google_mlkit_pose_detection: ^0.14.1
 
 dev_dependencies:
   flutter_test:

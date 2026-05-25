@@ -26,6 +26,7 @@ class HandLandmarkIndices {
   static const int indexTip = 8;     // L8
   static const int middleMcp = 9;    // L9 — center of finger base
   static const int middleTip = 12;   // L12
+  static const int pinkyTip = 20;    // L20
 }
 
 /// Wraps the [HandLandmarkerPlugin] lifecycle and provides
@@ -97,6 +98,10 @@ class HandLandmarkService {
   /// Extracts the middle-finger tip landmark (L12) from the first detected hand.
   static Landmark? getMiddleTip(List<Hand> hands) =>
       _getLandmark(hands, HandLandmarkIndices.middleTip);
+
+  /// Extracts the pinky-finger tip landmark (L20) from the first detected hand.
+  static Landmark? getPinkyTip(List<Hand> hands) =>
+      _getLandmark(hands, HandLandmarkIndices.pinkyTip);
 
   /// Internal helper — returns the landmark at [index] or null.
   static Landmark? _getLandmark(List<Hand> hands, int index) =>

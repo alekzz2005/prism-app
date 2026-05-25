@@ -1,6 +1,9 @@
 import 'dart:math' as math;
 import 'package:hand_landmarker/hand_landmarker.dart';
+import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
+import 'package:flutter/material.dart';
 import 'hand_landmark_service.dart';
+import 'pose_landmark_service.dart';
 
 /// Utility for computing angles from MediaPipe Hand Landmarker points.
 ///
@@ -96,55 +99,107 @@ class AngleComputationUtil {
   ///
   /// Returns -1 if no usable landmark pair is found.
   /// The returned angle is Gaussian-smoothed to reduce jitter.
-  static double computeDartGripAngle(List<Hand> hands,
+  static double computeDartGripAngle(List<Hand> hands, Size imageSize,
       {int sensorOrientation = 90}) {
     final rawAngle =
-        _computeRawDartGripAngle(hands, sensorOrientation: sensorOrientation);
+        _computeRawDartGripAngle(hands, imageSize, sensorOrientation: sensorOrientation);
     if (rawAngle < 0) return -1;
     return _smoothAngle(rawAngle);
   }
 
-  /// Raw (un-smoothed) dart-grip angle computation with fallback chain.
-  static double _computeRawDartGripAngle(List<Hand> hands,
-      {int sensorOrientation = 90}) {
+
+
+  static double computeAbsoluteInjectionAngle(
+      List<Hand> hands, Size imageSize,
+      {required String injectionType, int sensorOrientation = 90}) {
+    
+    double armAngle = 0.0;
+    // Fallback for fixed closed position
+    // Assume the arm is oriented consistently relative to the camera frame.
+    // Per user request: Y-axis (vertical) is 0 degrees, X-axis (horizontal) is 90 degrees.
+    if (injectionType == 'IM' || injectionType == 'SubQ') {
+      armAngle = 0.0; // Assume arm is vertical in the frame (0 deg)
+    } else {
+      armAngle = 90.0; // Assume arm is horizontal in the frame (90 deg)
+    }
+
+    // 2. Compute Syringe Vector from Hand dart-grip
+    // Hand Landmarker returns normalized coordinates (0.0-1.0)
+    final rawSyringeAngle = _computeRawDartGripAngle(hands, imageSize, sensorOrientation: sensorOrientation);
+    if (rawSyringeAngle < 0) return -1;
+
+    // 3. Compute relative angle
+    // The relative angle is the absolute difference between the assumed arm axis and syringe axis.
+    double relativeAngle = (rawSyringeAngle - armAngle).abs();
+    if (relativeAngle > 180) {
+      relativeAngle = 360 - relativeAngle;
+    }
+    
+    // We want the acute angle
+    if (relativeAngle > 90) {
+      relativeAngle = 180 - relativeAngle;
+    }
+
+    return _smoothAngle(relativeAngle);
+  }
+
+  static List<double> _transformAbsoluteCoords(double x, double y, Size imageSize, int sensorOrientation) {
+    final nx = x / imageSize.width;
+    final ny = y / imageSize.height;
+    final t = _transformCoords(nx, ny, sensorOrientation);
+    
+    // Scale by the bounding size based on orientation
+    final isPortrait = sensorOrientation == 90 || sensorOrientation == 270;
+    final logicalW = isPortrait ? imageSize.height : imageSize.width;
+    final logicalH = isPortrait ? imageSize.width : imageSize.height;
+    
+    return [t[0] * logicalW, t[1] * logicalH];
+  }
+
+    // _transformPoseCoords removed as Pose is removed
+
+  /// Returns the optimal [base, distal] landmarks for the dart grip vector,
+  /// falling back to alternative landmarks if primary ones are hidden.
+  static List<Landmark>? getDartGripVector(List<Hand> hands) {
     final wrist = HandLandmarkService.getWrist(hands);
-    if (wrist == null) return -1;
+    if (wrist == null) return null;
 
-    final indexMcp = HandLandmarkService.getIndexMcp(hands);
-    final middleMcp = HandLandmarkService.getMiddleMcp(hands);
+    final indexTip = HandLandmarkService.getIndexTip(hands);   // L8
+    final indexDip = HandLandmarkService.getIndexDip(hands);   // L7
+    final indexPip = HandLandmarkService.getIndexPip(hands);   // L6
+    final indexMcp = HandLandmarkService.getIndexMcp(hands);   // L5
 
-    // Attempt 1: L0 → midpoint(L5, L9) — center of finger base
-    if (indexMcp != null && middleMcp != null) {
-      return _angleFromWristToMidpoint(
-          wrist, indexMcp, middleMcp, sensorOrientation);
-    }
+    // Attempt 1: L7 → L8 (Fingertip vector)
+    if (indexDip != null && indexTip != null) return [indexDip, indexTip];
 
-    // Attempt 2: L0 → L9 (middle MCP — center of palm)
-    if (middleMcp != null) {
-      return _angleFromLandmarkPair(wrist, middleMcp, sensorOrientation);
-    }
+    // Attempt 2: L5 → L8 (Index MCP to Tip - user requested for shallow angles)
+    if (indexMcp != null && indexTip != null) return [indexMcp, indexTip];
 
-    // Attempt 3: L0 → L5 (index MCP)
-    if (indexMcp != null) {
-      return _angleFromLandmarkPair(wrist, indexMcp, sensorOrientation);
-    }
+    // Attempt 3: L5 → L6 (Index proximal phalanx)
+    if (indexMcp != null && indexPip != null) return [indexMcp, indexPip];
 
-    // Attempt 4: L0 → L8 (index tip — legacy fallback)
-    final indexTip = HandLandmarkService.getIndexTip(hands);
-    if (indexTip != null) {
-      return _angleFromLandmarkPair(wrist, indexTip, sensorOrientation);
-    }
+    // Legacy fallbacks
+    if (indexMcp != null) return [wrist, indexMcp];
+    if (indexTip != null) return [wrist, indexTip];
 
-    return -1;
+    return null;
+  }
+
+  /// Raw (un-smoothed) dart-grip angle computation with fallback chain.
+  static double _computeRawDartGripAngle(List<Hand> hands, Size imageSize,
+      {int sensorOrientation = 90}) {
+    final vector = getDartGripVector(hands);
+    if (vector == null) return -1;
+    return _angleFromLandmarkPair(vector[0], vector[1], imageSize, sensorOrientation);
   }
 
   /// Computes the angle from [wrist] to the midpoint of [a] and [b],
   /// relative to the horizontal axis.
   static double _angleFromWristToMidpoint(
-      Landmark wrist, Landmark a, Landmark b, int sensorOrientation) {
-    final wCoords = _transformCoords(wrist.x, wrist.y, sensorOrientation);
-    final aCoords = _transformCoords(a.x, a.y, sensorOrientation);
-    final bCoords = _transformCoords(b.x, b.y, sensorOrientation);
+      Landmark wrist, Landmark a, Landmark b, Size imageSize, int sensorOrientation) {
+    final wCoords = _transformAbsoluteCoords(wrist.x, wrist.y, imageSize, sensorOrientation);
+    final aCoords = _transformAbsoluteCoords(a.x, a.y, imageSize, sensorOrientation);
+    final bCoords = _transformAbsoluteCoords(b.x, b.y, imageSize, sensorOrientation);
 
     // Midpoint of the two distal landmarks
     final midX = (aCoords[0] + bCoords[0]) / 2.0;
@@ -152,22 +207,25 @@ class AngleComputationUtil {
 
     final dx = midX - wCoords[0];
     final dy = midY - wCoords[1];
-    final radians = math.atan2(dy.abs(), dx.abs());
+    // Swapped dy and dx: Y-axis is now 0 degrees, X-axis is 90 degrees.
+    final radians = math.atan2(dx.abs(), dy.abs());
     return radians * 180 / math.pi;
   }
 
   /// Computes the angle (degrees) of the vector from [base] to [distal]
   /// relative to the horizontal axis, after sensor orientation transform.
   static double _angleFromLandmarkPair(
-      Landmark base, Landmark distal, int sensorOrientation) {
-    final bCoords = _transformCoords(base.x, base.y, sensorOrientation);
-    final dCoords = _transformCoords(distal.x, distal.y, sensorOrientation);
+      Landmark base, Landmark distal, Size imageSize, int sensorOrientation) {
+    final bCoords = _transformAbsoluteCoords(base.x, base.y, imageSize, sensorOrientation);
+    final dCoords = _transformAbsoluteCoords(distal.x, distal.y, imageSize, sensorOrientation);
 
     final dx = dCoords[0] - bCoords[0];
     final dy = dCoords[1] - bCoords[1];
-    final radians = math.atan2(dy.abs(), dx.abs());
+    // Swapped dy and dx: Y-axis is now 0 degrees, X-axis is 90 degrees.
+    final radians = math.atan2(dx.abs(), dy.abs());
     return radians * 180 / math.pi;
   }
+
 
   // ── Legacy Angle (Deprecated) ──────────────────────────────────────────
 

@@ -192,14 +192,15 @@ Body:
   "messages": [
     {
       "role": "system",
-      "content": "You are a clinical nursing education evaluator. Generate structured, specific, encouraging feedback for a nursing student's parenteral injection return demonstration. Keep tone clinical but supportive."
+      "content": "You are PRISM, an AI clinical nursing evaluator. You are given ONLY numerical metrics from a parenteral injection return-demonstration (RD)... Max 150 words total."
     },
     {
       "role": "user",
       "content": "<PayloadBuilder output — see FeedbackService>"
     }
   ],
-  "max_tokens": 500
+  "max_tokens": 300,
+  "temperature": 0.7
 }
 ```
 
@@ -213,7 +214,8 @@ Body:
 4. **aiFeedbackText is immutable:** Instructor edits write to `instructorNote` only.
 5. **One auto-retry on OpenRouter timeout.** On second failure, save session with `feedbackStatus = "Feedback Generation Failed"`.
 6. **State management:** All in-session data lives in `SessionStateProvider`. Clear it on session end before returning to injection type screen.
-7. **AuthWrapper** listens to `FirebaseAuth.instance.authStateChanges()` and routes: unauthenticated → LoginScreen, Student role → InjectionTypeScreen, Instructor role → InstructorDashboardScreen.
+7. **Roster Uniqueness:** When instructors add students to a section (manually or CSV), uniqueness is checked **strictly by email address**. Duplicate names are allowed.
+8. **AuthWrapper** listens to `FirebaseAuth.instance.authStateChanges()` and routes: unauthenticated → LoginScreen, Student role → InjectionTypeScreen, Instructor role → InstructorDashboardScreen.
 
 ---
 

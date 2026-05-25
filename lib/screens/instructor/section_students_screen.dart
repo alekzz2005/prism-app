@@ -4,7 +4,7 @@ import 'package:provider/provider.dart';
 import '../../providers/user_role_provider.dart';
 import '../../services/roster_service.dart';
 
-// ─── Brand Colours ────────────────────────────────────────────────────────────
+// --- Brand Colours ------------------------------------------------------------
 const _navy = Color(0xFF003366);
 const _navyMid = Color(0xFF004080);
 const _accentBlue = Color(0xFFA8C4E0);
@@ -18,11 +18,11 @@ const _red = Color(0xFF991B1B);
 const _redBg = Color(0xFFFEF2F2);
 const _redBorder = Color(0xFFFECACA);
 const _inputBg = Color(0xFFF8FAFC);
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 class SectionStudentsScreen extends StatefulWidget {
-  final String sectionName;
-  const SectionStudentsScreen({super.key, required this.sectionName});
+  final InstructorSection section;
+  const SectionStudentsScreen({super.key, required this.section});
 
   @override
   State<SectionStudentsScreen> createState() => _SectionStudentsScreenState();
@@ -31,6 +31,19 @@ class SectionStudentsScreen extends StatefulWidget {
 class _SectionStudentsScreenState extends State<SectionStudentsScreen> {
   final _rosterService = RosterService();
   String _searchQuery = '';
+  bool _showArchived = false;
+  Stream<List<StudentRoster>>? _rosterStream;
+  String? _lastInstructorId;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final instructorId = context.read<UserRoleProvider>().uid;
+    if (_lastInstructorId != instructorId && instructorId != null) {
+      _lastInstructorId = instructorId;
+      _rosterStream = _rosterService.watchRoster(instructorId, widget.section.id, includeArchived: true);
+    }
+  }
 
   void _showAddStudentModal(String instructorId) {
     showModalBottomSheet(
@@ -39,7 +52,7 @@ class _SectionStudentsScreenState extends State<SectionStudentsScreen> {
       backgroundColor: Colors.transparent,
       builder: (_) => _AddStudentBottomSheet(
         instructorId: instructorId,
-        sectionName: widget.sectionName,
+        section: widget.section,
         rosterService: _rosterService,
       ),
     );
@@ -61,32 +74,18 @@ class _SectionStudentsScreenState extends State<SectionStudentsScreen> {
             children: [
               Container(
                 width: 56, height: 56,
-                decoration: BoxDecoration(
-                  color: _redBg,
-                  shape: BoxShape.circle,
-                  border: Border.all(color: _redBorder, width: 2),
-                ),
-                child: Center(
-                  child: SvgPicture.string(
-                    '<svg width="26" height="26" viewBox="0 0 26 26" fill="none"><path d="M4 7h18M9 7V5a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 7l-1 13a2 2 0 0 1-2 2h-6a2 2 0 0 1-2-2L7 7" stroke="#991B1B" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M11 12v5M15 12v5" stroke="#991B1B" stroke-width="1.5" stroke-linecap="round"/></svg>',
-                  ),
-                ),
+                decoration: BoxDecoration(color: _redBg, shape: BoxShape.circle),
+                child: const Icon(Icons.archive_outlined, color: _red, size: 28),
               ),
-              const SizedBox(height: 14),
-              const Text('Archive Student?', style: TextStyle(color: _textDark, fontSize: 17, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 16),
+              const Text('Archive Student?', style: TextStyle(color: _navy, fontSize: 18, fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
-              RichText(
+              Text(
+                'Archive ${student.firstName} ${student.lastName}? Their sessions will be hidden until restored.',
                 textAlign: TextAlign.center,
-                text: TextSpan(
-                  style: const TextStyle(color: _textMid, fontSize: 13, height: 1.5),
-                  children: [
-                    const TextSpan(text: 'This will archive '),
-                    TextSpan(text: student.formattedFullName, style: const TextStyle(fontWeight: FontWeight.bold)),
-                    TextSpan(text: ' from ${widget.sectionName}. They will no longer appear in the active roster.'),
-                  ]
-                ),
+                style: const TextStyle(color: _textMid, fontSize: 13, height: 1.4),
               ),
-              const SizedBox(height: 22),
+              const SizedBox(height: 24),
               Row(
                 children: [
                   Expanded(
@@ -94,20 +93,21 @@ class _SectionStudentsScreenState extends State<SectionStudentsScreen> {
                       onPressed: () => Navigator.pop(context),
                       style: TextButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          side: const BorderSide(color: _cardBorder, width: 1.5),
-                        ),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: const BorderSide(color: _cardBorder, width: 1.5)),
                       ),
                       child: const Text('Cancel', style: TextStyle(color: _textMid, fontSize: 14, fontWeight: FontWeight.w600)),
                     ),
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: TextButton(
-                      onPressed: () {
+                      onPressed: () async {
                         Navigator.pop(context);
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Archive not fully implemented on backend yet.')));
+                        try {
+                          await _rosterService.archiveStudent(instructorId, widget.section.id, student.id);
+                        } catch (e) {
+                          if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+                        }
                       },
                       style: TextButton.styleFrom(
                         backgroundColor: _redBg,
@@ -117,11 +117,81 @@ class _SectionStudentsScreenState extends State<SectionStudentsScreen> {
                           side: const BorderSide(color: _redBorder, width: 1.5),
                         ),
                       ),
-                      child: const Text('Archive', style: TextStyle(color: _red, fontSize: 14, fontWeight: FontWeight.w700)),
+                      child: const Text('Archive', style: TextStyle(color: _red, fontSize: 14, fontWeight: FontWeight.bold)),
                     ),
                   ),
                 ],
-              )
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _confirmUnarchive(String instructorId, StudentRoster student) {
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: Container(
+          decoration: BoxDecoration(
+            color: _cardBg,
+            borderRadius: BorderRadius.circular(20),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 56, height: 56,
+                decoration: BoxDecoration(color: const Color(0xFFDCFCE7), shape: BoxShape.circle),
+                child: const Icon(Icons.unarchive_outlined, color: Color(0xFF16A34A), size: 28),
+              ),
+              const SizedBox(height: 16),
+              const Text('Restore Student?', style: TextStyle(color: _navy, fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              Text(
+                'Restore ${student.firstName} ${student.lastName}? Their sessions will be visible again.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: _textMid, fontSize: 13, height: 1.4),
+              ),
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: const BorderSide(color: _cardBorder, width: 1.5)),
+                      ),
+                      child: const Text('Cancel', style: TextStyle(color: _textMid, fontSize: 14, fontWeight: FontWeight.w600)),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextButton(
+                      onPressed: () async {
+                        Navigator.pop(context);
+                        try {
+                          await _rosterService.unarchiveStudent(instructorId, widget.section.id, student.id);
+                        } catch (e) {
+                          if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error restoring: $e')));
+                        }
+                      },
+                      style: TextButton.styleFrom(
+                        backgroundColor: const Color(0xFF16A34A),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: const Text('Restore', style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                ],
+              ),
             ],
           ),
         ),
@@ -152,6 +222,7 @@ class _SectionStudentsScreenState extends State<SectionStudentsScreen> {
           children: [
             _buildHeader(),
             _buildSearch(),
+            _buildTabs(),
             _buildSwipeHint(),
             Expanded(
               child: _buildStudentList(instructorId),
@@ -230,7 +301,7 @@ class _SectionStudentsScreenState extends State<SectionStudentsScreen> {
                   children: [
                     const Text('PRISM', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w800, letterSpacing: 3, height: 1.0)),
                     const SizedBox(height: 3),
-                    Text(widget.sectionName.toUpperCase(), style: const TextStyle(color: _accentBlue, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.5)),
+                    Text(widget.section.name.toUpperCase(), style: const TextStyle(color: _accentBlue, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.5)),
                   ],
                 ),
               ],
@@ -295,10 +366,49 @@ class _SectionStudentsScreenState extends State<SectionStudentsScreen> {
     );
   }
 
+  Widget _buildTabs() {
+    return Container(
+      color: _bg,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Row(
+        children: [
+          _buildTabButton('Active', !_showArchived),
+          const SizedBox(width: 8),
+          _buildTabButton('Archived', _showArchived),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTabButton(String label, bool isSelected) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => setState(() => _showArchived = label == 'Archived'),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          decoration: BoxDecoration(
+            color: isSelected ? _navy : _cardBg,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: isSelected ? _navy : _cardBorder),
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            label,
+            style: TextStyle(
+              color: isSelected ? Colors.white : _textMid,
+              fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+              fontSize: 13,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildSwipeHint() {
     return Container(
       color: _bg,
-      padding: const EdgeInsets.fromLTRB(16, 6, 16, 2),
+      padding: const EdgeInsets.fromLTRB(16, 2, 16, 2),
       alignment: Alignment.centerRight,
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -307,23 +417,25 @@ class _SectionStudentsScreenState extends State<SectionStudentsScreen> {
             '<svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M8 6.5H2M2 6.5L4.5 4M2 6.5L4.5 9" stroke="#8A9BB0" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M11 6.5H9.5" stroke="#8A9BB0" stroke-width="1.3" stroke-linecap="round"/></svg>',
           ),
           const SizedBox(width: 4),
-          const Text('Swipe left to archive', style: TextStyle(color: _textMid, fontSize: 11)),
+          Text(_showArchived ? 'Swipe left to restore' : 'Swipe left to archive', style: const TextStyle(color: _textMid, fontSize: 11)),
         ],
       ),
     );
   }
 
   Widget _buildStudentList(String? instructorId) {
-    if (instructorId == null) return const SizedBox.shrink();
+    if (instructorId == null || _rosterStream == null) return const SizedBox.shrink();
 
     return StreamBuilder<List<StudentRoster>>(
-      stream: _rosterService.watchRoster(instructorId, widget.sectionName),
+      stream: _rosterStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator(color: _navy));
         }
 
         var students = snapshot.data ?? [];
+        students = students.where((s) => s.isArchived == _showArchived).toList();
+
         if (_searchQuery.isNotEmpty) {
           students = students.where((s) =>
             s.formattedFullName.toLowerCase().contains(_searchQuery) ||
@@ -370,24 +482,29 @@ class _SectionStudentsScreenState extends State<SectionStudentsScreen> {
         direction: DismissDirection.endToStart,
         background: Container(
           decoration: BoxDecoration(
-            color: _redBg,
+            color: _showArchived ? const Color(0xFF16A34A).withValues(alpha: 0.1) : _redBg,
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: _redBorder),
+            border: Border.all(color: _showArchived ? const Color(0xFF16A34A).withValues(alpha: 0.3) : _redBorder),
           ),
           alignment: Alignment.centerRight,
           padding: const EdgeInsets.only(right: 20),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.archive, color: _red, size: 24),
+              Icon(_showArchived ? Icons.unarchive : Icons.archive, color: _showArchived ? const Color(0xFF16A34A) : _red, size: 24),
               const SizedBox(height: 3),
-              const Text('Archive', style: TextStyle(color: _red, fontSize: 10, fontWeight: FontWeight.w700)),
+              Text(_showArchived ? 'Restore' : 'Archive', style: TextStyle(color: _showArchived ? const Color(0xFF16A34A) : _red, fontSize: 10, fontWeight: FontWeight.w700)),
             ],
           ),
         ),
         confirmDismiss: (direction) async {
-          _confirmArchive(instructorId, student);
-          return false;
+            if (_showArchived) {
+              _confirmUnarchive(instructorId, student);
+              return false;
+            } else {
+              _confirmArchive(instructorId, student);
+              return false;
+            }
         },
         child: Container(
           decoration: BoxDecoration(
@@ -427,15 +544,15 @@ class _SectionStudentsScreenState extends State<SectionStudentsScreen> {
   }
 }
 
-// ── Add Student Bottom Sheet ───────────────────────────────────────────────────
+// -- Add Student Bottom Sheet ---------------------------------------------------
 class _AddStudentBottomSheet extends StatefulWidget {
   final String instructorId;
-  final String sectionName;
+  final InstructorSection section;
   final RosterService rosterService;
 
   const _AddStudentBottomSheet({
     required this.instructorId,
-    required this.sectionName,
+    required this.section,
     required this.rosterService,
   });
 
@@ -447,13 +564,16 @@ class _AddStudentBottomSheetState extends State<_AddStudentBottomSheet> {
   final _firstCtrl = TextEditingController();
   final _middleCtrl = TextEditingController();
   final _lastCtrl = TextEditingController();
+  final _emailCtrl = TextEditingController();
   bool _isLoading = false;
+  String? _errorMsg;
 
   @override
   void dispose() {
     _firstCtrl.dispose();
     _middleCtrl.dispose();
     _lastCtrl.dispose();
+    _emailCtrl.dispose();
     super.dispose();
   }
 
@@ -466,14 +586,20 @@ class _AddStudentBottomSheetState extends State<_AddStudentBottomSheet> {
     final middleRaw = _middleCtrl.text.trim();
     final middleInitial = middleRaw.isNotEmpty ? middleRaw[0].toUpperCase() : '';
 
-    // Derive a placeholder email from name so the field stays non-empty
-    final email = '${first.toLowerCase()}.${last.toLowerCase()}@prism.edu';
+    final email = _emailCtrl.text.trim();
+    if (email.isEmpty) {
+      setState(() => _errorMsg = 'Email is required.');
+      return;
+    }
 
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _errorMsg = null;
+    });
     try {
       await widget.rosterService.addStudent(
         widget.instructorId,
-        widget.sectionName,
+        widget.section.id,
         firstName: first,
         lastName: last,
         middleInitial: middleInitial,
@@ -482,9 +608,7 @@ class _AddStudentBottomSheetState extends State<_AddStudentBottomSheet> {
       if (mounted) Navigator.pop(context);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error adding student: $e')),
-        );
+        setState(() => _errorMsg = e.toString());
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -557,6 +681,28 @@ class _AddStudentBottomSheetState extends State<_AddStudentBottomSheet> {
               // Last Name
               _fieldLabel('LAST NAME'),
               _inputField(_lastCtrl, 'e.g. Santos'),
+              const SizedBox(height: 14),
+
+              // Email
+              _fieldLabel('EMAIL ADDRESS'),
+              _inputField(_emailCtrl, 'e.g. student@cit-u.edu.ph'),
+              
+              if (_errorMsg != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 16),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    decoration: BoxDecoration(color: const Color(0xFFFEF2F2), borderRadius: BorderRadius.circular(10), border: Border.all(color: const Color(0xFFFCA5A5))),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.error_outline, color: Color(0xFFEF4444), size: 18),
+                        const SizedBox(width: 8),
+                        Expanded(child: Text(_errorMsg!, style: const TextStyle(color: Color(0xFF991B1B), fontSize: 12, fontWeight: FontWeight.w500))),
+                      ],
+                    ),
+                  ),
+                ),
+                
               const SizedBox(height: 24),
 
               // Submit

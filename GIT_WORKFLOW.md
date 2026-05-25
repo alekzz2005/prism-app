@@ -15,6 +15,7 @@ main_task/module/short_description
 | Technical change (refactor, library swap) | `tech` |
 | Bug fix | `fix` |
 | Setup / configuration | `setup` |
+| Official Release (Special Case) | `v` (e.g., `v1`) |
 
 **Examples:**
 ```bash

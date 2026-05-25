@@ -60,13 +60,22 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
   String _statusFilter = 'All';
   String _typeFilter   = 'All';
   String _sectionFilter = 'All';
+  String _schoolYearFilter = 'All';
 
-  static const _statusOptions = ['All', 'Pending', 'Released', 'Flagged'];
+  static const _statusOptions = ['All', 'Pending', 'Released', 'Failed'];
   static const _typeOptions   = ['All', 'IM', 'SubQ', 'IV', 'ID'];
-  static const _sectionOptions = ['All', 'Section 3A', 'Section 3B', 'Section 4A'];
 
   late Stream<List<SessionModel>> _sessionsStream;
-  late Stream<List<String>> _sectionsStream;
+  late Stream<List<InstructorSection>> _sectionsStream;
+  final Map<String, Stream<List<StudentRoster>>> _rosterStreams = {};
+
+  Stream<List<StudentRoster>> _getRosterStream(String instructorId, String sectionId) {
+    final key = '${instructorId}_$sectionId';
+    if (!_rosterStreams.containsKey(key)) {
+      _rosterStreams[key] = _rosterService.watchRoster(instructorId, sectionId);
+    }
+    return _rosterStreams[key]!;
+  }
 
   @override
   void initState() {
@@ -76,6 +85,7 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
   }
 
   String? _lastUid;
+  List<String> _archivedEmails = [];
 
   @override
   void didChangeDependencies() {
@@ -85,9 +95,29 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
       _lastUid = uid;
       if (uid.isNotEmpty) {
         _sectionsStream = _rosterService.watchSections(uid);
+        _fetchArchivedEmails(uid);
       } else {
         _sectionsStream = Stream.value([]);
       }
+    }
+  }
+
+  Future<void> _fetchArchivedEmails(String uid) async {
+    try {
+      final sections = await FirebaseFirestore.instance.collection('instructor_roster').doc(uid).collection('sections').get();
+      List<String> archivedEmails = [];
+      for (var sec in sections.docs) {
+        final students = await sec.reference.collection('students').where('isArchived', isEqualTo: true).get();
+        for (var doc in students.docs) {
+          final data = doc.data();
+          if (data['email'] != null) {
+            archivedEmails.add(data['email'].toString().toLowerCase());
+          }
+        }
+      }
+      if (mounted) setState(() => _archivedEmails = archivedEmails);
+    } catch (e) {
+      debugPrint('Error fetching archived emails: $e');
     }
   }
 
@@ -110,7 +140,9 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
 
   List<SessionModel> _applyFilters(List<SessionModel> sessions) {
     return sessions.where((s) {
-      final targetStatus = _statusFilter == 'Flagged' ? 'Feedback Generation Failed' : _statusFilter;
+      if (_archivedEmails.contains(s.userId.toLowerCase())) return false; // Hide archived students (userId stores the email)
+
+      final targetStatus = _statusFilter == 'Failed' ? 'Feedback Generation Failed' : _statusFilter;
       final matchStatus = _statusFilter == 'All' || s.feedbackStatus == targetStatus;
       final matchType   = _typeFilter   == 'All' || s.injectionType   == _typeFilter;
       final matchSection = _sectionFilter == 'All' || s.sectionName == _sectionFilter;
@@ -126,7 +158,6 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
 
   void _showAddSectionModal(String instructorId) {
     _toggleFab(); // close FAB
-    final nameCtrl = TextEditingController();
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -227,9 +258,13 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
             child: Column(
               children: [
                 Expanded(
-                  child: _currentIndex == 0
-                      ? _buildDashboardTab(roleProvider)
-                      : _buildSectionsTab(instructorId),
+                  child: IndexedStack(
+                    index: _currentIndex,
+                    children: [
+                      _buildDashboardTab(roleProvider),
+                      _buildSectionsTab(instructorId),
+                    ],
+                  ),
                 ),
                 _buildBottomNav(),
               ],
@@ -404,6 +439,10 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
             Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileScreen()));
           } else {
             setState(() => _currentIndex = index);
+            if (index == 0) {
+              final uid = context.read<UserRoleProvider>().uid;
+              if (uid != null) _fetchArchivedEmails(uid);
+            }
           }
         },
         behavior: HitTestBehavior.opaque,
@@ -445,7 +484,7 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
                   child: TextField(
                     onChanged: (val) => setState(() => _searchQuery = val),
                     decoration: const InputDecoration(
-                      hintText: 'Search by student or session ID...',
+                      hintText: 'Search by student...',
                       hintStyle: TextStyle(color: _textMid, fontSize: 13),
                       border: InputBorder.none,
                       isDense: true,
@@ -468,23 +507,15 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
               Expanded(child: _buildFilterDropdown('TYPE', _typeOptions, _typeFilter, (v) => setState(() => _typeFilter = v!))),
               const SizedBox(width: 8),
               Expanded(
-                child: Builder(
-                  builder: (context) {
-                    final uid = context.read<UserRoleProvider>().uid ?? '';
-                    return StreamBuilder<List<String>>(
-                      stream: uid.isEmpty
-                          ? Stream.value(<String>[])
-                          : _rosterService.watchSections(uid),
-                      builder: (context, snap) {
-                        final List<String> dynamicSections = ['All', ...(snap.data ?? <String>[])];
-                        String current = _sectionFilter;
-                        if (!dynamicSections.contains(current)) {
-                          current = 'All';
-                        }
-                        return _buildFilterDropdown('SECTION', dynamicSections, current, (v) => setState(() => _sectionFilter = v!));
-                      },
-                    );
-                  },
+                child: StreamBuilder<List<InstructorSection>>(
+                  stream: _sectionsStream,
+                  builder: (context, snap) {
+                    final List<String> dynamicSections = ['All'];
+                    if (snap.hasData) {
+                      dynamicSections.addAll(snap.data!.map((e) => e.name).toSet());
+                    }
+                    return _buildFilterDropdown('SECTION', dynamicSections, _sectionFilter, (v) => setState(() => _sectionFilter = v!));
+                  }
                 ),
               ),
             ],
@@ -600,10 +631,8 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text('My Sections', style: TextStyle(color: _textDark, fontSize: 15, fontWeight: FontWeight.bold)),
-              StreamBuilder<List<String>>(
-                stream: instructorId != null && instructorId.isNotEmpty
-                    ? _rosterService.watchSections(instructorId)
-                    : Stream.value(<String>[]),
+              StreamBuilder<List<InstructorSection>>(
+                stream: _sectionsStream,
                 builder: (context, snap) {
                   final len = snap.data?.length ?? 0;
                   return Text('$len sections', style: const TextStyle(color: _navy, fontSize: 12, fontWeight: FontWeight.w600));
@@ -613,19 +642,47 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
           ),
         ),
 
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+          child: StreamBuilder<List<InstructorSection>>(
+            stream: _sectionsStream,
+            builder: (context, snap) {
+              final List<String> syOptions = ['All'];
+              if (snap.hasData) {
+                syOptions.addAll(snap.data!.map((e) => e.schoolYear).where((sy) => sy != 'Default').toSet());
+              }
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 0),
+                child: Row(
+                  children: [
+                    Expanded(
+                      flex: 1,
+                      child: _buildFilterDropdown('SCHOOL YEAR', syOptions, _schoolYearFilter == '' ? 'All' : _schoolYearFilter, (v) {
+                        if (v != null) setState(() => _schoolYearFilter = v);
+                      }),
+                    ),
+                    const Spacer(),
+                  ],
+                ),
+              );
+            }
+          ),
+        ),
+
         Expanded(
           child: Builder(
             builder: (context) {
-              final uid = context.read<UserRoleProvider>().uid ?? '';
-              return StreamBuilder<List<String>>(
-                stream: uid.isEmpty
-                    ? Stream.value(<String>[])
-                    : _rosterService.watchSections(uid),
+              return StreamBuilder<List<InstructorSection>>(
+                stream: _sectionsStream,
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
                     return const Center(child: CircularProgressIndicator(color: _navy));
                   }
-                  final sections = snapshot.data ?? [];
+                  var sections = snapshot.data ?? [];
+                  if (_schoolYearFilter != 'All') {
+                    sections = sections.where((s) => s.schoolYear == _schoolYearFilter).toList();
+                  }
+
                   if (sections.isEmpty) {
                     return const Center(child: Text('No sections found.', style: TextStyle(color: _textMid)));
                   }
@@ -638,7 +695,7 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
                       final section = sections[index];
                       return GestureDetector(
                         onTap: () {
-                          Navigator.push(context, MaterialPageRoute(builder: (_) => SectionStudentsScreen(sectionName: section)));
+                          Navigator.push(context, MaterialPageRoute(builder: (_) => SectionStudentsScreen(section: section)));
                         },
                         child: Container(
                           padding: const EdgeInsets.all(16),
@@ -661,9 +718,9 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text(section, style: const TextStyle(color: _textDark, fontSize: 15, fontWeight: FontWeight.bold)),
+                                    Text(section.name, style: const TextStyle(color: _textDark, fontSize: 15, fontWeight: FontWeight.bold)),
                                     const SizedBox(height: 3),
-                                    const Text('Academic Year 2025-2026', style: TextStyle(color: _textMid, fontSize: 12)),
+                                    Text('Academic Year ${section.schoolYear}', style: const TextStyle(color: _textMid, fontSize: 12)),
                                   ],
                                 ),
                               ),
@@ -671,14 +728,17 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
                                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                                 decoration: BoxDecoration(color: _navy.withValues(alpha: 0.07), borderRadius: BorderRadius.circular(20)),
                                 child: StreamBuilder<List<StudentRoster>>(
-                                  stream: _rosterService.watchRoster(instructorId, section),
+                                  stream: _getRosterStream(instructorId, section.id),
                                   builder: (context, snap) {
+                                    if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+                                      return const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2, color: _navy));
+                                    }
                                     final count = snap.data?.length ?? 0;
                                     return Text('$count students', style: const TextStyle(color: _navy, fontSize: 12, fontWeight: FontWeight.bold));
                                   }
                                 ),
                               ),
-                              const SizedBox(width: 4),
+                              const SizedBox(width: 8),
                               SvgPicture.string('<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="#C8D8E8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
                             ],
                           ),
@@ -736,18 +796,18 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
                         const Text('PRISM', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w800, letterSpacing: 3, height: 1.0)),
                         const SizedBox(height: 3),
                         Text(subtitle.toUpperCase(), style: const TextStyle(color: _accentBlue, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.5)),
-                      ],
-                    ),
-                  ],
-                ),
-                if (_currentIndex == 0) ...[
-                  const SizedBox(height: 14),
-                  // Stats card
-                  _StatsCard(repo: _repo),
-                ]
-              ],
-            ),
+                    ],
+                  ),
+                ],
+              ),
+              if (_currentIndex == 0) ...[
+                const SizedBox(height: 14),
+                // Stats card
+                _StatsCard(repo: _repo),
+              ]
+            ],
           ),
+        ),
         ],
       ),
     );
@@ -805,7 +865,10 @@ class _StatItem extends StatelessWidget {
       children: [
         Text(value, style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w700, height: 1)),
         const SizedBox(height: 6),
-        Text(label, style: const TextStyle(color: _accentBlue, fontSize: 13, fontWeight: FontWeight.w600)),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(label, maxLines: 1, style: const TextStyle(color: _accentBlue, fontSize: 13, fontWeight: FontWeight.w600)),
+        ),
       ],
     ),
   );
@@ -882,6 +945,14 @@ class _SessionCard extends StatelessWidget {
   String _statusLabel(String status) {
     if (status == 'Feedback Generation Failed') return 'Failed';
     return status;
+  }
+
+  String _capitalize(String s) {
+    if (s.isEmpty) return s;
+    return s.split(' ').map((word) {
+      if (word.isEmpty) return '';
+      return word[0].toUpperCase() + word.substring(1).toLowerCase();
+    }).join(' ');
   }
 
   @override
@@ -1005,9 +1076,18 @@ class _AddSectionBottomSheet extends StatefulWidget {
 
 class _AddSectionBottomSheetState extends State<_AddSectionBottomSheet> {
   final _nameCtrl = TextEditingController();
+  final _syCtrl = TextEditingController(text: '2025-2026');
   bool _isLoading = false;
+  String? _errorMsg;
   String? _selectedFileName;
   Uint8List? _selectedFileBytes;
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _syCtrl.dispose();
+    super.dispose();
+  }
 
   void _pickFile() async {
     final result = await FilePicker.pickFiles(
@@ -1025,21 +1105,42 @@ class _AddSectionBottomSheetState extends State<_AddSectionBottomSheet> {
 
   void _createSection() async {
     final name = _nameCtrl.text.trim();
-    if (name.isEmpty || widget.instructorId.isEmpty) return;
-    setState(() => _isLoading = true);
+    final sy = _syCtrl.text.trim();
+    if (name.isEmpty || sy.isEmpty || widget.instructorId.isEmpty) return;
+    setState(() {
+      _isLoading = true;
+      _errorMsg = null;
+    });
     
     try {
-      await FirebaseFirestore.instance
+      final docId = '${name}_${sy}';
+      final docRef = FirebaseFirestore.instance
           .collection('instructor_roster')
           .doc(widget.instructorId)
           .collection('sections')
-          .doc(name)
-          .set({'createdAt': FieldValue.serverTimestamp()}, SetOptions(merge: true));
+          .doc(docId);
+          
+      final docSnap = await docRef.get();
+      if (docSnap.exists) {
+        if (mounted) {
+          setState(() {
+            _errorMsg = 'A section with this name and A.Y already exists.';
+            _isLoading = false;
+          });
+        }
+        return;
+      }
+
+      await docRef.set({
+            'createdAt': FieldValue.serverTimestamp(),
+            'schoolYear': sy,
+            'name': name,
+          });
 
       if (_selectedFileBytes != null && _selectedFileName != null) {
         await widget.rosterService.importRoster(
           widget.instructorId,
-          name,
+          docId,
           _selectedFileBytes!,
           _selectedFileName!,
         );
@@ -1104,22 +1205,33 @@ class _AddSectionBottomSheetState extends State<_AddSectionBottomSheet> {
               child: TextField(
                 controller: _nameCtrl,
                 textAlign: TextAlign.left,
-                decoration: const InputDecoration(hintText: 'e.g. Section 4B', hintStyle: TextStyle(color: _textMid, fontSize: 13), border: InputBorder.none, isDense: true, contentPadding: EdgeInsets.zero),
+                decoration: const InputDecoration(hintText: 'e.g. N1, N2', hintStyle: TextStyle(color: _textMid, fontSize: 13), border: InputBorder.none, isDense: true, contentPadding: EdgeInsets.zero),
                 style: const TextStyle(color: _textDark, fontSize: 13),
               ),
             ),
             const SizedBox(height: 14),
-            const Text('ACADEMIC YEAR', style: TextStyle(color: _navy, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.8)),
+            const Text('A.Y', style: TextStyle(color: _navy, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.8)),
             const SizedBox(height: 6),
             Container(
               height: 46,
               decoration: BoxDecoration(color: _bg, borderRadius: BorderRadius.circular(12), border: Border.all(color: _cardBorder, width: 1.5)),
               padding: const EdgeInsets.symmetric(horizontal: 14),
-              alignment: Alignment.centerLeft,
-              child: const Text('2025 - 2026', style: TextStyle(color: _textMid, fontSize: 13)),
+              child: Center(
+                child: TextField(
+                  controller: _syCtrl,
+                  decoration: const InputDecoration(
+                    hintText: 'e.g. 2025-2026',
+                    hintStyle: TextStyle(color: _textMid, fontSize: 13),
+                    border: InputBorder.none,
+                    isDense: true,
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                  style: const TextStyle(color: _textDark, fontSize: 13, fontWeight: FontWeight.w500),
+                ),
+              ),
             ),
             const SizedBox(height: 14),
-            const Text('UPLOAD STUDENT ROSTER (CSV/EXCEL)', style: TextStyle(color: _navy, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.8)),
+            const Text('UPLOAD STUDENT ROSTER (OPTIONAL)', style: TextStyle(color: _navy, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.8)),
             const SizedBox(height: 6),
             GestureDetector(
               onTap: _pickFile,
@@ -1138,16 +1250,29 @@ class _AddSectionBottomSheetState extends State<_AddSectionBottomSheet> {
                         '<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M10 13V4M10 4L7 7M10 4l3 3" stroke="#003366" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 14v1a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-1" stroke="#8A9BB0" stroke-width="1.4" stroke-linecap="round"/></svg>',
                       ),
                       const SizedBox(width: 10),
-                      Text(_selectedFileName ?? 'Upload CSV', style: const TextStyle(color: _navy, fontSize: 13, fontWeight: FontWeight.bold)),
-                      if (_selectedFileName == null) ...[
-                        const SizedBox(width: 6),
-                        const Text('or add manually', style: TextStyle(color: _textMid, fontSize: 11)),
-                      ],
+                      Text(_selectedFileName ?? 'Upload Spreadsheet (CSV, XLSX) or Add it Later', style: const TextStyle(color: _navy, fontSize: 13, fontWeight: FontWeight.bold)),
                     ],
                   ),
                 ),
               ),
             ),
+            
+            if (_errorMsg != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 16),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  decoration: BoxDecoration(color: const Color(0xFFFEF2F2), borderRadius: BorderRadius.circular(10), border: Border.all(color: const Color(0xFFFCA5A5))),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.error_outline, color: Color(0xFFEF4444), size: 18),
+                      const SizedBox(width: 8),
+                      Expanded(child: Text(_errorMsg!, style: const TextStyle(color: Color(0xFF991B1B), fontSize: 12, fontWeight: FontWeight.w500))),
+                    ],
+                  ),
+                ),
+              ),
+              
             const SizedBox(height: 24),
             ElevatedButton(
               onPressed: _isLoading ? null : _createSection,
@@ -1202,10 +1327,53 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
   StudentRoster? _selectedStudent;
   String? _selectedInjectionType; // Only allowing one for now
 
+  Stream<List<InstructorSection>>? _sectionsStream;
+  Stream<List<StudentRoster>>? _rosterStream;
+
+  @override
+  void initState() {
+    super.initState();
+    _sectionsStream = widget.rosterService.watchSections(widget.instructorId);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _migrateOldSections());
+  }
+
+  Future<void> _migrateOldSections() async {
+    final db = FirebaseFirestore.instance;
+    final sectionsRef = db.collection('instructor_roster').doc(widget.instructorId).collection('sections');
+    final snap = await sectionsRef.get();
+    
+    int year = 2020;
+    for (var doc in snap.docs) {
+      if (!doc.id.contains('_')) {
+        final data = doc.data();
+        final newSy = '$year-${year + 1}';
+        final newId = '${doc.id}_$newSy';
+        
+        await sectionsRef.doc(newId).set({
+          'createdAt': data['createdAt'] ?? FieldValue.serverTimestamp(),
+          'schoolYear': newSy,
+          'name': data['name'] ?? doc.id,
+        });
+        
+        final studentsSnap = await doc.reference.collection('students').get();
+        if (studentsSnap.docs.isNotEmpty) {
+          final batch = db.batch();
+          for (var sDoc in studentsSnap.docs) {
+            batch.set(sectionsRef.doc(newId).collection('students').doc(sDoc.id), sDoc.data());
+            batch.delete(sDoc.reference);
+          }
+          await batch.commit();
+        }
+        await doc.reference.delete();
+        year++;
+      }
+    }
+  }
+
   // Injection Type Defs
   final List<Map<String, String>> _injectionTypes = [
     {'key': 'im', 'abbr': 'IM', 'full': 'Intramuscular', 'angle': '90°', 'sites': 'Deltoid, Vastus Lateralis'},
-    {'key': 'sc', 'abbr': 'SC', 'full': 'Subcutaneous', 'angle': '45°', 'sites': 'Abdomen, Upper Arm'},
+    {'key': 'sc', 'abbr': 'SubQ', 'full': 'Subcutaneous', 'angle': '45°', 'sites': 'Abdomen, Upper Arm'},
     {'key': 'iv', 'abbr': 'IV', 'full': 'Intravenous', 'angle': '15°', 'sites': 'Antecubital, Dorsal Hand'},
     {'key': 'id', 'abbr': 'ID', 'full': 'Intradermal', 'angle': '10°', 'sites': 'Forearm, Upper Back'},
   ];
@@ -1244,7 +1412,7 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
     if (_selectedStudent == null || _selectedInjectionType == null) return;
     final typeKey = _selectedInjectionType!;
     final typeObj = _injectionTypes.firstWhere((t) => t['key'] == typeKey);
-    final typeFull = typeObj['full']!;
+    final typeAbbr = typeObj['abbr']!;
     
     // Mapping angle string to double
     double targetAngle = 90.0;
@@ -1254,9 +1422,9 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
 
     await widget.liveSessionService.startSession(
       instructorId: widget.instructorId,
-      studentName: "${_selectedStudent!.firstName} ${_selectedStudent!.lastName}",
+      studentName: _selectedStudent!.formattedFullName,
       studentEmail: _selectedStudent!.email,
-      injectionType: typeFull,
+      injectionType: typeAbbr,
       targetAngle: targetAngle,
       sectionName: _selectedSection,
     );
@@ -1296,8 +1464,8 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
         const SizedBox(height: 14),
         const Text('Choose a section to see the student roster.', style: TextStyle(color: Color(0xFF8A9BB0), fontSize: 12)),
         const SizedBox(height: 14),
-        StreamBuilder<List<String>>(
-          stream: widget.rosterService.watchSections(widget.instructorId),
+        StreamBuilder<List<InstructorSection>>(
+          stream: _sectionsStream,
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Padding(padding: EdgeInsets.all(20), child: Center(child: CircularProgressIndicator()));
@@ -1319,7 +1487,8 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
                 return InkWell(
                   onTap: () {
                     setState(() {
-                      _selectedSection = sec;
+                      _selectedSection = sec.name;
+                      _rosterStream = widget.rosterService.watchRoster(widget.instructorId, sec.id);
                       _step = 2;
                     });
                   },
@@ -1341,7 +1510,7 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(sec, style: const TextStyle(color: Color(0xFF003366), fontSize: 14, fontWeight: FontWeight.w600)),
+                              Text(sec.name, style: const TextStyle(color: Color(0xFF003366), fontSize: 14, fontWeight: FontWeight.w600)),
                             ],
                           ),
                         ),
@@ -1412,7 +1581,7 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
         const Text('Tap a student to expand, then select an injection type.', style: TextStyle(color: Color(0xFF8A9BB0), fontSize: 12)),
         const SizedBox(height: 12),
         StreamBuilder<List<StudentRoster>>(
-          stream: widget.rosterService.watchRoster(widget.instructorId, _selectedSection!),
+          stream: _rosterStream,
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Padding(padding: EdgeInsets.all(20), child: Center(child: CircularProgressIndicator()));
@@ -1462,7 +1631,7 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text("${s.firstName} ${s.lastName}", style: const TextStyle(color: Color(0xFF003366), fontSize: 14, fontWeight: FontWeight.w600)),
+                                    Text(s.formattedFullName, style: const TextStyle(color: Color(0xFF003366), fontSize: 14, fontWeight: FontWeight.w600)),
                                     const SizedBox(height: 1),
                                     Text(s.email, style: const TextStyle(color: Color(0xFF8A9BB0), fontSize: 11)),
                                   ],
@@ -1633,3 +1802,5 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
     );
   }
 }
+
+
