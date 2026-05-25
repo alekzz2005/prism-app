@@ -6,13 +6,14 @@ import 'package:provider/provider.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../providers/user_role_provider.dart';
-import '../../services/detection_service.dart';
+import '../../services/roboflow_service.dart';
 import '../../services/live_session_service.dart';
 
 // ─── Brand Colours ─────────────────────────────────────────────────────────
 const _accentBlue = Color(0xFFA8C4E0);
 const _green      = Color(0xFF4ADE80);
 const _greenDark  = Color(0xFF22C55E);
+const _red        = Color(0xFFF87171);
 // ──────────────────────────────────────────────────────────────────────────────
 
 class CameraNodeScreen extends StatefulWidget {
@@ -31,13 +32,18 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
   final LiveSessionService _liveService = LiveSessionService();
 
   double _liveAngle = 0;
+  int    _liveScore = 0;
   String _currentPhase = 'waiting';
   Size? _imageSize;
   LiveSessionModel? _currentSession;
 
   Timer? _syncTimer;
   double? _lastInsertionAngle;
-  String? _instructorId;  // cached to avoid context.read in dispose/timers
+  String? _instructorId;
+
+  // Roboflow detection state
+  bool _detectionLost = false;
+  CameraImage? _latestFrame;
 
   @override
   void initState() {
@@ -60,6 +66,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
     if (_instructorId != null) {
       _liveService.setCameraActive(_instructorId!, false);
     }
+    RoboflowDetectionService.resetSmoothing();
     super.dispose();
   }
 
@@ -81,13 +88,15 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
         _liveService.setCameraActive(_instructorId!, true);
       }
       
+      // 2Hz sync timer — sends latest frame to Roboflow every 500ms
       _syncTimer = Timer.periodic(const Duration(milliseconds: 500), (_) => _syncMetrics());
     } catch (_) {
       if (mounted) setState(() => _cameraReady = false);
     }
   }
 
-  void _syncMetrics() {
+  // ─── 2Hz Sync ─────────────────────────────────────────────────────────────
+  void _syncMetrics() async {
     if (!mounted) return;
     
     final instructorId = _instructorId;
@@ -95,11 +104,29 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
 
     if (_currentPhase == 'waiting' || _currentPhase == 'completed') return;
 
-    // We assume detection is not lost for the skeleton logic. This will be updated with custom model logic.
-    bool isLost = false;
-    _liveService.setDetectionLost(instructorId, isLost);
+    // Grab the cached frame
+    final frame = _latestFrame;
+    if (frame == null) {
+      _liveService.setDetectionLost(instructorId, true);
+      return;
+    }
 
-    if (_liveAngle < 0 && _currentPhase != 'aspiration') return;
+    // Send to Roboflow (or mock) and get angle result
+    final result = await RoboflowDetectionService.detectAngle(frame);
+
+    if (!mounted) return;
+
+    setState(() {
+      _detectionLost = result.detectionLost;
+      if (!result.detectionLost) {
+        _liveAngle = result.angle;
+        _liveScore = result.score;
+      }
+    });
+
+    _liveService.setDetectionLost(instructorId, result.detectionLost);
+
+    if (result.detectionLost) return;
 
     if (_currentPhase == 'insertion' || _currentPhase == 'withdrawal') {
       if (_liveAngle >= 0) {
@@ -108,44 +135,22 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
     }
   }
 
-  Future<void> _onFrame(CameraImage image) async {
-    if (_processing) return;
+  // ─── Frame Caching ────────────────────────────────────────────────────────
+  // We only cache the latest frame; the heavy work is done in _syncMetrics.
+  void _onFrame(CameraImage image) {
     if (_currentPhase == 'waiting' || _currentPhase == 'completed') return;
-    _processing = true;
-    try {
-      final cam = _camera?.description;
-      if (cam == null) return;
-      
-      final sensorOrientation = cam.sensorOrientation;
-      
-      if (mounted) {
-        setState(() {
-          _imageSize = Size(image.width.toDouble(), image.height.toDouble());
-          _sensorOrientation = sensorOrientation;
-          
-          if (_currentSession != null && _imageSize != null) {
-            // Integrate custom ML model here
-            final angle = AngleComputationUtil.computeAbsoluteInjectionAngle(
-                image, _imageSize!, 
-                injectionType: _currentSession!.injectionType, 
-                sensorOrientation: _sensorOrientation);
-                
-            if (angle >= 0) _liveAngle = angle;
-          }
-        });
-      }
-    } finally {
-      _processing = false;
+    _latestFrame = image;
+    
+    if (mounted) {
+      setState(() {
+        _imageSize = Size(image.width.toDouble(), image.height.toDouble());
+      });
     }
   }
 
+  // ─── Scoring ──────────────────────────────────────────────────────────────
   int _scoreAngle(double measured, double target) {
-    final delta = (measured - target).abs();
-    if (delta <= 1) return 5;
-    if (delta <= 2) return 4;
-    if (delta <= 3) return 3;
-    if (delta <= 5) return 2;
-    return 1;
+    return RoboflowDetectionService.scoreIMAngle(measured);
   }
 
   void _handlePhaseChange(String instructorId, LiveSessionModel session, String oldPhase) {
@@ -155,18 +160,19 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
     if (session.phase == 'waiting' || session.phase == 'completed') {
       setState(() {
         _lastInsertionAngle = null;
+        _detectionLost = false;
       });
-      AngleComputationUtil.resetSmoothing();
+      RoboflowDetectionService.resetSmoothing();
     } else if (session.phase == 'insertion_locked' && oldPhase == 'insertion') {
       final score = _scoreAngle(_liveAngle, session.targetAngle);
       _lastInsertionAngle = _liveAngle;
       _liveService.saveInsertionMetrics(instructorId, _liveAngle, score);
     } else if (session.phase == 'aspiration' && oldPhase == 'insertion_locked') {
-      AngleComputationUtil.resetSmoothing();
+      RoboflowDetectionService.resetSmoothing();
     } else if (session.phase == 'aspiration_locked' && oldPhase == 'aspiration') {
-      AngleComputationUtil.resetSmoothing();
+      RoboflowDetectionService.resetSmoothing();
     } else if (session.phase == 'withdrawal' && oldPhase == 'aspiration_locked') {
-      AngleComputationUtil.resetSmoothing();
+      RoboflowDetectionService.resetSmoothing();
     } else if (session.phase == 'withdrawal_locked' && oldPhase == 'withdrawal') {
       final score = _scoreAngle(_liveAngle, session.targetAngle);
       final delta = (_liveAngle - (_lastInsertionAngle ?? 0)).abs();
@@ -216,7 +222,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                   _currentPhase = 'waiting';
                   _lastInsertionAngle = null;
                 });
-                AngleComputationUtil.resetSmoothing();
+                RoboflowDetectionService.resetSmoothing();
               }
             });
           }
@@ -274,6 +280,43 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                 ),
 
               if (!isWaiting) ..._buildCornerGuides(),
+
+              // ── Detection Lost Overlay ──
+              if (!isWaiting && _detectionLost)
+                Positioned.fill(
+                  child: Container(
+                    color: Colors.red.withValues(alpha: 0.15),
+                    child: Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 16),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.75),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: _red.withValues(alpha: 0.6), width: 2),
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.warning_amber_rounded, color: _red, size: 40),
+                            const SizedBox(height: 10),
+                            const Text(
+                              'DETECTION LOST',
+                              style: TextStyle(color: Colors.white, fontSize: 16,
+                                  fontWeight: FontWeight.w800, letterSpacing: 2),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              'Syringe or arm not visible.\nReposition the camera.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: Colors.white.withValues(alpha: 0.7),
+                                  fontSize: 12, height: 1.4),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
 
               if (isWaiting)
                 Container(
@@ -336,7 +379,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                '${_formatName(session.studentName)} \u2014 ${session.injectionType} Injection',
+                                '${_formatName(session.studentName)} — ${session.injectionType} Injection',
                                 style: const TextStyle(color: Colors.white, fontSize: 16,
                                     fontWeight: FontWeight.w700, height: 1.2),
                                 maxLines: 1,
@@ -387,14 +430,18 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                                   width: 7, height: 7,
                                   decoration: BoxDecoration(
                                     shape: BoxShape.circle,
-                                    color: _greenDark,
-                                    boxShadow: [BoxShadow(color: _greenDark.withValues(alpha: 0.25), blurRadius: 0, spreadRadius: 3)],
+                                    color: _detectionLost ? _red : _greenDark,
+                                    boxShadow: [BoxShadow(
+                                      color: (_detectionLost ? _red : _greenDark).withValues(alpha: 0.25),
+                                      blurRadius: 0, spreadRadius: 3)],
                                   ),
                                 ),
                                 const SizedBox(width: 8),
-                                const Text('TRACKING ACTIVE',
-                                    style: TextStyle(color: _green, fontSize: 11,
-                                        fontWeight: FontWeight.w700, letterSpacing: 0.8)),
+                                Text(
+                                  _detectionLost ? 'DETECTION LOST' : 'TRACKING ACTIVE',
+                                  style: TextStyle(
+                                    color: _detectionLost ? _red : _green,
+                                    fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.8)),
                               ],
                             ),
                             Container(
@@ -416,6 +463,14 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                             _buildMetricCard('Phase',
                               session.phase.split('_')[0],
                               const Color(0xFFFCD34D)),
+                            const SizedBox(width: 8),
+                            _buildMetricCard('Angle',
+                              _detectionLost ? '---' : '${_liveAngle.toStringAsFixed(1)}°',
+                              _detectionLost ? Colors.white38 : Colors.white),
+                            const SizedBox(width: 8),
+                            _buildMetricCard('Score',
+                              _detectionLost ? '-' : '$_liveScore/5',
+                              _liveScore >= 4 ? _green : _liveScore >= 2 ? const Color(0xFFFCD34D) : _red),
                           ],
                         ),
                         const SizedBox(height: 10),

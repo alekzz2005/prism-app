@@ -1,9 +1,8 @@
-import 'package:camera/camera.dart';
-import 'package:flutter/material.dart';
 import 'dart:math' as math;
 
-/// Utility for computing angles from custom ML models.
-/// This acts as a skeleton ready to integrate a custom trained model.
+/// Utility for angle smoothing.
+/// Angle computation is now handled by RoboflowDetectionService.
+/// This class is retained for Gaussian smoothing used by other modules.
 class AngleComputationUtil {
   // ── Gaussian Smoothing ─────────────────────────────────────────────────
   static const int _smoothingWindow = 11;
@@ -12,7 +11,7 @@ class AngleComputationUtil {
 
   static List<double> _getGaussianKernel() {
     if (_gaussianKernel != null) return _gaussianKernel!;
-    const double sigma = 3.0; // ~3σ coverage within window
+    const double sigma = 3.0;
     final int half = _smoothingWindow ~/ 2;
     final kernel = <double>[];
     for (int i = -half; i <= half; i++) {
@@ -44,30 +43,5 @@ class AngleComputationUtil {
 
   static void resetSmoothing() {
     _angleBuffer.clear();
-  }
-
-  /// Placeholder for custom model integration
-  static double computeAbsoluteInjectionAngle(
-      CameraImage image, Size imageSize,
-      {required String injectionType, int sensorOrientation = 90}) {
-    
-    // TODO: Pass CameraImage to custom ML model to detect syringe vector.
-    // For now, return -1 (undetected).
-    double rawSyringeAngle = -1.0; 
-    
-    if (rawSyringeAngle < 0) return -1;
-
-    double armAngle = 0.0; // Assume IM injection is vertical (0 deg)
-    
-    double relativeAngle = (rawSyringeAngle - armAngle).abs();
-    if (relativeAngle > 180) {
-      relativeAngle = 360 - relativeAngle;
-    }
-    
-    if (relativeAngle > 90) {
-      relativeAngle = 180 - relativeAngle;
-    }
-
-    return smoothAngle(relativeAngle);
   }
 }
