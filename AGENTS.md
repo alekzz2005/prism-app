@@ -18,7 +18,7 @@
 **App name:** PRISM
 **Platform:** Flutter Android (Dart 3.x, Android 8.0+, minSdkVersion 26)
 **Institution:** CIT-U Nursing Department, Cebu, Philippines
-**Purpose:** AI-powered parenteral injection technique evaluator for nursing student return-demonstrations (RDs). Detects insertion angle, aspiration technique, and withdrawal angle via MediaPipe; generates clinical AI feedback via Llama 3.3 on OpenRouter; stores sessions in Firebase Firestore.
+**Purpose:** AI-powered Intramuscular (IM) injection technique evaluator for nursing student return-demonstrations (RDs). Detects insertion angle, aspiration technique, and withdrawal angle; generates clinical AI feedback via Llama 3.3 on OpenRouter; stores sessions in Firebase Firestore.
 
 ---
 
@@ -27,7 +27,7 @@
 | Layer | Tech |
 |---|---|
 | UI | Flutter Provider (state management) |
-| Computer Vision | `google_mlkit_pose_detection` or `google_mediapipe` Hand Landmarker — 21 landmarks, on-device |
+| Computer Vision | Custom ML model (integration ready) |
 | LLM | Llama 3.3 70B Instruct via OpenRouter API (`https://openrouter.ai/api/v1/chat/completions`) |
 | Auth | Firebase Authentication (email + password) |
 | Database | Firebase Firestore (NoSQL) |
@@ -77,15 +77,7 @@ lib/
 
 ---
 
-## Key Landmarks (MediaPipe Hand Landmarker)
 
-| Landmark ID | Body Part | Used For |
-|---|---|---|
-| L0 | Wrist | Base vector point — all angle calculations |
-| Midpoint(L5, L9) | Knuckles | Distal vector point — longitudinal axis for dart-grip (Lizhe 2024) |
-| L4 | Thumb tip | Aspiration plunger displacement tracking |
-
-**Angle formula:** `atan2` of the L0 → Midpoint(L5,L9) vector relative to the vertical axis.
 
 ---
 
@@ -94,9 +86,6 @@ lib/
 | Type | Target Angle | Tolerance |
 |---|---|---|
 | IM (Intramuscular) | 90° | ±5° |
-| SubQ (Subcutaneous) | 45° | ±5° |
-| IV (Intravenous) | 15° | ±3° |
-| ID (Intradermal) | 10° | ±3° |
 
 These are stored in `InjectionConfig` and loaded into `SessionStateProvider` before detection starts.
 
@@ -136,7 +125,7 @@ currentAngle: double
 sessionId: String (auto-ID)
 userId: String (→ users.uid)
 timestamp: Timestamp
-injectionType: String  // "IM" | "SubQ" | "IV" | "ID"
+injectionType: String  // "IM"
 insertionAngle: double
 insertionScore: int  // 1–5
 aspirationResult: String  // "Correct" | "Incorrect" | "Not Detected"
@@ -208,7 +197,6 @@ Body:
 
 ## Critical Implementation Notes for Agents
 
-1. **MediaPipe on Flutter:** Use `google_mlkit_pose_detection` as fallback if `google_mediapipe` Hand Landmarker Flutter bindings are unavailable. The angle math (atan2 on L0→L8) stays the same.
 2. **No video stored:** Only computed metrics go to Firestore. Never upload camera frames.
 3. **Firestore security rules:** Students read `sessions` only where `userId == request.auth.uid AND feedbackStatus == "Released"`. Instructors read all sessions.
 4. **aiFeedbackText is immutable:** Instructor edits write to `instructorNote` only.

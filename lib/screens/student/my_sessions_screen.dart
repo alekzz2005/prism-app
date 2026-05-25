@@ -44,7 +44,7 @@ class MySessionsScreen extends StatefulWidget {
 
 class _MySessionsScreenState extends State<MySessionsScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  final List<String> _tabs = ['IM'];
+  final List<String> _tabs = ['Released', 'Pending'];
 
   @override
   void initState() {
@@ -85,7 +85,7 @@ class _MySessionsScreenState extends State<MySessionsScreen> with SingleTickerPr
                   ? const Center(child: Text('Not signed in.', style: TextStyle(color: _textMid)))
                   : TabBarView(
                       controller: _tabController,
-                      children: _tabs.map((type) => _SessionList(uid: uid, typeFilter: type)).toList(),
+                      children: _tabs.map((status) => _SessionList(uid: uid, statusFilter: status)).toList(),
                     ),
             ),
           ],
@@ -271,9 +271,9 @@ class _ProgressDivider extends StatelessWidget {
 
 class _SessionList extends StatefulWidget {
   final String uid;
-  final String typeFilter;
+  final String statusFilter;
 
-  const _SessionList({required this.uid, required this.typeFilter});
+  const _SessionList({required this.uid, required this.statusFilter});
 
   @override
   State<_SessionList> createState() => _SessionListState();
@@ -322,7 +322,13 @@ class _SessionListState extends State<_SessionList> with AutomaticKeepAliveClien
         final docs = snap.data?.docs ?? [];
         final sessions = docs
             .map(SessionModel.fromFirestore)
-            .where((s) => s.injectionType == widget.typeFilter)
+            .where((s) {
+              if (widget.statusFilter == 'Released') {
+                return s.feedbackStatus == 'Released';
+              } else {
+                return s.feedbackStatus != 'Released';
+              }
+            })
             .toList();
 
         // Sort locally to avoid needing a Firestore composite index
@@ -333,7 +339,7 @@ class _SessionListState extends State<_SessionList> with AutomaticKeepAliveClien
             child: Padding(
               padding: const EdgeInsets.all(32),
               child: Text(
-                'No released ${widget.typeFilter} sessions found.\nCheck back after your instructor releases the feedback.',
+                'No ${widget.statusFilter.toLowerCase()} sessions found.',
                 textAlign: TextAlign.center,
                 style: const TextStyle(color: _textLight, fontSize: 14, height: 1.6),
               ),
@@ -341,52 +347,19 @@ class _SessionListState extends State<_SessionList> with AutomaticKeepAliveClien
           );
         }
 
-        // Split by status for section labels
-        final released = sessions.where((s) => s.feedbackStatus == 'Released').toList();
-        final pending  = sessions.where((s) => s.feedbackStatus != 'Released').toList();
-
         return ListView(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-          children: [
-            if (released.isNotEmpty) ...[
-              const _SectionLabel('Released'),
-              ...released.map((s) => Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: _SessionTile(session: s),
-              )),
-            ],
-            if (pending.isNotEmpty) ...[
-              const SizedBox(height: 6),
-              const _SectionLabel('Awaiting Review'),
-              ...pending.map((s) => Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: _SessionTile(session: s),
-              )),
-            ],
-          ],
+          children: sessions.map((s) => Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: _SessionTile(session: s),
+          )).toList(),
         );
       },
     );
   }
 }
 
-class _SectionLabel extends StatelessWidget {
-  final String text;
-  const _SectionLabel(this.text);
 
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4, left: 2, right: 2),
-      child: Text(
-        text.toUpperCase(),
-        style: const TextStyle(
-          color: _textLight, fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 1.0,
-        ),
-      ),
-    );
-  }
-}
 
 class _SessionTile extends StatelessWidget {
   final SessionModel session;

@@ -1325,7 +1325,7 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
   int _step = 1;
   String? _selectedSection;
   StudentRoster? _selectedStudent;
-  String? _selectedInjectionType; // Only allowing one for now
+
 
   Stream<List<InstructorSection>>? _sectionsStream;
   Stream<List<StudentRoster>>? _rosterStream;
@@ -1370,53 +1370,15 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
     }
   }
 
-  // Injection Type Defs
-  final List<Map<String, String>> _injectionTypes = [
-    {'key': 'im', 'abbr': 'IM', 'full': 'Intramuscular', 'angle': '90°', 'sites': 'Deltoid, Vastus Lateralis'},
-  ];
-
-  Color _getInjColor(String key) {
-    switch (key) {
-      case 'im': return const Color(0xFF1D4ED8);
-      default: return const Color(0xFF003366);
-    }
-  }
-
-  Color _getInjBg(String key) {
-    switch (key) {
-      case 'im': return const Color(0xFFEFF6FF);
-      default: return Colors.white;
-    }
-  }
-
-  Color _getInjBorder(String key) {
-    switch (key) {
-      case 'im': return const Color(0xFFBFDBFE);
-      case 'sc': return const Color(0xFFA7F3D0);
-      case 'iv': return const Color(0xFFDDD6FE);
-      case 'id': return const Color(0xFFFDE68A);
-      default: return const Color(0xFFE2EAF4);
-    }
-  }
-
   void _startSession() async {
-    if (_selectedStudent == null || _selectedInjectionType == null) return;
-    final typeKey = _selectedInjectionType!;
-    final typeObj = _injectionTypes.firstWhere((t) => t['key'] == typeKey);
-    final typeAbbr = typeObj['abbr']!;
+    if (_selectedStudent == null) return;
     
-    // Mapping angle string to double
-    double targetAngle = 90.0;
-    if (typeKey == 'sc') targetAngle = 45.0;
-    else if (typeKey == 'iv') targetAngle = 15.0;
-    else if (typeKey == 'id') targetAngle = 10.0;
-
     await widget.liveSessionService.startSession(
       instructorId: widget.instructorId,
       studentName: _selectedStudent!.formattedFullName,
       studentEmail: _selectedStudent!.email,
-      injectionType: typeAbbr,
-      targetAngle: targetAngle,
+      injectionType: 'IM',
+      targetAngle: 90.0,
       sectionName: _selectedSection,
     );
 
@@ -1538,7 +1500,7 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
               onTap: () => setState(() {
                 _step = 1;
                 _selectedStudent = null;
-                _selectedInjectionType = null;
+
               }),
               borderRadius: BorderRadius.circular(8),
               child: Container(
@@ -1555,7 +1517,7 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(_selectedSection ?? '', style: const TextStyle(color: Color(0xFF003366), fontSize: 14, fontWeight: FontWeight.bold)),
-                  const Text('Step 2 of 2 · Select student & injection', style: TextStyle(color: Color(0xFF8A9BB0), fontSize: 11)),
+                  const Text('Step 2 of 2 · Select student', style: TextStyle(color: Color(0xFF8A9BB0), fontSize: 11)),
                 ],
               ),
             ),
@@ -1569,7 +1531,7 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
           ],
         ),
         const SizedBox(height: 12),
-        const Text('Tap a student to expand, then select an injection type.', style: TextStyle(color: Color(0xFF8A9BB0), fontSize: 12)),
+        const Text('Tap a student to start the session.', style: TextStyle(color: Color(0xFF8A9BB0), fontSize: 12)),
         const SizedBox(height: 12),
         StreamBuilder<List<StudentRoster>>(
           stream: _rosterStream,
@@ -1604,14 +1566,9 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
                       InkWell(
                         onTap: () {
                           setState(() {
-                            if (isSelected) {
-                              _selectedStudent = null;
-                              _selectedInjectionType = null;
-                            } else {
-                              _selectedStudent = s;
-                              _selectedInjectionType = null;
-                            }
+                            _selectedStudent = s;
                           });
+                          _startSession();
                         },
                         borderRadius: BorderRadius.circular(14),
                         child: Padding(
@@ -1628,128 +1585,17 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
                                   ],
                                 ),
                               ),
-                              AnimatedRotation(
-                                turns: isSelected ? 0.25 : 0,
-                                duration: const Duration(milliseconds: 200),
-                                child: SvgPicture.string('<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="#C8D8E8" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
-                              ),
+                              SvgPicture.string('<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="#C8D8E8" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
                             ],
                           ),
                         ),
                       ),
-                      if (isSelected)
-                        Container(
-                          decoration: const BoxDecoration(
-                            border: Border(top: BorderSide(color: Color(0xFFE2EAF4))),
-                            color: Color(0xFFF8FAFC),
-                            borderRadius: BorderRadius.only(bottomLeft: Radius.circular(13), bottomRight: Radius.circular(13))
-                          ),
-                          padding: const EdgeInsets.fromLTRB(12, 10, 12, 14),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Padding(
-                                padding: EdgeInsets.only(top: 4, bottom: 8),
-                                child: Text('SELECT INJECTION TYPE', style: TextStyle(color: Color(0xFF003366), fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1.0)),
-                              ),
-                              ..._injectionTypes.map((type) {
-                                final isChecked = _selectedInjectionType == type['key'];
-                                final c = _getInjColor(type['key']!);
-                                final bg = _getInjBg(type['key']!);
-                                final border = _getInjBorder(type['key']!);
-                                return GestureDetector(
-                                  onTap: () {
-                                    setState(() {
-                                      _selectedInjectionType = type['key'];
-                                    });
-                                  },
-                                  child: Container(
-                                    margin: const EdgeInsets.only(bottom: 8),
-                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                                    decoration: BoxDecoration(
-                                      color: isChecked ? const Color(0xFF003366).withValues(alpha: 0.03) : Colors.white,
-                                      border: Border.all(color: isChecked ? const Color(0xFF003366) : const Color(0xFFE2EAF4), width: 1.5),
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        Container(
-                                          width: 36, height: 36,
-                                          decoration: BoxDecoration(color: bg, border: Border.all(color: border), borderRadius: BorderRadius.circular(10)),
-                                          child: Center(
-                                            child: Text(type['abbr']!, style: TextStyle(color: c, fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 0.2)),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 10),
-                                        Expanded(
-                                          child: Row(
-                                            children: [
-                                              Text(type['full']!, style: const TextStyle(color: Color(0xFF003366), fontSize: 13, fontWeight: FontWeight.bold)),
-                                              const SizedBox(width: 6),
-                                              Container(
-                                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                                                decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(6)),
-                                                child: Text(type['angle']!, style: TextStyle(color: c, fontSize: 10, fontWeight: FontWeight.bold)),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                        Container(
-                                          width: 20, height: 20,
-                                          decoration: BoxDecoration(
-                                            shape: BoxShape.circle,
-                                            color: Colors.white,
-                                            border: Border.all(
-                                              color: isChecked ? const Color(0xFF003366) : const Color(0xFFCBD5E0),
-                                              width: 2,
-                                            ),
-                                          ),
-                                          child: isChecked
-                                              ? Center(
-                                                  child: Container(
-                                                    width: 10,
-                                                    height: 10,
-                                                    decoration: const BoxDecoration(
-                                                      shape: BoxShape.circle,
-                                                      color: Color(0xFF003366),
-                                                    ),
-                                                  ),
-                                                )
-                                              : null,
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                );
-                              }).toList(),
-                            ],
-                          ),
-                        ),
                     ],
                   ),
                 );
               },
             );
           },
-        ),
-        const SizedBox(height: 14),
-        ElevatedButton(
-          onPressed: (_selectedStudent != null && _selectedInjectionType != null) ? _startSession : null,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF003366),
-            disabledBackgroundColor: const Color(0xFFB0C0D4),
-            padding: const EdgeInsets.symmetric(vertical: 16),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-            elevation: 4,
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              SvgPicture.string('<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="7.5" stroke="white" stroke-width="1.5"/><path d="M7 6l5.5 3L7 12V6z" fill="white"/></svg>'),
-              const SizedBox(width: 10),
-              const Text('Start Session', style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold)),
-            ],
-          ),
         ),
         const SizedBox(height: 10),
         TextButton(
