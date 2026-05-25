@@ -63,7 +63,7 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
   String _schoolYearFilter = 'All';
 
   static const _statusOptions = ['All', 'Pending', 'Released', 'Failed'];
-  static const _typeOptions   = ['All', 'IM', 'SubQ', 'IV', 'ID'];
+  static const _typeOptions   = ['All', 'IM'];
 
   late Stream<List<SessionModel>> _sessionsStream;
   late Stream<List<InstructorSection>> _sectionsStream;
@@ -1373,17 +1373,11 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
   // Injection Type Defs
   final List<Map<String, String>> _injectionTypes = [
     {'key': 'im', 'abbr': 'IM', 'full': 'Intramuscular', 'angle': '90°', 'sites': 'Deltoid, Vastus Lateralis'},
-    {'key': 'sc', 'abbr': 'SubQ', 'full': 'Subcutaneous', 'angle': '45°', 'sites': 'Abdomen, Upper Arm'},
-    {'key': 'iv', 'abbr': 'IV', 'full': 'Intravenous', 'angle': '15°', 'sites': 'Antecubital, Dorsal Hand'},
-    {'key': 'id', 'abbr': 'ID', 'full': 'Intradermal', 'angle': '10°', 'sites': 'Forearm, Upper Back'},
   ];
 
   Color _getInjColor(String key) {
     switch (key) {
       case 'im': return const Color(0xFF1D4ED8);
-      case 'sc': return const Color(0xFF059669);
-      case 'iv': return const Color(0xFF7C3AED);
-      case 'id': return const Color(0xFFB45309);
       default: return const Color(0xFF003366);
     }
   }
@@ -1391,9 +1385,6 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
   Color _getInjBg(String key) {
     switch (key) {
       case 'im': return const Color(0xFFEFF6FF);
-      case 'sc': return const Color(0xFFECFDF5);
-      case 'iv': return const Color(0xFFF5F3FF);
-      case 'id': return const Color(0xFFFFFBEB);
       default: return Colors.white;
     }
   }

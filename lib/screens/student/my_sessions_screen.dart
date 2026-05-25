@@ -44,7 +44,7 @@ class MySessionsScreen extends StatefulWidget {
 
 class _MySessionsScreenState extends State<MySessionsScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  final List<String> _tabs = ['IM', 'SubQ', 'IV', 'ID'];
+  final List<String> _tabs = ['IM'];
 
   @override
   void initState() {

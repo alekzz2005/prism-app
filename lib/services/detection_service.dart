@@ -117,7 +117,7 @@ class AngleComputationUtil {
     // Fallback for fixed closed position
     // Assume the arm is oriented consistently relative to the camera frame.
     // Per user request: Y-axis (vertical) is 0 degrees, X-axis (horizontal) is 90 degrees.
-    if (injectionType == 'IM' || injectionType == 'SubQ') {
+    if (injectionType == 'IM') {
       armAngle = 0.0; // Assume arm is vertical in the frame (0 deg)
     } else {
       armAngle = 90.0; // Assume arm is horizontal in the frame (90 deg)

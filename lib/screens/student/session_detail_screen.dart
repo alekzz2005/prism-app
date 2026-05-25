@@ -312,9 +312,6 @@ class SessionDetailScreen extends StatelessWidget {
   String _fullType(String abbr) {
     switch(abbr) {
       case 'IM': return 'Intramuscular';
-      case 'SubQ': return 'Subcutaneous';
-      case 'IV': return 'Intravenous';
-      case 'ID': return 'Intradermal';
       default: return abbr;
     }
   }
@@ -322,9 +319,6 @@ class SessionDetailScreen extends StatelessWidget {
   Map<String, double> _targetForType(String type) {
     const targets = {
       'IM': {'target': 90.0, 'tolerance': 5.0},
-      'SubQ': {'target': 45.0, 'tolerance': 5.0},
-      'IV': {'target': 15.0, 'tolerance': 3.0},
-      'ID': {'target': 10.0, 'tolerance': 3.0},
     };
     return targets[type] ?? {'target': 0, 'tolerance': 5};
   }
