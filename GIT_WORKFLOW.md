@@ -116,6 +116,7 @@ git push origin feature/your_module/your_description
 - **Use underscores** in branch names and descriptions, not spaces or camelCase
 - **Don't commit `.env.json`** — it's in `.gitignore` for a reason (API key)
 - **Don't commit `build/`** — it's auto-generated
+- **Agent Workflow:** When concluding work on a feature branch, ask the agent to generate a brief, bullet-style summary of the changes. You can copy this summary for your Pull Request description or final commit message.
 
 ---
 
