@@ -10,6 +10,8 @@ import 'dart:math' as math;
 import '../../providers/user_role_provider.dart';
 import '../../services/hand_landmark_service.dart';
 import '../../services/detection_service.dart';
+import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
+import '../../services/pose_landmark_service.dart';
 import '../../services/live_session_service.dart';
 import '../../widgets/angle_overlay_painter.dart';
 
@@ -32,8 +34,10 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
   int _sensorOrientation = 90;
 
   final HandLandmarkService _landmarkService = HandLandmarkService();
+  final PoseLandmarkService _poseService = PoseLandmarkService();
   bool _processing = false;
   List<Hand> _hands = [];
+  List<Pose> _poses = [];
   final LiveSessionService _liveService = LiveSessionService();
 
   double _liveAngle = 0;
@@ -68,6 +72,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
     _camera?.stopImageStream();
     _camera?.dispose();
     _landmarkService.dispose();
+    _poseService.dispose();
     if (_instructorId != null) {
       _liveService.setCameraActive(_instructorId!, false);
     }
@@ -197,18 +202,22 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
       
       final sensorOrientation = cam.sensorOrientation;
       
-      // Run hand model only
+      // Run both models
       final detectedHands = _landmarkService.detect(image, sensorOrientation);
+      final detectedPoses = await _poseService.detect(image, sensorOrientation);
       
       if (mounted) {
         setState(() {
           _imageSize = Size(image.width.toDouble(), image.height.toDouble());
           _hands = _sortAndLockActiveHand(detectedHands);
+          if (detectedPoses != null) {
+            _poses = detectedPoses;
+          }
           _sensorOrientation = sensorOrientation;
           
           if (_hands.isNotEmpty && _currentSession != null) {
-            final angle = AngleComputationUtil.computeAbsoluteInjectionAngle(
-                _hands, _imageSize!, 
+            final angle = AngleComputationUtil.computeBodyRelativeInjectionAngle(
+                _hands, _poses, _imageSize!, 
                 injectionType: _currentSession!.injectionType, 
                 sensorOrientation: _sensorOrientation);
                 
@@ -363,6 +372,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                               child: CustomPaint(
                                 painter: AngleOverlayPainter(
                                   hands: _hands,
+                                  poses: _poses,
                                   imageSize: _imageSize!,
                                   sensorOrientation: _sensorOrientation,
                                   injectionType: _currentSession?.injectionType,

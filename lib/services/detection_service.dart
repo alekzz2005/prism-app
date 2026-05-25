@@ -109,18 +109,44 @@ class AngleComputationUtil {
 
 
 
-  static double computeAbsoluteInjectionAngle(
-      List<Hand> hands, Size imageSize,
+  static double computeBodyRelativeInjectionAngle(
+      List<Hand> hands, List<Pose> poses, Size imageSize,
       {required String injectionType, int sensorOrientation = 90}) {
     
     double armAngle = 0.0;
-    // Fallback for fixed closed position
-    // Assume the arm is oriented consistently relative to the camera frame.
-    // Per user request: Y-axis (vertical) is 0 degrees, X-axis (horizontal) is 90 degrees.
-    if (injectionType == 'IM') {
-      armAngle = 0.0; // Assume arm is vertical in the frame (0 deg)
-    } else {
-      armAngle = 90.0; // Assume arm is horizontal in the frame (90 deg)
+    bool hasValidArm = false;
+
+    // 1. Detect patient arm from Pose Landmarker
+    final arm = PoseLandmarkService.getPatientArm(poses, hands.isNotEmpty ? hands.first : null, imageSize, sensorOrientation: sensorOrientation);
+    if (arm != null) {
+      ArmLandmark? baseLm;
+      ArmLandmark? distalLm;
+
+      if (injectionType == 'IM') {
+        baseLm = arm.shoulder;
+        distalLm = arm.elbow;
+      }
+
+      if (baseLm != null && distalLm != null) {
+        final baseCoords = _transformPoseCoords(baseLm.x, baseLm.y, imageSize, sensorOrientation);
+        final distalCoords = _transformPoseCoords(distalLm.x, distalLm.y, imageSize, sensorOrientation);
+        final armDx = distalCoords[0] - baseCoords[0];
+        final armDy = distalCoords[1] - baseCoords[1];
+        // Y-axis is 0 degrees, X-axis is 90 degrees.
+        armAngle = math.atan2(armDx.abs(), armDy.abs()) * 180 / math.pi;
+        hasValidArm = true;
+      }
+    }
+
+    if (!hasValidArm) {
+      // Fallback for fixed closed position
+      // Assume the arm is oriented consistently relative to the camera frame.
+      // Per user request: Y-axis (vertical) is 0 degrees, X-axis (horizontal) is 90 degrees.
+      if (injectionType == 'IM') {
+        armAngle = 0.0; // Assume arm is vertical in the frame (0 deg)
+      } else {
+        armAngle = 90.0; // Assume arm is horizontal in the frame (90 deg)
+      }
     }
 
     // 2. Compute Syringe Vector from Hand dart-grip
@@ -156,8 +182,15 @@ class AngleComputationUtil {
     return [t[0] * logicalW, t[1] * logicalH];
   }
 
-    // _transformPoseCoords removed as Pose is removed
-
+  static List<double> _transformPoseCoords(double x, double y, Size imageSize, int sensorOrientation) {
+    double rw = imageSize.width;
+    double rh = imageSize.height;
+    if (sensorOrientation == 90 || sensorOrientation == 270) {
+      rw = imageSize.height;
+      rh = imageSize.width;
+    }
+    return [x / rw, y / rh];
+  }
   /// Returns the optimal [base, distal] landmarks for the dart grip vector,
   /// falling back to alternative landmarks if primary ones are hidden.
   static List<Landmark>? getDartGripVector(List<Hand> hands) {
