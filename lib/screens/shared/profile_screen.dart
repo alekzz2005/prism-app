@@ -56,18 +56,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   String _formatNameWithInitial(String fullName) {
     if (fullName.isEmpty) return 'User';
-    final parts = fullName.trim().split(RegExp(r'\s+'));
-    if (parts.length < 2) return fullName;
-    
-    if (parts.length == 2) {
-      return '${parts[0]} ${parts[1]}';
-    } else {
-      // e.g. First Middle Last
-      final first = parts[0];
-      final middle = parts[1];
-      final last = parts.sublist(2).join(' ');
-      return '$first ${middle[0].toUpperCase()}. $last';
-    }
+    return fullName.trim();
   }
 
   Future<void> _editName(String currentName) async {
@@ -87,7 +76,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           style: const TextStyle(color: Colors.black87),
           decoration: InputDecoration(
             hintText: 'Enter your full name',
-            hintStyle: const TextStyle(color: Colors.black54),
+            hintStyle: const TextStyle(color: Colors.black87),
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
             focusedBorder: OutlineInputBorder(borderSide: const BorderSide(color: _navy, width: 2), borderRadius: BorderRadius.circular(10)),
           ),

@@ -150,8 +150,12 @@ class _MySessionsScreenState extends State<MySessionsScreen> with SingleTickerPr
                           borderRadius: BorderRadius.circular(24),
                         ),
                         alignment: Alignment.center,
-                        child: SvgPicture.string(
-                          '<svg width="20" height="18" viewBox="0 0 20 18" fill="none"><path d="M10 10C12.76 10 14.96 7.94 14.96 5.42C14.96 2.9 12.76 0.84 10 0.84C7.24 0.84 5.04 2.9 5.04 5.42C5.04 7.94 7.24 10 10 10Z" stroke="white" stroke-width="1.5"/><path d="M1 17.16C1 13.38 5.03 10.31 10 10.31C14.97 10.31 19 13.38 19 17.16" stroke="white" stroke-width="1.5" stroke-linecap="round"/></svg>',
+                        child: Builder(
+                          builder: (context) {
+                            final name = context.watch<UserRoleProvider>().fullName ?? 'U';
+                            final initial = name.isNotEmpty ? name[0].toUpperCase() : 'U';
+                            return Text(initial, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold));
+                          }
                         ),
                       ),
                     ),

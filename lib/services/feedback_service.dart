@@ -45,15 +45,18 @@ class FeedbackService {
 
     try {
       feedbackText = await _client.generateFeedback(prompt);
-    } on FeedbackTimeoutException {
+    } on FeedbackTimeoutException catch (e) {
       feedbackText = '';
       feedbackStatus = 'Feedback Generation Failed';
-    } on FeedbackApiException catch (_) {
+      instructorNote = 'AI Timeout Error: $e';
+    } on FeedbackApiException catch (e) {
       feedbackText = '';
       feedbackStatus = 'Feedback Generation Failed';
-    } catch (_) {
+      instructorNote = 'AI API Error (Code ${e.statusCode}):\n${e.body}';
+    } catch (e) {
       feedbackText = '';
       feedbackStatus = 'Feedback Generation Failed';
+      instructorNote = 'AI Unknown Error: $e';
     }
 
     return SessionModel(

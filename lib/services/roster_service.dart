@@ -63,21 +63,43 @@ class StudentRoster {
   }
 }
 
+class InstructorSection {
+  final String id;
+  final String name;
+  final String schoolYear;
+
+  InstructorSection({required this.id, required this.name, required this.schoolYear});
+
+  factory InstructorSection.fromMap(String id, Map<String, dynamic> data) {
+    String rawName = data['name'] as String? ?? id;
+    if (rawName.contains('_')) {
+      rawName = rawName.split('_').first;
+    }
+    return InstructorSection(
+      id: id,
+      name: rawName,
+      schoolYear: data['schoolYear'] ?? 'Default',
+    );
+  }
+}
+
 class RosterService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
   /// Fetches sections for the instructor.
-  Stream<List<String>> watchSections(String instructorId) {
+  Stream<List<InstructorSection>> watchSections(String instructorId) {
     return _db
         .collection('instructor_roster')
         .doc(instructorId)
         .collection('sections')
         .snapshots()
-        .map((snap) => snap.docs.map((doc) => doc.id).toList());
+        .map((snap) => snap.docs
+            .map((doc) => InstructorSection.fromMap(doc.id, doc.data()))
+            .toList());
   }
 
   /// Fetches the roster for the instructor's section.
-  Stream<List<StudentRoster>> watchRoster(String instructorId, String sectionName) {
+  Stream<List<StudentRoster>> watchRoster(String instructorId, String sectionName, {bool includeArchived = false}) {
     return _db
         .collection('instructor_roster')
         .doc(instructorId)
@@ -86,9 +108,13 @@ class RosterService {
         .collection('students')
         .orderBy('lastName')
         .snapshots()
-        .map((snap) => snap.docs
-            .map((doc) => StudentRoster.fromMap(doc.id, doc.data()))
-            .toList());
+        .map((snap) {
+          var students = snap.docs.map((doc) => StudentRoster.fromMap(doc.id, doc.data())).toList();
+          if (!includeArchived) {
+            students = students.where((s) => !s.isArchived).toList();
+          }
+          return students;
+        });
   }
 
   /// Adds a single student to the given section's roster.
@@ -100,6 +126,24 @@ class RosterService {
     required String middleInitial,
     required String email,
   }) async {
+    final studentsRef = _db
+        .collection('instructor_roster')
+        .doc(instructorId)
+        .collection('sections')
+        .doc(sectionName)
+        .collection('students');
+        
+    final e = email.trim().toLowerCase();
+    
+    // Check for duplicate email
+    final snap = await studentsRef.get();
+    for (var doc in snap.docs) {
+      final docE = (doc.data()['email'] as String?)?.trim().toLowerCase() ?? '';
+      if (e.isNotEmpty && e == docE) {
+        throw 'A student with this email already exists in this section.';
+      }
+    }
+
     // Ensure the parent section document exists
     await _db
         .collection('instructor_roster')
@@ -108,13 +152,7 @@ class RosterService {
         .doc(sectionName)
         .set({'createdAt': FieldValue.serverTimestamp()}, SetOptions(merge: true));
 
-    await _db
-        .collection('instructor_roster')
-        .doc(instructorId)
-        .collection('sections')
-        .doc(sectionName)
-        .collection('students')
-        .add({
+    await studentsRef.add({
       'firstName': firstName.trim(),
       'lastName': lastName.trim(),
       'middleInitial': middleInitial.trim(),
@@ -168,21 +206,26 @@ class RosterService {
           .doc(sectionName)
           .collection('students');
 
-      // Ensure the section doc exists
+      // Ensure the section doc exists with name if it doesn't have one
       batch.set(
         _db.collection('instructor_roster').doc(instructorId).collection('sections').doc(sectionName),
-        {'createdAt': FieldValue.serverTimestamp()},
+        {
+          'createdAt': FieldValue.serverTimestamp(),
+          'name': sectionName,
+        },
         SetOptions(merge: true),
       );
 
       // Fetch existing students to check for duplicates
       final existing = await collRef.get();
-      final existingSet = existing.docs.map((d) {
-        final data = d.data();
-        final e = (data['email'] as String?)?.trim().toLowerCase() ?? '';
-        final f = (data['firstName'] as String?)?.trim().toLowerCase() ?? '';
-        final l = (data['lastName'] as String?)?.trim().toLowerCase() ?? '';
-        return '$e|$f|$l';
+      final existingEmails = existing.docs.map((d) {
+        return (d.data()['email'] as String?)?.trim().toLowerCase() ?? '';
+      }).where((e) => e.isNotEmpty).toSet();
+      
+      final existingNames = existing.docs.map((d) {
+        final f = (d.data()['firstName'] as String?)?.trim().toLowerCase() ?? '';
+        final l = (d.data()['lastName'] as String?)?.trim().toLowerCase() ?? '';
+        return '$f|$l';
       }).toSet();
 
       for (int i = 1; i < rows.length; i++) {
@@ -196,10 +239,14 @@ class RosterService {
         if (fName.isEmpty && lName.isEmpty) continue; // skip empty rows
 
         // Check if this student is already in the database
-        final uniqueKey = '$email|${fName.toLowerCase()}|${lName.toLowerCase()}';
-        if (existingSet.contains(uniqueKey)) continue; // skip duplicates
-        // also just add to set to prevent duplicates WITHIN the CSV itself
-        existingSet.add(uniqueKey);
+        if (email.isNotEmpty) {
+          if (existingEmails.contains(email)) continue;
+          existingEmails.add(email);
+        } else {
+          final nameKey = '${fName.toLowerCase()}|${lName.toLowerCase()}';
+          if (existingNames.contains(nameKey)) continue;
+          existingNames.add(nameKey);
+        }
 
         String mi = middleIdx != -1 && row.length > middleIdx ? row[middleIdx].trim() : '';
 
@@ -217,6 +264,33 @@ class RosterService {
       debugPrint('Error importing roster: $e');
       rethrow;
     }
+  }
+
+  /// Updates a section's name and school year, and cascades the name update to all related sessions.
+  Future<void> updateSection(String instructorId, String sectionId, String oldName, String newName, String newSchoolYear) async {
+    final batch = _db.batch();
+
+    // 1. Update the section document
+    final sectionRef = _db
+        .collection('instructor_roster')
+        .doc(instructorId)
+        .collection('sections')
+        .doc(sectionId);
+    
+    batch.set(sectionRef, {
+      'name': newName.trim(),
+      'schoolYear': newSchoolYear.trim(),
+    }, SetOptions(merge: true));
+
+    // 2. Cascade name change to all sessions matching the old name
+    if (oldName != newName.trim()) {
+      final sessionsQuery = await _db.collection('sessions').where('sectionName', isEqualTo: oldName).get();
+      for (var doc in sessionsQuery.docs) {
+        batch.update(doc.reference, {'sectionName': newName.trim()});
+      }
+    }
+
+    await batch.commit();
   }
 
   /// Archives a student by flagging them in the section's roster.

@@ -109,15 +109,17 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
 
   void _syncMetrics() {
     if (!mounted) return;
-    // Wait for insertion or withdrawal or aspiration
-    if (_currentPhase != 'insertion' && _currentPhase != 'withdrawal' && _currentPhase != 'aspiration') return;
-    if (_liveAngle < 0 && _currentPhase != 'aspiration') return;
+    
     final instructorId = _instructorId;
     if (instructorId == null) return;
 
-    // Sync detection state
+    if (_currentPhase == 'waiting' || _currentPhase == 'completed') return;
+
+    // Sync detection state regardless of whether a perfect angle is computed yet
     bool isLost = _hands.isEmpty;
     _liveService.setDetectionLost(instructorId, isLost);
+
+    if (_liveAngle < 0 && _currentPhase != 'aspiration') return;
 
     if (_currentPhase == 'insertion' || _currentPhase == 'withdrawal') {
       if (_liveAngle >= 0) {
@@ -187,7 +189,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
 
   Future<void> _onFrame(CameraImage image) async {
     if (_processing) return;
-    if (_currentPhase == 'waiting') return;
+    if (_currentPhase == 'waiting' || _currentPhase == 'completed') return;
     _processing = true;
     try {
       final cam = _camera?.description;
@@ -232,7 +234,14 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
     if (session.phase == oldPhase) return;
     _currentPhase = session.phase;
 
-    if (session.phase == 'insertion_locked' && oldPhase == 'insertion') {
+    if (session.phase == 'waiting' || session.phase == 'completed') {
+      setState(() {
+        _hands = [];
+        _lastInsertionAngle = null;
+        _lockedWristPos = null;
+      });
+      AngleComputationUtil.resetSmoothing();
+    } else if (session.phase == 'insertion_locked' && oldPhase == 'insertion') {
       final score = _scoreAngle(_liveAngle, session.targetAngle);
       _lastInsertionAngle = _liveAngle;
       _liveService.saveInsertionMetrics(instructorId, _liveAngle, score);
@@ -251,6 +260,15 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
     }
   }
 
+  String _formatName(String fullName) {
+    final parts = fullName.split(',');
+    if (parts.length == 1) return fullName;
+    final last = parts[0].trim();
+    final firstsWords = parts[1].trim().split(' ').where((w) => w.isNotEmpty).toList();
+    if (firstsWords.isEmpty) return last;
+    final firstInitial = '${firstsWords[0][0].toUpperCase()}.';
+    return '$last, $firstInitial';
+  }
 
 
   @override
@@ -283,6 +301,8 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                 setState(() {
                   _currentPhase = 'waiting';
                   _lastInsertionAngle = null;
+                  _lockedWristPos = null;
+                  _hands = [];
                 });
                 AngleComputationUtil.resetSmoothing();
               }
@@ -307,8 +327,26 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                 ),
               ),
               if (!_cameraReady)
-                const Center(
-                  child: CircularProgressIndicator(color: _accentBlue),
+                Container(
+                  color: const Color(0xFF003366),
+                  child: const Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        CircularProgressIndicator(color: Colors.white, strokeWidth: 3),
+                        SizedBox(height: 24),
+                        Text(
+                          'PRISM',
+                          style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: 6),
+                        ),
+                        SizedBox(height: 8),
+                        Text(
+                          'INITIALIZING CAMERA...',
+                          style: TextStyle(color: Color(0xFFA8C4E0), fontSize: 10, fontWeight: FontWeight.w600, letterSpacing: 2),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               if (_cameraReady && _camera?.value.previewSize != null) 
                 SizedBox.expand(
@@ -413,50 +451,37 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              '${session.studentName} \u2014 ${session.injectionType} Injection',
-                              style: const TextStyle(color: Colors.white, fontSize: 16,
-                                  fontWeight: FontWeight.w700, height: 1.2),
-                            ),
-                            const SizedBox(height: 4),
-                            Row(
-                              children: [
-                                Container(
-                                  width: 7, height: 7,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: _accentBlue,
-                                    boxShadow: [BoxShadow(color: _accentBlue.withValues(alpha: 0.25), blurRadius: 0, spreadRadius: 3)],
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '${_formatName(session.studentName)} \u2014 ${session.injectionType} Injection',
+                                style: const TextStyle(color: Colors.white, fontSize: 16,
+                                    fontWeight: FontWeight.w700, height: 1.2),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(height: 4),
+                              Row(
+                                children: [
+                                  Container(
+                                    width: 7, height: 7,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: _accentBlue,
+                                      boxShadow: [BoxShadow(color: _accentBlue.withValues(alpha: 0.25), blurRadius: 0, spreadRadius: 3)],
+                                    ),
                                   ),
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  '${session.phase.toUpperCase().replaceAll("_", " ")} PHASE ACTIVE',
-                                  style: const TextStyle(color: _accentBlue, fontSize: 11,
-                                      fontWeight: FontWeight.w700, letterSpacing: 0.5),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                        GestureDetector(
-                          onTap: () {
-                            _liveService.clearSession(instructorId);
-                            Navigator.pop(context);
-                          },
-                          child: Container(
-                            width: 30, height: 30,
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.07),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            alignment: Alignment.center,
-                            child: SvgPicture.string(
-                              '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 3l8 8M11 3l-8 8" stroke="rgba(255,255,255,0.4)" stroke-width="1.5" stroke-linecap="round"/></svg>',
-                            ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    '${session.phase.toUpperCase().replaceAll("_", " ")} PHASE ACTIVE',
+                                    style: const TextStyle(color: _accentBlue, fontSize: 11,
+                                        fontWeight: FontWeight.w700, letterSpacing: 0.5),
+                                  ),
+                                ],
+                              ),
+                            ],
                           ),
                         ),
                       ],

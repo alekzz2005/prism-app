@@ -47,6 +47,7 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
   late final TextEditingController _noteController;
   late final TextEditingController _aiFeedbackController;
   final UndoHistoryController _noteUndoController = UndoHistoryController();
+  final UndoHistoryController _aiFeedbackUndoController = UndoHistoryController();
 
   final _releaseService = FeedbackReleaseService();
   bool _isReleasing = false;
@@ -89,6 +90,7 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
     _noteController.dispose();
     _aiFeedbackController.dispose();
     _noteUndoController.dispose();
+    _aiFeedbackUndoController.dispose();
     super.dispose();
   }
 
@@ -216,17 +218,37 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
                               children: [
                                 _sectionHeader('AI Assisted Feedback'),
                                 if (!isReleased && streamAiText.isNotEmpty)
-                                  TextButton.icon(
-                                    onPressed: () {
-                                      _aiFeedbackController.text = streamAiText;
-                                    },
-                                    icon: const Icon(Icons.restore, size: 16, color: _textMid),
-                                    label: const Text('Revert to Original AI', style: TextStyle(color: _textMid, fontSize: 12)),
-                                    style: TextButton.styleFrom(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                      minimumSize: Size.zero,
-                                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                    ),
+                                  Row(
+                                    children: [
+                                      ValueListenableBuilder<UndoHistoryValue>(
+                                        valueListenable: _aiFeedbackUndoController,
+                                        builder: (context, value, _) {
+                                          return TextButton.icon(
+                                            onPressed: value.canUndo ? () => _aiFeedbackUndoController.undo() : null,
+                                            icon: Icon(Icons.undo, size: 16, color: value.canUndo ? _textMid : _textLight.withValues(alpha: 0.5)),
+                                            label: Text('Undo', style: TextStyle(color: value.canUndo ? _textMid : _textLight.withValues(alpha: 0.5), fontSize: 12)),
+                                            style: TextButton.styleFrom(
+                                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                              minimumSize: Size.zero,
+                                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                            ),
+                                          );
+                                        },
+                                      ),
+                                      const SizedBox(width: 8),
+                                      TextButton.icon(
+                                        onPressed: () {
+                                          _aiFeedbackController.text = streamAiText;
+                                        },
+                                        icon: const Icon(Icons.restore, size: 16, color: _textMid),
+                                        label: const Text('Revert', style: TextStyle(color: _textMid, fontSize: 12)),
+                                        style: TextButton.styleFrom(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                          minimumSize: Size.zero,
+                                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                        ),
+                                      ),
+                                    ],
                                   ),
                               ],
                             ),
@@ -256,9 +278,11 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
                                   border: Border.all(color: _inputBorder, width: 1.5),
                                 ),
                                 child: TextField(
+                                  key: const Key('ai_feedback_field'),
                                   controller: _aiFeedbackController,
+                                  undoController: _aiFeedbackUndoController,
                                   maxLines: 8,
-                                  enabled: !isReleased,
+                                  readOnly: isReleased,
                                   style: const TextStyle(color: _textDark, fontSize: 13, height: 1.6),
                                   decoration: const InputDecoration(
                                     hintText: 'No AI feedback was generated...',
@@ -337,7 +361,7 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
                         controller: _noteController,
                         undoController: _noteUndoController,
                         maxLines: 4,
-                        enabled: !isReleased,
+                        readOnly: isReleased,
                         style: const TextStyle(color: _textDark, fontSize: 13, height: 1.6),
                         decoration: const InputDecoration(
                           hintText: 'Add your clinical notes...',

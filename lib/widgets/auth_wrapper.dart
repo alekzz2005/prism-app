@@ -6,6 +6,7 @@ import '../services/auth_service.dart';
 import '../screens/auth/login_screen.dart';
 import '../screens/student/my_sessions_screen.dart';
 import '../screens/instructor/instructor_dashboard_screen.dart';
+import 'dart:async';
 
 /// Listens to Firebase Auth state changes and routes to the correct screen:
 /// - Unauthenticated → LoginScreen
@@ -19,6 +20,7 @@ class AuthWrapper extends StatelessWidget {
     final authService = AuthService();
 
     return StreamBuilder<User?>(
+      initialData: FirebaseAuth.instance.currentUser,
       stream: authService.authStateChanges,
       builder: (context, snapshot) {
         // Still waiting for auth state
@@ -79,57 +81,42 @@ class AuthWrapper extends StatelessWidget {
   }
 }
 
-class _LoadingScreen extends StatefulWidget {
+class _LoadingScreen extends StatelessWidget {
   const _LoadingScreen();
-
-  @override
-  State<_LoadingScreen> createState() => _LoadingScreenState();
-}
-
-class _LoadingScreenState extends State<_LoadingScreen> {
-  bool _showContent = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _showContent = true;
-  }
 
   @override
   Widget build(BuildContext context) => Scaffold(
         backgroundColor: const Color(0xFF003366), // Navy
         body: Center(
-          child: _showContent 
-            ? const Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  CircularProgressIndicator(
-                    color: Colors.white,
-                    strokeWidth: 3,
-                  ),
-                  SizedBox(height: 24),
-                  Text(
-                    'PRISM',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 22,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 6,
-                    ),
-                  ),
-                  SizedBox(height: 8),
-                  Text(
-                    'INITIALIZING...',
-                    style: TextStyle(
-                      color: Color(0xFFA8C4E0), // Accent Blue
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: 2,
-                    ),
-                  ),
-                ],
-              )
-            : const SizedBox.shrink(),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'PRISM',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 32,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 6.0,
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'INITIALIZING...',
+                style: TextStyle(
+                  color: Color(0xFFA8C4E0), // Accent Blue
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 2,
+                ),
+              ),
+              const SizedBox(height: 24),
+              const CircularProgressIndicator(
+                color: Colors.white,
+                strokeWidth: 3,
+              ),
+            ],
+          ),
         ),
       );
 }
