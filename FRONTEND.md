@@ -74,7 +74,7 @@ Keep all existing `Key('...')` values. You can add new keys but don't remove the
 ```dart
 Key('login_email'), Key('login_password'), Key('login_submit'), Key('login_google')
 Key('register_name'), Key('register_email'), Key('register_password'), Key('register_submit')
-Key('injection_type_IM'), Key('injection_type_SubQ'), Key('injection_type_IV'), Key('injection_type_ID')
+Key('injection_type_IM')
 Key('my_sessions_button'), Key('student_signout'), Key('instructor_signout')
 Key('lock_insertion_button'), Key('start_aspiration_button'), Key('lock_aspiration_button')
 Key('lock_withdrawal_button'), Key('complete_session_button'), Key('back_to_home_button')
@@ -98,9 +98,9 @@ role.isInstructor      // bool
 
 // Current session metrics (during detection):
 final session = context.watch<SessionStateProvider>();
-session.currentConfig?.type          // "IM" | "SubQ" | "IV" | "ID"
-session.currentConfig?.targetAngle   // 90.0 | 45.0 | 15.0 | 10.0
-session.currentConfig?.tolerance     // 5.0 | 3.0
+session.currentConfig?.type          // "IM"
+session.currentConfig?.targetAngle   // 90.0
+session.currentConfig?.tolerance     // 5.0
 session.insertionAngle               // double?
 session.insertionScore               // int? (1-5)
 session.aspirationResult             // "Correct" | "Incorrect" | "Not Detected"
@@ -128,7 +128,7 @@ _lockedWithdrawalAngle // double? — set after Phase 3
 ```dart
 session.sessionId
 session.userId
-session.injectionType        // "IM" | "SubQ" | "IV" | "ID"
+session.injectionType        // "IM"
 session.timestamp            // Timestamp → .toDate() → DateTime
 session.insertionAngle       // double
 session.insertionScore       // int 1-5
