@@ -117,7 +117,7 @@ class AngleComputationUtil {
     bool hasValidArm = false;
 
     // 1. Detect patient arm from Pose Landmarker
-    final arm = PoseLandmarkService.getPatientArm(poses, hands.isNotEmpty ? hands.first : null, imageSize, sensorOrientation: sensorOrientation);
+    final arm = PoseLandmarkService.getPatientArm(poses, HandLandmarkService.getActiveHand(hands), imageSize, sensorOrientation: sensorOrientation);
     if (arm != null) {
       ArmLandmark? baseLm;
       ArmLandmark? distalLm;

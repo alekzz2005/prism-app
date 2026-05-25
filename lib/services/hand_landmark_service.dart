@@ -1,4 +1,5 @@
 import 'package:camera/camera.dart';
+import 'dart:ui';
 import 'package:flutter/foundation.dart';
 import 'package:hand_landmarker/hand_landmarker.dart';
 
@@ -66,48 +67,109 @@ class HandLandmarkService {
   }
 
   // ── Static landmark accessors ──────────────────────────────────────────
+  static Offset? _lockedHandCenter;
+  static const double _handLockThreshold = 0.15; // Max distance in normalized coordinates
 
-  /// Extracts the wrist landmark (L0) from the first detected hand.
+  /// Resets the hand tracking lock.
+  static void resetSmoothing() {
+    _lockedHandCenter = null;
+  }
+
+  /// Finds and locks onto the hand that is likely holding the syringe.
+  static Hand? getActiveHand(List<Hand> hands) {
+    if (hands.isEmpty) return null;
+
+    if (_lockedHandCenter != null) {
+      Hand? bestHand;
+      double minD = double.infinity;
+      for (var h in hands) {
+        if (h.landmarks.isEmpty) continue;
+        final center = _getHandCenter(h);
+        double d = (center.dx - _lockedHandCenter!.dx) * (center.dx - _lockedHandCenter!.dx) +
+                   (center.dy - _lockedHandCenter!.dy) * (center.dy - _lockedHandCenter!.dy);
+        if (d < minD) {
+          minD = d;
+          bestHand = h;
+        }
+      }
+      if (bestHand != null && minD < _handLockThreshold) {
+        _lockedHandCenter = _getHandCenter(bestHand);
+        return bestHand;
+      }
+    }
+
+    // Fallback: pick the hand closest to the center of the frame
+    Hand? bestHand;
+    double minD = double.infinity;
+    for (var h in hands) {
+      if (h.landmarks.isEmpty) continue;
+      final center = _getHandCenter(h);
+      double d = (center.dx - 0.5) * (center.dx - 0.5) + (center.dy - 0.5) * (center.dy - 0.5);
+      if (d < minD) {
+        minD = d;
+        bestHand = h;
+      }
+    }
+
+    if (bestHand != null) {
+      _lockedHandCenter = _getHandCenter(bestHand);
+    }
+    return bestHand;
+  }
+
+  static Offset _getHandCenter(Hand hand) {
+    double cx = 0;
+    double cy = 0;
+    for (var lm in hand.landmarks) {
+      cx += lm.x;
+      cy += lm.y;
+    }
+    return Offset(cx / hand.landmarks.length, cy / hand.landmarks.length);
+  }
+
+  /// Extracts the wrist landmark (L0) from the active hand.
   static Landmark? getWrist(List<Hand> hands) =>
       _getLandmark(hands, HandLandmarkIndices.wrist);
 
-  /// Extracts the thumb-tip landmark (L4) from the first detected hand.
+  /// Extracts the thumb-tip landmark (L4) from the active hand.
   static Landmark? getThumbTip(List<Hand> hands) =>
       _getLandmark(hands, HandLandmarkIndices.thumbTip);
 
-  /// Extracts the index-finger MCP landmark (L5) from the first detected hand.
+  /// Extracts the index-finger MCP landmark (L5) from the active hand.
   static Landmark? getIndexMcp(List<Hand> hands) =>
       _getLandmark(hands, HandLandmarkIndices.indexMcp);
 
-  /// Extracts the index-finger PIP landmark (L6) from the first detected hand.
+  /// Extracts the index-finger PIP landmark (L6) from the active hand.
   static Landmark? getIndexPip(List<Hand> hands) =>
       _getLandmark(hands, HandLandmarkIndices.indexPip);
 
-  /// Extracts the index-finger DIP landmark (L7) from the first detected hand.
+  /// Extracts the index-finger DIP landmark (L7) from the active hand.
   static Landmark? getIndexDip(List<Hand> hands) =>
       _getLandmark(hands, HandLandmarkIndices.indexDip);
 
-  /// Extracts the index-fingertip landmark (L8) from the first detected hand.
+  /// Extracts the index-fingertip landmark (L8) from the active hand.
   static Landmark? getIndexTip(List<Hand> hands) =>
       _getLandmark(hands, HandLandmarkIndices.indexTip);
 
-  /// Extracts the middle-finger MCP landmark (L9) from the first detected hand.
+  /// Extracts the middle-finger MCP landmark (L9) from the active hand.
   static Landmark? getMiddleMcp(List<Hand> hands) =>
       _getLandmark(hands, HandLandmarkIndices.middleMcp);
 
-  /// Extracts the middle-finger tip landmark (L12) from the first detected hand.
+  /// Extracts the middle-finger tip landmark (L12) from the active hand.
   static Landmark? getMiddleTip(List<Hand> hands) =>
       _getLandmark(hands, HandLandmarkIndices.middleTip);
 
-  /// Extracts the pinky-finger tip landmark (L20) from the first detected hand.
+  /// Extracts the pinky-finger tip landmark (L20) from the active hand.
   static Landmark? getPinkyTip(List<Hand> hands) =>
       _getLandmark(hands, HandLandmarkIndices.pinkyTip);
 
   /// Internal helper — returns the landmark at [index] or null.
-  static Landmark? _getLandmark(List<Hand> hands, int index) =>
-      hands.isNotEmpty && hands.first.landmarks.length > index
-          ? hands.first.landmarks[index]
-          : null;
+  static Landmark? _getLandmark(List<Hand> hands, int index) {
+    final active = getActiveHand(hands);
+    return (active != null && active.landmarks.length > index)
+        ? active.landmarks[index]
+        : null;
+  }
 
   /// Releases all native resources. Call in [dispose].
   void dispose() {

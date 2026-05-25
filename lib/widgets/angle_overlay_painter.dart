@@ -32,25 +32,56 @@ class AngleOverlayPainter extends CustomPainter {
       ..strokeWidth = 4.0
       ..style = PaintingStyle.stroke;
 
-    for (final hand in hands) {
-      final lms = hand.landmarks;
-      if (lms.isEmpty) continue;
+    final activeHand = HandLandmarkService.getActiveHand(hands);
+    if (activeHand != null) {
+      final lms = activeHand.landmarks;
+      if (lms.isNotEmpty) {
+        // Draw the primary syringe axis using landmarks 7 and 8
+        if (lms.length > HandLandmarkIndices.indexTip) {
+          final basePt = _scale(lms[HandLandmarkIndices.indexDip], size); // L7
+          final distalPt = _scale(lms[HandLandmarkIndices.indexTip], size); // L8
+          
+          // Calculate the direction vector
+          double dx = distalPt.dx - basePt.dx;
+          double dy = distalPt.dy - basePt.dy;
+          
+          // Extend significantly to look like a syringe needle/barrel
+          Offset syringeStart = Offset(basePt.dx - dx * 2.0, basePt.dy - dy * 2.0);
+          Offset syringeEnd = Offset(distalPt.dx + dx * 2.0, distalPt.dy + dy * 2.0);
+          
+          // Draw the extended syringe line
+          canvas.drawLine(syringeStart, syringeEnd, syringeAxisPaint);
+        }
+      }
+    }
 
-      // Draw the primary syringe axis using landmarks 7 and 8
-      if (lms.length > HandLandmarkIndices.indexTip) {
-        final basePt = _scale(lms[HandLandmarkIndices.indexDip], size); // L7
-        final distalPt = _scale(lms[HandLandmarkIndices.indexTip], size); // L8
-        
-        // Calculate the direction vector
-        double dx = distalPt.dx - basePt.dx;
-        double dy = distalPt.dy - basePt.dy;
-        
-        // Extend significantly to look like a syringe needle/barrel
-        Offset syringeStart = Offset(basePt.dx - dx * 2.0, basePt.dy - dy * 2.0);
-        Offset syringeEnd = Offset(distalPt.dx + dx * 2.0, distalPt.dy + dy * 2.0);
-        
-        // Draw the extended syringe line
-        canvas.drawLine(syringeStart, syringeEnd, syringeAxisPaint);
+    if (poses.isNotEmpty) {
+      final patientArm = PoseLandmarkService.getPatientArm(poses, activeHand, imageSize, sensorOrientation: sensorOrientation);
+
+      ArmLandmark? baseLm;
+      ArmLandmark? distalLm;
+
+      if (patientArm != null) {
+        baseLm = patientArm.shoulder;
+        distalLm = patientArm.elbow;
+      }
+
+      if (baseLm != null && distalLm != null) {
+        final axisPaint = Paint()
+          ..color = Colors.orangeAccent
+          ..strokeWidth = 3.0
+          ..style = PaintingStyle.stroke;
+
+        final jointPaint = Paint()
+          ..color = Colors.orangeAccent
+          ..style = PaintingStyle.fill;
+
+        final basePt = _scalePose(baseLm, size);
+        final distalPt = _scalePose(distalLm, size);
+
+        canvas.drawLine(basePt, distalPt, axisPaint);
+        canvas.drawCircle(basePt, 5, jointPaint);
+        canvas.drawCircle(distalPt, 5, jointPaint);
       }
     }
   }
@@ -70,5 +101,20 @@ class AngleOverlayPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(AngleOverlayPainter old) => old.hands != hands;
+  bool shouldRepaint(AngleOverlayPainter old) => old.hands != hands || old.poses != poses;
+
+  /// Scales absolute ML Kit Pose coordinates to canvas size.
+  Offset _scalePose(ArmLandmark lm, Size canvas) {
+    double rw = imageSize.width;
+    double rh = imageSize.height;
+    if (sensorOrientation == 90 || sensorOrientation == 270) {
+      rw = imageSize.height;
+      rh = imageSize.width;
+    }
+    
+    double nx = lm.x / rw;
+    double ny = lm.y / rh;
+
+    return Offset(nx * canvas.width, ny * canvas.height);
+  }
 }

@@ -58,7 +58,6 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
   // Filters for Home
   String _searchQuery = '';
   String _statusFilter = 'All';
-  String _typeFilter   = 'All';
   String _sectionFilter = 'All';
   String _schoolYearFilter = 'All';
 
@@ -144,7 +143,6 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
 
       final targetStatus = _statusFilter == 'Failed' ? 'Feedback Generation Failed' : _statusFilter;
       final matchStatus = _statusFilter == 'All' || s.feedbackStatus == targetStatus;
-      final matchType   = _typeFilter   == 'All' || s.injectionType   == _typeFilter;
       final matchSection = _sectionFilter == 'All' || s.sectionName == _sectionFilter;
       
       final searchLower = _searchQuery.toLowerCase();
@@ -152,7 +150,7 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
                           s.studentName.toLowerCase().contains(searchLower) ||
                           s.sessionId.toLowerCase().contains(searchLower);
                           
-      return matchStatus && matchType && matchSection && matchSearch;
+      return matchStatus && matchSection && matchSearch;
     }).toList();
   }
 
@@ -503,8 +501,6 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
           child: Row(
             children: [
               Expanded(child: _buildFilterDropdown('STATUS', _statusOptions, _statusFilter, (v) => setState(() => _statusFilter = v!))),
-              const SizedBox(width: 8),
-              Expanded(child: _buildFilterDropdown('TYPE', _typeOptions, _typeFilter, (v) => setState(() => _typeFilter = v!))),
               const SizedBox(width: 8),
               Expanded(
                 child: StreamBuilder<List<InstructorSection>>(
