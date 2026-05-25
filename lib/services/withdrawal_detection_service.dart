@@ -1,13 +1,9 @@
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
-import 'package:hand_landmarker/hand_landmarker.dart';
 import 'detection_service.dart';
 
-/// Detects the withdrawal angle using the dart-grip syringe axis (L5→L6).
+/// Detects the withdrawal angle using the custom model.
 /// Compares against the insertion angle to determine correspondence.
-///
-/// Uses the same [AngleComputationUtil.computeDartGripAngle] as insertion
-/// so that both phases measure the identical vector, making the
-/// angular delta (correspondence) comparison consistent.
 class WithdrawalDetectionService {
   double _withdrawalAngle = 0.0;
   int _withdrawalScore = 1;
@@ -27,25 +23,32 @@ class WithdrawalDetectionService {
   }
 
   /// Call when student begins withdrawal phase.
-  /// [hands] — current hand landmarks, [insertionAngle] — recorded insertion angle,
-  /// [targetAngle] and [tolerance] from InjectionConfig.
   void update(
-    List<Hand> hands, {
+    CameraImage image, {
     required double insertionAngle,
     required double targetAngle,
     required double tolerance,
     required Size imageSize,
+    required String injectionType,
     int sensorOrientation = 90,
   }) {
-    final angle = AngleComputationUtil.computeDartGripAngle(hands, imageSize, sensorOrientation: sensorOrientation);
+    // Model-ready placeholder:
+    final angle = AngleComputationUtil.computeAbsoluteInjectionAngle(
+        image, imageSize, injectionType: injectionType, sensorOrientation: sensorOrientation);
     if (angle < 0) return;
 
     _withdrawalAngle = angle;
-    _withdrawalScore =
-        AngleComputationUtil.scoreAngle(angle, targetAngle, tolerance);
+    // We assume scoreAngle is moved to another utility or we can just use a simple delta check
+    // since we removed scoreAngle from AngleComputationUtil in the rewrite.
+    // For now, simple scoring:
+    final mae = (_withdrawalAngle - targetAngle).abs();
+    if (mae <= tolerance * 0.4) _withdrawalScore = 5;
+    else if (mae <= tolerance * 0.7) _withdrawalScore = 4;
+    else if (mae <= tolerance) _withdrawalScore = 3;
+    else if (mae <= tolerance * 1.5) _withdrawalScore = 2;
+    else _withdrawalScore = 1;
 
     _angularDelta = (insertionAngle - _withdrawalAngle).abs();
     _correspondenceResult = _angularDelta <= tolerance ? 'Matches' : 'Deviates';
   }
 }
-

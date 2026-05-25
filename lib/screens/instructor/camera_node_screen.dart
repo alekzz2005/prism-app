@@ -2,16 +2,12 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
-import 'package:hand_landmarker/hand_landmarker.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'dart:math' as math;
 
 import '../../providers/user_role_provider.dart';
-import '../../services/hand_landmark_service.dart';
 import '../../services/detection_service.dart';
 import '../../services/live_session_service.dart';
-import '../../widgets/angle_overlay_painter.dart';
 
 // ─── Brand Colours ─────────────────────────────────────────────────────────
 const _accentBlue = Color(0xFFA8C4E0);
@@ -31,9 +27,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
   bool _cameraReady = false;
   int _sensorOrientation = 90;
 
-  final HandLandmarkService _landmarkService = HandLandmarkService();
   bool _processing = false;
-  List<Hand> _hands = [];
   final LiveSessionService _liveService = LiveSessionService();
 
   double _liveAngle = 0;
@@ -43,18 +37,14 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
 
   Timer? _syncTimer;
   double? _lastInsertionAngle;
-  math.Point<double>? _lockedWristPos;
   String? _instructorId;  // cached to avoid context.read in dispose/timers
 
   @override
   void initState() {
     super.initState();
-    // Cache instructorId so dispose() and timers don't need context
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _instructorId = context.read<UserRoleProvider>().uid;
       
-      // Defer heavy initialization until after the route transition finishes
-      // This prevents the dashboard button from freezing when clicked.
       Future.delayed(const Duration(milliseconds: 350), () {
         if (!mounted) return;
         _initCamera();
@@ -67,7 +57,6 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
     _syncTimer?.cancel();
     _camera?.stopImageStream();
     _camera?.dispose();
-    _landmarkService.dispose();
     if (_instructorId != null) {
       _liveService.setCameraActive(_instructorId!, false);
     }
@@ -88,19 +77,10 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
       await _camera!.startImageStream(_onFrame);
       if (mounted) setState(() => _cameraReady = true);
       
-      // Delay ML initialization so the camera preview can render smoothly first
-      Future.delayed(const Duration(milliseconds: 150), () {
-        if (!mounted) return;
-        // Enable tracking for 2 hands so Aspiration can track the plunger pull!
-        _landmarkService.init(minConfidence: 0.01, numHands: 2);
-      });
-      
-      // Notify remote control that camera is now active
       if (_instructorId != null) {
         _liveService.setCameraActive(_instructorId!, true);
       }
       
-      // Start 2Hz sync timer
       _syncTimer = Timer.periodic(const Duration(milliseconds: 500), (_) => _syncMetrics());
     } catch (_) {
       if (mounted) setState(() => _cameraReady = false);
@@ -115,8 +95,8 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
 
     if (_currentPhase == 'waiting' || _currentPhase == 'completed') return;
 
-    // Sync detection state regardless of whether a perfect angle is computed yet
-    bool isLost = _hands.isEmpty;
+    // We assume detection is not lost for the skeleton logic. This will be updated with custom model logic.
+    bool isLost = false;
     _liveService.setDetectionLost(instructorId, isLost);
 
     if (_liveAngle < 0 && _currentPhase != 'aspiration') return;
@@ -125,65 +105,6 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
       if (_liveAngle >= 0) {
         _liveService.updateLiveAngle(instructorId, _liveAngle);
       }
-    }
-  }
-
-  List<Hand> _sortAndLockActiveHand(List<Hand> detectedHands) {
-    if (detectedHands.isEmpty) return detectedHands;
-
-    List<Hand> candidateHands = List.from(detectedHands);
-    Hand? activeHand;
-
-    // 1. Try to maintain existing lock on the instructor's hand
-    if (_lockedWristPos != null) {
-      double minLockDist = double.infinity;
-      for (final h in candidateHands) {
-        final w = h.landmarks[0];
-        final dist = math.pow(w.x - _lockedWristPos!.x, 2) + math.pow(w.y - _lockedWristPos!.y, 2);
-        if (dist < minLockDist) {
-          minLockDist = dist.toDouble();
-          activeHand = h;
-        }
-      }
-
-      if (minLockDist > 0.05) {
-        _lockedWristPos = null; // Lock broken
-        activeHand = null;
-      }
-    }
-
-    // 2. If no lock, find the hand closest to the center of the screen
-    if (_lockedWristPos == null && candidateHands.isNotEmpty) {
-      double bestScore = double.infinity;
-      for (final h in candidateHands) {
-        final w = h.landmarks[0];
-        // Center of normalized screen is (0.5, 0.5)
-        double dx = w.x - 0.5;
-        double dy = w.y - 0.5;
-        double score = dx * dx + dy * dy;
-
-        if (score < bestScore) { 
-          bestScore = score;
-          activeHand = h;
-        }
-      }
-    }
-
-    if (activeHand != null) {
-      final w = activeHand.landmarks[0];
-      _lockedWristPos = math.Point(w.x, w.y);
-
-      final sorted = [activeHand];
-      for (final h in detectedHands) {
-        if (h != activeHand) sorted.add(h);
-      }
-      return sorted;
-    } else {
-      // If no valid active hand (e.g. only stabilizing hand detected), don't put it at index 0.
-      // But we still want to draw it! 
-      // We return an empty list so that the detection engine skips this frame, 
-      // but we lose the drawing of the stabilizing hand. That's acceptable for correct tracking.
-      return []; 
     }
   }
 
@@ -197,18 +118,15 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
       
       final sensorOrientation = cam.sensorOrientation;
       
-      // Run hand model only
-      final detectedHands = _landmarkService.detect(image, sensorOrientation);
-      
       if (mounted) {
         setState(() {
           _imageSize = Size(image.width.toDouble(), image.height.toDouble());
-          _hands = _sortAndLockActiveHand(detectedHands);
           _sensorOrientation = sensorOrientation;
           
-          if (_hands.isNotEmpty && _currentSession != null) {
+          if (_currentSession != null && _imageSize != null) {
+            // Integrate custom ML model here
             final angle = AngleComputationUtil.computeAbsoluteInjectionAngle(
-                _hands, _imageSize!, 
+                image, _imageSize!, 
                 injectionType: _currentSession!.injectionType, 
                 sensorOrientation: _sensorOrientation);
                 
@@ -236,9 +154,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
 
     if (session.phase == 'waiting' || session.phase == 'completed') {
       setState(() {
-        _hands = [];
         _lastInsertionAngle = null;
-        _lockedWristPos = null;
       });
       AngleComputationUtil.resetSmoothing();
     } else if (session.phase == 'insertion_locked' && oldPhase == 'insertion') {
@@ -246,7 +162,6 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
       _lastInsertionAngle = _liveAngle;
       _liveService.saveInsertionMetrics(instructorId, _liveAngle, score);
     } else if (session.phase == 'aspiration' && oldPhase == 'insertion_locked') {
-      _lockedWristPos = null; // Drop lock for pulling hand
       AngleComputationUtil.resetSmoothing();
     } else if (session.phase == 'aspiration_locked' && oldPhase == 'aspiration') {
       AngleComputationUtil.resetSmoothing();
@@ -274,7 +189,6 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
   @override
   Widget build(BuildContext context) {
     final instructorId = context.watch<UserRoleProvider>().uid;
-    // Keep cached ID up to date
     _instructorId = instructorId;
 
     return Scaffold(
@@ -301,8 +215,6 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                 setState(() {
                   _currentPhase = 'waiting';
                   _lastInsertionAngle = null;
-                  _lockedWristPos = null;
-                  _hands = [];
                 });
                 AngleComputationUtil.resetSmoothing();
               }
@@ -310,13 +222,10 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
           }
 
           final isWaiting = session == null || session.phase == 'waiting';
-          final isTrackingActive = session != null && (session.phase == 'insertion' || session.phase == 'withdrawal');
 
-          // ── Camera & Overlays ─────────────────────────────────────────────
           return Stack(
             fit: StackFit.expand,
             children: [
-              // Camera background – dark navy
               Container(
                 decoration: const BoxDecoration(
                   gradient: LinearGradient(
@@ -358,24 +267,12 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                       child: Stack(
                         children: [
                           CameraPreview(_camera!),
-                          if (_hands.isNotEmpty && _imageSize != null)
-                            Positioned.fill(
-                              child: CustomPaint(
-                                painter: AngleOverlayPainter(
-                                  hands: _hands,
-                                  imageSize: _imageSize!,
-                                  sensorOrientation: _sensorOrientation,
-                                  injectionType: _currentSession?.injectionType,
-                                ),
-                              ),
-                            ),
                         ],
                       ),
                     ),
                   ),
                 ),
 
-              // Corner guides – accent blue
               if (!isWaiting) ..._buildCornerGuides(),
 
               if (isWaiting)
@@ -425,23 +322,6 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                 ),
 
               if (!isWaiting && session != null) ...[
-                if (_cameraReady && _currentPhase != 'waiting' && _hands.isEmpty)
-                  Container(
-                    color: Colors.redAccent.withValues(alpha: 0.3),
-                    child: const Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.warning_amber_rounded, color: Colors.white, size: 64),
-                          SizedBox(height: 16),
-                          Text('DETECTION LOST', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold, letterSpacing: 2)),
-                          Text('Please readjust hand or camera placement', style: TextStyle(color: Colors.white, fontSize: 16)),
-                        ],
-                      ),
-                    ),
-                  ),
-
-                // Top banner
                 Positioned(
                   top: 0, left: 0, right: 0,
                   child: Container(
@@ -490,8 +370,6 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                 ),
               ],
 
-
-              // Bottom status panel
               if (!isWaiting && session != null)
                 Positioned(
                   bottom: 0, left: 0, right: 0,
@@ -535,21 +413,6 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                         const SizedBox(height: 12),
                         Row(
                           children: [
-                            /* _buildMetricCard('Insertion Angle',
-                              session.finalInsertionAngle != null
-                                  ? '${session.finalInsertionAngle!.toStringAsFixed(1)}\u00b0'
-                                  : '--',
-                              _accentBlue),
-                            const SizedBox(width: 10),
-                            Text(
-                              'H: ${_hands.isNotEmpty ? 21 : 0}',
-                              style: const TextStyle(
-                                color: Colors.white70,
-                                fontSize: 11,
-                                fontFamily: 'monospace',
-                              ),
-                            ),
-                            const SizedBox(width: 10), */
                             _buildMetricCard('Phase',
                               session.phase.split('_')[0],
                               const Color(0xFFFCD34D)),
