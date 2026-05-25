@@ -1,7 +1,9 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:hand_landmarker/hand_landmarker.dart';
+import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
 import '../services/hand_landmark_service.dart';
+import '../services/pose_landmark_service.dart';
 import '../services/detection_service.dart';
 
 /// CustomPainter that draws the hand skeleton overlay on top of the camera preview.
@@ -9,102 +11,77 @@ import '../services/detection_service.dart';
 /// dart grip vector (L7->L8 primarily, with fallbacks for 3-finger shallow grips).
 class AngleOverlayPainter extends CustomPainter {
   final List<Hand> hands;
+  final List<Pose> poses;
   final Size imageSize;
   final int sensorOrientation;
   final String? injectionType;
 
   AngleOverlayPainter({
     required this.hands, 
+    required this.poses,
     required this.imageSize,
     this.sensorOrientation = 90,
     this.injectionType,
   });
 
-  // MediaPipe hand connections (simplified to the connections relevant
-  // to the wrist → index / wrist → thumb paths).
-  static const _connections = [
-    // Wrist → thumb chain
-    [0, 1], [1, 2], [2, 3], [3, 4],
-    // Wrist → index chain
-    [0, 5], [5, 6], [6, 7], [7, 8],
-    // Wrist → middle chain
-    [0, 9], [9, 10], [10, 11], [11, 12],
-    // Wrist → ring chain
-    [0, 13], [13, 14], [14, 15], [15, 16],
-    // Wrist → pinky chain
-    [0, 17], [17, 18], [18, 19], [19, 20],
-    // Palm cross-connections
-    [5, 9], [9, 13], [13, 17],
-  ];
-
   @override
   void paint(Canvas canvas, Size size) {
-    final linePaint = Paint()
-      ..color = Colors.cyanAccent.withValues(alpha: 0.75)
-      ..strokeWidth = 2.5
-      ..style = PaintingStyle.stroke;
-
-    final dotPaint = Paint()
-      ..color = Colors.greenAccent
-      ..strokeWidth = 6
-      ..style = PaintingStyle.fill;
-
-    // Key landmark highlight colours
-    final wristPaint = Paint()..color = Colors.cyanAccent;
-    final indexDipPaint = Paint()..color = Colors.amberAccent;
-    final indexTipPaint = Paint()..color = Colors.yellowAccent;
-
-    // L7 → L8 syringe axis (primary — dart grip hand axis)
+    // L7 → L8 syringe axis
     final syringeAxisPaint = Paint()
       ..color = Colors.yellowAccent
       ..strokeWidth = 4.0
       ..style = PaintingStyle.stroke;
 
-    for (final hand in hands) {
-      final lms = hand.landmarks;
-      if (lms.isEmpty) continue;
-
-      // Draw all connections
-      for (final conn in _connections) {
-        if (conn[0] < lms.length && conn[1] < lms.length) {
-          canvas.drawLine(
-            _scale(lms[conn[0]], size),
-            _scale(lms[conn[1]], size),
-            linePaint,
-          );
+    final activeHand = HandLandmarkService.getActiveHand(hands);
+    if (activeHand != null) {
+      final lms = activeHand.landmarks;
+      if (lms.isNotEmpty) {
+        // Draw the primary syringe axis using landmarks 7 and 8
+        if (lms.length > HandLandmarkIndices.indexTip) {
+          final basePt = _scale(lms[HandLandmarkIndices.indexDip], size); // L7
+          final distalPt = _scale(lms[HandLandmarkIndices.indexTip], size); // L8
+          
+          // Calculate the direction vector
+          double dx = distalPt.dx - basePt.dx;
+          double dy = distalPt.dy - basePt.dy;
+          
+          // Extend significantly to look like a syringe needle/barrel
+          Offset syringeStart = Offset(basePt.dx - dx * 2.0, basePt.dy - dy * 2.0);
+          Offset syringeEnd = Offset(distalPt.dx + dx * 2.0, distalPt.dy + dy * 2.0);
+          
+          // Draw the extended syringe line
+          canvas.drawLine(syringeStart, syringeEnd, syringeAxisPaint);
         }
       }
+    }
 
-      // Draw all landmark dots
-      for (final lm in lms) {
-        canvas.drawCircle(_scale(lm, size), 3, dotPaint);
+    if (poses.isNotEmpty) {
+      final patientArm = PoseLandmarkService.getPatientArm(poses, activeHand, imageSize, sensorOrientation: sensorOrientation);
+
+      ArmLandmark? baseLm;
+      ArmLandmark? distalLm;
+
+      if (patientArm != null) {
+        baseLm = patientArm.shoulder;
+        distalLm = patientArm.elbow;
       }
 
-      // Highlight the key PRISM landmarks
-      if (lms.length > HandLandmarkIndices.wrist) {
-        canvas.drawCircle(_scale(lms[HandLandmarkIndices.wrist], size), 7, wristPaint);
-      }
+      if (baseLm != null && distalLm != null) {
+        final axisPaint = Paint()
+          ..color = Colors.orangeAccent
+          ..strokeWidth = 3.0
+          ..style = PaintingStyle.stroke;
 
-      // Draw the primary syringe axis using the dynamic fallback logic!
-      final dartVector = AngleComputationUtil.getDartGripVector([hand]);
-      if (dartVector != null) {
-        final basePt = _scale(dartVector[0], size);
-        final distalPt = _scale(dartVector[1], size);
-        
-        // Calculate the direction vector
-        double dx = distalPt.dx - basePt.dx;
-        double dy = distalPt.dy - basePt.dy;
-        
-        // Ensure the vector always points "forward"
-        Offset syringeStart = Offset(basePt.dx - dx * 0.5, basePt.dy - dy * 0.5);
-        Offset syringeEnd = Offset(distalPt.dx + dx * 0.5, distalPt.dy + dy * 0.5);
-        
-        // Draw the syringe barrel line (commented out for production per user request)
-        // canvas.drawLine(syringeStart, syringeEnd, syringeAxisPaint);
+        final jointPaint = Paint()
+          ..color = Colors.orangeAccent
+          ..style = PaintingStyle.fill;
 
-        // Draw circles at the pivot points (commented out for production)
-        // canvas.drawCircle(basePt, 5, indexDipPaint);
-        // canvas.drawCircle(distalPt, 5, indexTipPaint);
+        final basePt = _scalePose(baseLm, size);
+        final distalPt = _scalePose(distalLm, size);
+
+        canvas.drawLine(basePt, distalPt, axisPaint);
+        canvas.drawCircle(basePt, 5, jointPaint);
+        canvas.drawCircle(distalPt, 5, jointPaint);
       }
     }
   }
@@ -124,5 +101,20 @@ class AngleOverlayPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(AngleOverlayPainter old) => old.hands != hands;
+  bool shouldRepaint(AngleOverlayPainter old) => old.hands != hands || old.poses != poses;
+
+  /// Scales absolute ML Kit Pose coordinates to canvas size.
+  Offset _scalePose(ArmLandmark lm, Size canvas) {
+    double rw = imageSize.width;
+    double rh = imageSize.height;
+    if (sensorOrientation == 90 || sensorOrientation == 270) {
+      rw = imageSize.height;
+      rh = imageSize.width;
+    }
+    
+    double nx = lm.x / rw;
+    double ny = lm.y / rh;
+
+    return Offset(nx * canvas.width, ny * canvas.height);
+  }
 }

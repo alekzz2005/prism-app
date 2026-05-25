@@ -272,12 +272,27 @@ class PoseLandmarkService {
       double distLeft = getMinDist(leftArm.shoulder, leftArm.elbow, leftArm.wrist);
       double distRight = getMinDist(rightArm.shoulder, rightArm.elbow, rightArm.wrist);
 
+      double getWristDist(ArmLandmark? w) {
+        if (w == null) return double.infinity;
+        double dx = (w.x / rw) - hx;
+        double dy = (w.y / rh) - hy;
+        return dx * dx + dy * dy;
+      }
+
+      double wristDistLeft = getWristDist(leftArm.wrist);
+      double wristDistRight = getWristDist(rightArm.wrist);
+
       // If hand is significantly closer to one arm, heavily bias towards it
       if (distLeft < distRight - 0.02) {
         leftScore += 10.0;
       } else if (distRight < distLeft - 0.02) {
         rightScore += 10.0;
       }
+
+      // Ensure the Pose arm is not the same as the Syringe hand (instructor's arm)
+      // If the Pose wrist overlaps with the Syringe hand wrist, severely penalize it.
+      if (wristDistLeft < 0.05) leftScore -= 50.0;
+      if (wristDistRight < 0.05) rightScore -= 50.0;
     }
 
     // If locked to an arm, prefer it slightly (acts as tie-breaker or fallback)

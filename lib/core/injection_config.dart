@@ -1,7 +1,7 @@
 /// Stores the target angle and tolerance for each injection type.
 /// This is in-memory only — never persisted to Firestore.
 class InjectionConfig {
-  final String type; // "IM" | "SubQ" | "IV" | "ID"
+  final String type; // "IM"
   final double targetAngle;
   final double tolerance;
 
@@ -16,9 +16,6 @@ class InjectionConfig {
 class InjectionConfigService {
   static const _configs = {
     'IM': InjectionConfig(type: 'IM', targetAngle: 90.0, tolerance: 5.0),
-    'SubQ': InjectionConfig(type: 'SubQ', targetAngle: 45.0, tolerance: 5.0),
-    'IV': InjectionConfig(type: 'IV', targetAngle: 15.0, tolerance: 3.0),
-    'ID': InjectionConfig(type: 'ID', targetAngle: 10.0, tolerance: 3.0),
   };
 
   /// Returns the config for [type], or throws if unknown.

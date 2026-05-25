@@ -6,7 +6,7 @@ class SessionModel {
   final String userId;
   final String studentName;
   final Timestamp timestamp;
-  final String injectionType; // "IM" | "SubQ" | "IV" | "ID"
+  final String injectionType; // "IM"
   final String? sectionName; // e.g. "Section 3A"
 
   // Insertion

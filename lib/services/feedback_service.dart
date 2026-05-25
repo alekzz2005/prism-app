@@ -13,9 +13,6 @@ class PayloadBuilder {
     // Injection-specific clinical context from CIT-U rubrics
     final clinicalContext = switch (session.injectionType) {
       'IM' => 'CIT-U rubric: dart-like motion at 90 deg, aspirate for blood, if no blood inject slowly (~10 sec/ml), wait 10s, smoothly withdraw at same angle of insertion.',
-      'SubQ' => 'CIT-U rubric: stretch skin, dart-like motion at 45 deg, aspirate for blood, if no blood inject slowly (~10 sec/ml), wait 10s, withdraw at same angle with dry cotton ball.',
-      'ID' => 'CIT-U rubric: pull skin taut, insert at 10 deg, no aspiration, administer slowly and observe for bleb, withdraw slightly if no bleb, then withdraw needle.',
-      'IV' => 'Standard: insert at 15 deg, aspirate for blood return to confirm vein, inject medication slowly, withdraw smoothly.',
       _ => '',
     };
 
