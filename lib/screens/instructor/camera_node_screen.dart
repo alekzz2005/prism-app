@@ -287,7 +287,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
     _instructorId = instructorId;
 
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Colors.white,
       body: StreamBuilder<LiveSessionModel?>(
         stream: _liveService.watchSession(instructorId!),
         builder: (context, snapshot) {
@@ -331,27 +331,27 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                   gradient: LinearGradient(
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
-                    colors: [Color(0xFF001428), Color(0xFF001C38), Color(0xFF000E1E)],
+                    colors: [Color(0xFFF4F7FB), Color(0xFFE2EAF4), Color(0xFFF4F7FB)],
                   ),
                 ),
               ),
               if (!_cameraReady)
                 Container(
-                  color: const Color(0xFF003366),
+                  color: Colors.white,
                   child: const Center(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        CircularProgressIndicator(color: Colors.white, strokeWidth: 3),
+                        CircularProgressIndicator(color: Color(0xFF003366), strokeWidth: 3),
                         SizedBox(height: 24),
                         Text(
                           'PRISM',
-                          style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: 6),
+                          style: TextStyle(color: Color(0xFF003366), fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: 6),
                         ),
                         SizedBox(height: 8),
                         Text(
                           'INITIALIZING CAMERA...',
-                          style: TextStyle(color: Color(0xFFA8C4E0), fontSize: 10, fontWeight: FontWeight.w600, letterSpacing: 2),
+                          style: TextStyle(color: Color(0xFF8A9BB0), fontSize: 10, fontWeight: FontWeight.w600, letterSpacing: 2),
                         ),
                       ],
                     ),
@@ -390,7 +390,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
 
               if (isWaiting)
                 Container(
-                  color: Colors.black.withValues(alpha: 0.65),
+                  color: Colors.white.withValues(alpha: 0.95),
                   child: Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -399,21 +399,21 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                           width: 80, height: 80,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            color: const Color(0xFF003366).withValues(alpha: 0.35),
-                            border: Border.all(color: _accentBlue.withValues(alpha: 0.6), width: 2),
+                            color: const Color(0xFF003366).withValues(alpha: 0.05),
+                            border: Border.all(color: const Color(0xFF003366).withValues(alpha: 0.2), width: 2),
                           ),
-                          child: const Icon(Icons.cast_connected, color: _accentBlue, size: 36),
+                          child: const Icon(Icons.cast_connected, color: Color(0xFF003366), size: 36),
                         ),
                         const SizedBox(height: 24),
                         const Text(
                           'CAMERA NODE STANDBY',
-                          style: TextStyle(color: Colors.white, fontSize: 16,
+                          style: TextStyle(color: Color(0xFF003366), fontSize: 16,
                               fontWeight: FontWeight.w700, letterSpacing: 2),
                         ),
                         const SizedBox(height: 8),
                         Text(
                           'Frame the patient. Waiting for remote start...',
-                          style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 13),
+                          style: TextStyle(color: const Color(0xFF4A5568), fontSize: 13),
                         ),
                         const SizedBox(height: 48),
                         GestureDetector(
@@ -421,12 +421,12 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                           child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF003366).withValues(alpha: 0.5),
-                              border: Border.all(color: _accentBlue.withValues(alpha: 0.4)),
+                              color: const Color(0xFF003366).withValues(alpha: 0.05),
+                              border: Border.all(color: const Color(0xFF003366).withValues(alpha: 0.1)),
                               borderRadius: BorderRadius.circular(14),
                             ),
                             child: const Text('Exit Camera Mode',
-                                style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
+                                style: TextStyle(color: Color(0xFF003366), fontSize: 13, fontWeight: FontWeight.w600)),
                           ),
                         ),
                       ],
@@ -455,7 +455,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                 Positioned(
                   top: 0, left: 0, right: 0,
                   child: Container(
-                    color: Colors.black.withValues(alpha: 0.88),
+                    color: Colors.white.withValues(alpha: 0.95),
                     padding: const EdgeInsets.fromLTRB(18, 48, 18, 14),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -467,7 +467,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                             children: [
                               Text(
                                 '${_formatName(session.studentName)} \u2014 ${session.injectionType} Injection',
-                                style: const TextStyle(color: Colors.white, fontSize: 16,
+                                style: const TextStyle(color: Color(0xFF003366), fontSize: 16,
                                     fontWeight: FontWeight.w700, height: 1.2),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
@@ -479,14 +479,14 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                                     width: 7, height: 7,
                                     decoration: BoxDecoration(
                                       shape: BoxShape.circle,
-                                      color: _accentBlue,
-                                      boxShadow: [BoxShadow(color: _accentBlue.withValues(alpha: 0.25), blurRadius: 0, spreadRadius: 3)],
+                                      color: const Color(0xFF003366),
+                                      boxShadow: [BoxShadow(color: const Color(0xFF003366).withValues(alpha: 0.25), blurRadius: 0, spreadRadius: 3)],
                                     ),
                                   ),
                                   const SizedBox(width: 8),
                                   Text(
                                     '${session.phase.toUpperCase().replaceAll("_", " ")} PHASE ACTIVE',
-                                    style: const TextStyle(color: _accentBlue, fontSize: 11,
+                                    style: const TextStyle(color: Color(0xFF003366), fontSize: 11,
                                         fontWeight: FontWeight.w700, letterSpacing: 0.5),
                                   ),
                                 ],
@@ -506,7 +506,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                 Positioned(
                   bottom: 0, left: 0, right: 0,
                   child: Container(
-                    color: Colors.black.withValues(alpha: 0.90),
+                    color: Colors.white.withValues(alpha: 0.95),
                     padding: const EdgeInsets.fromLTRB(20, 14, 20, 30),
                     child: Column(
                       children: [
@@ -519,25 +519,25 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                                   width: 7, height: 7,
                                   decoration: BoxDecoration(
                                     shape: BoxShape.circle,
-                                    color: _greenDark,
-                                    boxShadow: [BoxShadow(color: _greenDark.withValues(alpha: 0.25), blurRadius: 0, spreadRadius: 3)],
+                                    color: const Color(0xFF003366),
+                                    boxShadow: [BoxShadow(color: const Color(0xFF003366).withValues(alpha: 0.25), blurRadius: 0, spreadRadius: 3)],
                                   ),
                                 ),
                                 const SizedBox(width: 8),
                                 const Text('TRACKING ACTIVE',
-                                    style: TextStyle(color: _green, fontSize: 11,
+                                    style: TextStyle(color: Color(0xFF003366), fontSize: 11,
                                         fontWeight: FontWeight.w700, letterSpacing: 0.8)),
                               ],
                             ),
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
                               decoration: BoxDecoration(
-                                color: const Color(0xFF991B1B).withValues(alpha: 0.3),
-                                border: Border.all(color: const Color(0xFF991B1B).withValues(alpha: 0.5)),
+                                color: const Color(0xFF003366).withValues(alpha: 0.05),
+                                border: Border.all(color: const Color(0xFF003366).withValues(alpha: 0.1)),
                                 borderRadius: BorderRadius.circular(6),
                               ),
                               child: const Text('\u25cf REC',
-                                  style: TextStyle(color: Color(0xFFFCA5A5), fontSize: 10,
+                                  style: TextStyle(color: Color(0xFF003366), fontSize: 10,
                                       fontWeight: FontWeight.w700, letterSpacing: 0.8)),
                             ),
                           ],
@@ -562,7 +562,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                             const SizedBox(width: 10), */
                             _buildMetricCard('Phase',
                               session.phase.split('_')[0],
-                              const Color(0xFFFCD34D)),
+                              const Color(0xFF003366)),
                           ],
                         ),
                         const SizedBox(height: 10),
@@ -574,8 +574,8 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                           child: Container(
                             width: double.infinity, height: 46,
                             decoration: BoxDecoration(
-                              color: const Color(0xFF003366).withValues(alpha: 0.35),
-                              border: Border.all(color: _accentBlue.withValues(alpha: 0.2)),
+                              color: const Color(0xFF003366).withValues(alpha: 0.05),
+                              border: Border.all(color: const Color(0xFF003366).withValues(alpha: 0.1)),
                               borderRadius: BorderRadius.circular(14),
                             ),
                             alignment: Alignment.center,
@@ -583,11 +583,11 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
                                 SvgPicture.string(
-                                  '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M10 7.5H3M6 4.5L3 7.5L6 10.5" stroke="rgba(255,255,255,0.55)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 3h4v9H8" stroke="rgba(255,255,255,0.55)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+                                  '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M10 7.5H3M6 4.5L3 7.5L6 10.5" stroke="#003366" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 3h4v9H8" stroke="#003366" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
                                 ),
                                 const SizedBox(width: 7),
-                                Text('Exit Camera Mode',
-                                  style: TextStyle(color: Colors.white.withValues(alpha: 0.55),
+                                const Text('Exit Camera Mode',
+                                  style: TextStyle(color: Color(0xFF003366),
                                       fontSize: 13, fontWeight: FontWeight.w600)),
                               ],
                             ),
@@ -609,15 +609,15 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.05),
-          border: Border.all(color: _accentBlue.withValues(alpha: 0.12)),
+          color: const Color(0xFF003366).withValues(alpha: 0.05),
+          border: Border.all(color: const Color(0xFF003366).withValues(alpha: 0.1)),
           borderRadius: BorderRadius.circular(10),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(label,
-              style: TextStyle(color: Colors.white.withValues(alpha: 0.3),
+              style: const TextStyle(color: Color(0xFF8A9BB0),
                   fontSize: 9, fontWeight: FontWeight.w700, letterSpacing: 1),
               maxLines: 1, overflow: TextOverflow.ellipsis),
             const SizedBox(height: 2),

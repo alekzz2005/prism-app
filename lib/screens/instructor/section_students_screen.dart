@@ -301,7 +301,7 @@ class _SectionStudentsScreenState extends State<SectionStudentsScreen> {
                   const SizedBox(height: 10),
                   _buildFabOption(
                     'Upload CSV / Excel',
-                    const Icon(Icons.upload_file, color: Color(0xFF16A34A), size: 20),
+                    const Icon(Icons.upload_file, color: _navy, size: 20),
                     () => _pickAndUploadCSV(instructorId),
                   ),
                   const SizedBox(height: 10),

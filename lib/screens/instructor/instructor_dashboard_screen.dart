@@ -55,11 +55,13 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
   bool _fabOpen = false;
   late AnimationController _fabController;
 
-  // Filters for Home
   String _searchQuery = '';
   String _statusFilter = 'All';
   String _sectionFilter = 'All';
+
+  // Filters for Sections
   String _schoolYearFilter = 'All';
+  bool _sortAscending = true;
 
   static const _statusOptions = ['All', 'Pending', 'Released', 'Failed'];
   static const _typeOptions   = ['All', 'IM'];
@@ -657,7 +659,13 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
                         if (v != null) setState(() => _schoolYearFilter = v);
                       }),
                     ),
-                    const Spacer(),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      flex: 1,
+                      child: _buildFilterDropdown('SORT BY', ['Ascending', 'Descending'], _sortAscending ? 'Ascending' : 'Descending', (v) {
+                        if (v != null) setState(() => _sortAscending = v == 'Ascending');
+                      }),
+                    ),
                   ],
                 ),
               );
@@ -678,6 +686,12 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
                   if (_schoolYearFilter != 'All') {
                     sections = sections.where((s) => s.schoolYear == _schoolYearFilter).toList();
                   }
+
+                  // Sort alphabetically
+                  sections.sort((a, b) {
+                    final cmp = a.name.toLowerCase().compareTo(b.name.toLowerCase());
+                    return _sortAscending ? cmp : -cmp;
+                  });
 
                   if (sections.isEmpty) {
                     return const Center(child: Text('No sections found.', style: TextStyle(color: _textMid)));
@@ -1321,7 +1335,7 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
   int _step = 1;
   String? _selectedSection;
   StudentRoster? _selectedStudent;
-
+  String _studentSearchQuery = '';
 
   Stream<List<InstructorSection>>? _sectionsStream;
   Stream<List<StudentRoster>>? _rosterStream;
@@ -1529,17 +1543,72 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
         const SizedBox(height: 12),
         const Text('Tap a student to start the session.', style: TextStyle(color: Color(0xFF8A9BB0), fontSize: 12)),
         const SizedBox(height: 12),
+        Container(
+          height: 40,
+          decoration: BoxDecoration(
+            color: const Color(0xFFF8FAFC),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFFE2EAF4), width: 1.5),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          child: Row(
+            children: [
+              SvgPicture.string(
+                '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="4.5" stroke="#8A9BB0" stroke-width="1.4"/><path d="M10.5 10.5l3 3" stroke="#8A9BB0" stroke-width="1.4" stroke-linecap="round"/></svg>',
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: TextField(
+                  decoration: const InputDecoration(
+                    hintText: 'Search students...',
+                    hintStyle: TextStyle(color: Color(0xFF8A9BB0), fontSize: 13),
+                    border: InputBorder.none,
+                    isDense: true,
+                  ),
+                  style: const TextStyle(color: Color(0xFF1A2B3C), fontSize: 13),
+                  onChanged: (v) => setState(() => _studentSearchQuery = v.toLowerCase()),
+                ),
+              ),
+              if (_studentSearchQuery.isNotEmpty)
+                GestureDetector(
+                  onTap: () {
+                    setState(() => _studentSearchQuery = '');
+                    FocusScope.of(context).unfocus();
+                  },
+                  child: Container(
+                    width: 18, height: 18,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF8A9BB0),
+                      shape: BoxShape.circle,
+                    ),
+                    alignment: Alignment.center,
+                    child: SvgPicture.string(
+                      '<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 2l6 6M8 2l-6 6" stroke="white" stroke-width="1.5" stroke-linecap="round"/></svg>',
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
         StreamBuilder<List<StudentRoster>>(
           stream: _rosterStream,
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Padding(padding: EdgeInsets.all(20), child: Center(child: CircularProgressIndicator()));
             }
-            final students = snapshot.data ?? [];
+            var students = snapshot.data ?? [];
+            if (_studentSearchQuery.isNotEmpty) {
+              students = students.where((s) => 
+                s.formattedFullName.toLowerCase().contains(_studentSearchQuery) ||
+                s.email.toLowerCase().contains(_studentSearchQuery)
+              ).toList();
+            }
+            
             if (students.isEmpty) {
               return const Padding(
                 padding: EdgeInsets.symmetric(vertical: 20),
-                child: Center(child: Text('No students found in this section.', style: TextStyle(color: Color(0xFF8A9BB0), fontSize: 13))),
+                child: Center(child: Text('No students found.', style: TextStyle(color: Color(0xFF8A9BB0), fontSize: 13))),
               );
             }
             return ListView.builder(
