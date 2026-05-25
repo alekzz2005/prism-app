@@ -8,6 +8,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import '../../providers/user_role_provider.dart';
 import '../../services/roboflow_service.dart';
 import '../../services/live_session_service.dart';
+import '../../widgets/detection_overlay_painter.dart';
 
 // ─── Brand Colours ─────────────────────────────────────────────────────────
 const _accentBlue = Color(0xFFA8C4E0);
@@ -44,6 +45,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
   // Roboflow detection state
   bool _detectionLost = false;
   CameraImage? _latestFrame;
+  RoboflowDetection? _latestDetection;
 
   @override
   void initState() {
@@ -118,6 +120,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
 
     setState(() {
       _detectionLost = result.detectionLost;
+      _latestDetection = result.detection;
       if (!result.detectionLost) {
         _liveAngle = result.angle;
         _liveScore = result.score;
@@ -273,6 +276,19 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                       child: Stack(
                         children: [
                           CameraPreview(_camera!),
+                          // ── Roboflow detection overlay ──
+                          if (_latestDetection != null && !isWaiting)
+                            Positioned.fill(
+                              child: CustomPaint(
+                                painter: DetectionOverlayPainter(
+                                  detection: _latestDetection,
+                                  previewSize: Size(
+                                    _camera!.value.previewSize!.height,
+                                    _camera!.value.previewSize!.width,
+                                  ),
+                                ),
+                              ),
+                            ),
                         ],
                       ),
                     ),
