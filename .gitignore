@@ -49,3 +49,5 @@ app.*.map.json
 
 # Ignore local AI agent layouts and wireframes
 wireframes/
+# Firebase iOS config - contains sensitive keys
+ios/Runner/GoogleService-Info.plist

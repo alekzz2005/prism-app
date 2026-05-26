@@ -24,7 +24,11 @@ jobs:
 
       - name: Install dependencies
         run: flutter pub get
-        
+
+      - name: Restore GoogleService-Info.plist
+        run: |
+          echo "${{ secrets.GOOGLE_SERVICE_INFO_PLIST }}" | base64 --decode > ios/Runner/GoogleService-Info.plist
+
       - name: Build iOS App without Codesign
         run: flutter build ios --release --no-codesign
 
