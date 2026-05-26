@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:provider/provider.dart';
@@ -7,6 +8,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../providers/user_role_provider.dart';
 import '../../services/roboflow_service.dart';
+import '../../services/tflite_detection_service.dart';
 import '../../services/live_session_service.dart';
 import '../../widgets/detection_overlay_painter.dart';
 
@@ -44,7 +46,6 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
 
   // Roboflow detection state
   bool _detectionLost = false;
-  CameraImage? _latestFrame;
   RoboflowDetection? _latestDetection;
 
   @override
@@ -68,7 +69,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
     if (_instructorId != null) {
       _liveService.setCameraActive(_instructorId!, false);
     }
-    RoboflowDetectionService.resetSmoothing();
+    TfliteDetectionService.resetSmoothing();
     super.dispose();
   }
 
@@ -83,6 +84,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
       _camera = CameraController(cam, ResolutionPreset.medium,
           enableAudio: false, imageFormatGroup: ImageFormatGroup.yuv420);
       await _camera!.initialize();
+      await TfliteDetectionService.init(); // <--- Load AI models into memory
       await _camera!.startImageStream(_onFrame);
       if (mounted) setState(() => _cameraReady = true);
       
@@ -90,15 +92,14 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
         _liveService.setCameraActive(_instructorId!, true);
       }
       
-      // 2Hz sync timer — sends latest frame to Roboflow every 500ms
-      _syncTimer = Timer.periodic(const Duration(milliseconds: 500), (_) => _syncMetrics());
+      // 2Hz sync timer removed. We process frames directly using throttling in _onFrame.
     } catch (_) {
       if (mounted) setState(() => _cameraReady = false);
     }
   }
 
   // ─── 2Hz Sync ─────────────────────────────────────────────────────────────
-  void _syncMetrics() async {
+  Future<void> _syncMetrics(TfliteFrameData frameData) async {
     if (!mounted) return;
     
     final instructorId = _instructorId;
@@ -106,18 +107,10 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
 
     if (_currentPhase == 'waiting' || _currentPhase == 'completed') return;
 
-    // Grab the cached frame
-    final frame = _latestFrame;
-    if (frame == null) {
-      _liveService.setDetectionLost(instructorId, true);
-      return;
-    }
-
-    // Send to Roboflow (or mock) and get angle result
-    final result = await RoboflowDetectionService.detectAngle(
-      frame,
-      sensorOrientation: _camera?.description.sensorOrientation ?? 90,
-    );
+    // Send to Tflite and get angle result
+    final result = await TfliteDetectionService.detectAngleFromFrameData(frameData);
+    
+    if (result == null) return; // Skip updating UI if frame was dropped
 
     if (!mounted) return;
 
@@ -141,22 +134,62 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
     }
   }
 
-  // ─── Frame Caching ────────────────────────────────────────────────────────
-  // We only cache the latest frame; the heavy work is done in _syncMetrics.
+  // ─── Frame Processing ────────────────────────────────────────────────────────
+  
+  int _lastProcessTime = 0;
+  bool _isProcessingFrame = false;
+
   void _onFrame(CameraImage image) {
     if (_currentPhase == 'waiting' || _currentPhase == 'completed') return;
-    _latestFrame = image;
     
-    if (mounted) {
+    // Always update aspect ratio
+    if (mounted && _imageSize == null) {
       setState(() {
         _imageSize = Size(image.width.toDouble(), image.height.toDouble());
       });
+    }
+
+    // Throttle to 2 FPS (500ms) to allow GC to release CameraImage buffers
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastProcessTime < 500) return;
+    if (_isProcessingFrame) return;
+
+    _isProcessingFrame = true;
+    _lastProcessTime = now;
+
+    // *** CRITICAL: Extract raw bytes SYNCHRONOUSLY right here ***
+    // This ensures CameraImage native buffer is freed the instant _onFrame returns
+    final isIOS = image.planes.length == 2;
+    final frameData = TfliteFrameData(
+      width: image.width,
+      height: image.height,
+      yBytes: Uint8List.fromList(image.planes[0].bytes),
+      uBytes: Uint8List.fromList(image.planes[1].bytes),
+      vBytes: isIOS
+          ? Uint8List.fromList(image.planes[1].bytes)
+          : Uint8List.fromList(image.planes[2].bytes),
+      yRowStride: image.planes[0].bytesPerRow,
+      uRowStride: image.planes[1].bytesPerRow,
+      uvPixelStride: image.planes[1].bytesPerPixel ?? (isIOS ? 2 : 1),
+      sensorOrientation: _camera?.description.sensorOrientation ?? 90,
+      isIOS: isIOS,
+    );
+
+    // Now process the copied bytes asynchronously (CameraImage is NOT referenced)
+    _processFrameWrapper(frameData);
+  }
+
+  Future<void> _processFrameWrapper(TfliteFrameData frameData) async {
+    try {
+      await _syncMetrics(frameData);
+    } finally {
+      _isProcessingFrame = false;
     }
   }
 
   // ─── Scoring ──────────────────────────────────────────────────────────────
   int _scoreAngle(double measured, double target) {
-    return RoboflowDetectionService.scoreIMAngle(measured);
+    return TfliteDetectionService.scoreIMAngle(measured);
   }
 
   void _handlePhaseChange(String instructorId, LiveSessionModel session, String oldPhase) {
@@ -168,17 +201,17 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
         _lastInsertionAngle = null;
         _detectionLost = false;
       });
-      RoboflowDetectionService.resetSmoothing();
+      TfliteDetectionService.resetSmoothing();
     } else if (session.phase == 'insertion_locked' && oldPhase == 'insertion') {
       final score = _scoreAngle(_liveAngle, session.targetAngle);
       _lastInsertionAngle = _liveAngle;
       _liveService.saveInsertionMetrics(instructorId, _liveAngle, score);
     } else if (session.phase == 'aspiration' && oldPhase == 'insertion_locked') {
-      RoboflowDetectionService.resetSmoothing();
+      TfliteDetectionService.resetSmoothing();
     } else if (session.phase == 'aspiration_locked' && oldPhase == 'aspiration') {
-      RoboflowDetectionService.resetSmoothing();
+      TfliteDetectionService.resetSmoothing();
     } else if (session.phase == 'withdrawal' && oldPhase == 'aspiration_locked') {
-      RoboflowDetectionService.resetSmoothing();
+      TfliteDetectionService.resetSmoothing();
     } else if (session.phase == 'withdrawal_locked' && oldPhase == 'withdrawal') {
       final score = _scoreAngle(_liveAngle, session.targetAngle);
       final delta = (_liveAngle - (_lastInsertionAngle ?? 0)).abs();
@@ -228,7 +261,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                   _currentPhase = 'waiting';
                   _lastInsertionAngle = null;
                 });
-                RoboflowDetectionService.resetSmoothing();
+                TfliteDetectionService.resetSmoothing();
               }
             });
           }
