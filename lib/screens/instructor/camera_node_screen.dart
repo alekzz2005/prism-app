@@ -114,7 +114,10 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
     }
 
     // Send to Roboflow (or mock) and get angle result
-    final result = await RoboflowDetectionService.detectAngle(frame);
+    final result = await RoboflowDetectionService.detectAngle(
+      frame,
+      sensorOrientation: _camera?.description.sensorOrientation ?? 90,
+    );
 
     if (!mounted) return;
 

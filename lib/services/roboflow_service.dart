@@ -75,8 +75,7 @@ class RoboflowDetectionService {
   static const String _workflowUrl =
       'https://detect.roboflow.com/infer/workflows/veincarmell-pangilinan-cit-edu/find-syringe-arm-and-needle';
 
-  static const String _apiKey =
-      String.fromEnvironment('ROBOFLOW_API_KEY', defaultValue: 'J9jW40Es9tFmhUzmXpMe');
+  static const String _apiKey = 'J9jW40Es9tFmhUzmXpMe';
 
   /// When true, bypasses the API and generates simulated detections.
   static bool mockMode = false;
@@ -100,7 +99,7 @@ class RoboflowDetectionService {
 
   /// Converts a [CameraImage] (YUV420) to JPEG, sends it to Roboflow,
   /// calculates the relative injection angle, and returns an [AngleResult].
-  static Future<AngleResult> detectAngle(CameraImage cameraImage) async {
+  static Future<AngleResult> detectAngle(CameraImage cameraImage, {int sensorOrientation = 90}) async {
     try {
       // 1. Mock mode
       if (mockMode) return _mockDetect();
@@ -115,6 +114,7 @@ class RoboflowDetectionService {
         yRowStride:   cameraImage.planes[0].bytesPerRow,
         uRowStride:   cameraImage.planes[1].bytesPerRow,
         uvPixelStride: cameraImage.planes[1].bytesPerPixel ?? 1,
+        sensorOrientation: sensorOrientation,
       );
 
       // 3. Convert YUV420 → JPEG bytes  (runs in isolate for performance)
@@ -172,20 +172,31 @@ class RoboflowDetectionService {
           if (yIndex >= frame.yBytes.length || uvIndex >= frame.uBytes.length || uvIndex >= frame.vBytes.length) continue;
 
           final int yVal = frame.yBytes[yIndex];
-          final int uVal = frame.uBytes[uvIndex];
-          final int vVal = frame.vBytes[uvIndex];
+          // Subtract 128 to center around 0
+          final int uVal = frame.uBytes[uvIndex] - 128;
+          final int vVal = frame.vBytes[uvIndex] - 128;
 
-          // YUV → RGB (BT.601)
-          int r = (yVal + 1.370705 * (vVal - 128)).round().clamp(0, 255);
-          int g = (yVal - 0.337633 * (uVal - 128) - 0.698001 * (vVal - 128)).round().clamp(0, 255);
-          int b = (yVal + 1.732446 * (uVal - 128)).round().clamp(0, 255);
+          // Standard YUV to RGB conversion
+          int r = (yVal + 1.402 * vVal).round().clamp(0, 255);
+          int g = (yVal - 0.344136 * uVal - 0.714136 * vVal).round().clamp(0, 255);
+          int b = (yVal + 1.772 * uVal).round().clamp(0, 255);
 
           image.setPixelRgba(x, y, r, g, b, 255);
         }
       }
 
-      // Resize to 640px wide for fast upload
-      final resized = img.copyResize(image, width: 640);
+      // Rotate image based on sensor orientation (usually 90 on Android phones)
+      img.Image uprightImage = image;
+      if (frame.sensorOrientation == 90) {
+        uprightImage = img.copyRotate(image, angle: 90);
+      } else if (frame.sensorOrientation == 270) {
+        uprightImage = img.copyRotate(image, angle: 270);
+      } else if (frame.sensorOrientation == 180) {
+        uprightImage = img.copyRotate(image, angle: 180);
+      }
+
+      // Resize to 640px max width/height for fast upload
+      final resized = img.copyResize(uprightImage, width: 640);
 
       // JPEG at quality 70
       return Uint8List.fromList(img.encodeJpg(resized, quality: 70));
