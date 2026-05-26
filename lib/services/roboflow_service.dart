@@ -56,6 +56,7 @@ class _FrameData {
   final int yRowStride;
   final int uRowStride;
   final int uvPixelStride;
+  final int sensorOrientation;
 
   _FrameData({
     required this.width,
@@ -66,6 +67,7 @@ class _FrameData {
     required this.yRowStride,
     required this.uRowStride,
     required this.uvPixelStride,
+    required this.sensorOrientation,
   });
 }
 
