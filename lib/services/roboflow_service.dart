@@ -55,6 +55,7 @@ class _FrameData {
   final Uint8List vBytes;
   final int yRowStride;
   final int uRowStride;
+  final bool isIOS;
   final int uvPixelStride;
   final int sensorOrientation;
 
@@ -68,6 +69,7 @@ class _FrameData {
     required this.uRowStride,
     required this.uvPixelStride,
     required this.sensorOrientation,
+    required this.isIOS,
   });
 }
 
@@ -107,16 +109,19 @@ class RoboflowDetectionService {
       if (mockMode) return _mockDetect();
 
       // 2. Extract raw plane data (serializable) from CameraImage
+      final isIOS = cameraImage.planes.length == 2;
       final frameData = _FrameData(
         width:  cameraImage.width,
         height: cameraImage.height,
         yBytes: Uint8List.fromList(cameraImage.planes[0].bytes),
         uBytes: Uint8List.fromList(cameraImage.planes[1].bytes),
-        vBytes: Uint8List.fromList(cameraImage.planes[2].bytes),
+        // On iOS (2 planes), the U and V bytes are interleaved in plane 1.
+        vBytes: isIOS ? Uint8List.fromList(cameraImage.planes[1].bytes) : Uint8List.fromList(cameraImage.planes[2].bytes),
         yRowStride:   cameraImage.planes[0].bytesPerRow,
         uRowStride:   cameraImage.planes[1].bytesPerRow,
-        uvPixelStride: cameraImage.planes[1].bytesPerPixel ?? 1,
+        uvPixelStride: cameraImage.planes[1].bytesPerPixel ?? (isIOS ? 2 : 1),
         sensorOrientation: sensorOrientation,
+        isIOS: isIOS,
       );
 
       // 3. Convert YUV420 → JPEG bytes  (runs in isolate for performance)
@@ -171,12 +176,15 @@ class RoboflowDetectionService {
           final int yIndex  = y * frame.yRowStride + x;
           final int uvIndex = (y ~/ 2) * frame.uRowStride + (x ~/ 2) * frame.uvPixelStride;
 
-          if (yIndex >= frame.yBytes.length || uvIndex >= frame.uBytes.length || uvIndex >= frame.vBytes.length) continue;
+          if (yIndex >= frame.yBytes.length || uvIndex >= frame.uBytes.length) continue;
+          
+          final int vIndex = frame.isIOS ? uvIndex + 1 : uvIndex;
+          if (vIndex >= frame.vBytes.length) continue;
 
           final int yVal = frame.yBytes[yIndex];
           // Subtract 128 to center around 0
           final int uVal = frame.uBytes[uvIndex] - 128;
-          final int vVal = frame.vBytes[uvIndex] - 128;
+          final int vVal = frame.vBytes[vIndex] - 128;
 
           // Standard YUV to RGB conversion
           int r = (yVal + 1.402 * vVal).round().clamp(0, 255);
