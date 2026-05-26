@@ -1,0 +1,41 @@
+name: iOS Unsigned Build
+
+on:
+  push:
+    branches: [ "feature/detection/im_clean_model_ready" ]
+  pull_request:
+    branches: [ "feature/detection/im_clean_model_ready" ]
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    name: Build Unsigned iOS App
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+        
+      - name: Build iOS App without Codesign
+        run: flutter build ios --release --no-codesign
+
+      - name: Package to IPA
+        run: |
+          mkdir -p Payload
+          mv build/ios/iphoneos/Runner.app Payload/
+          zip -qq -r app-unsigned.ipa Payload
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-unsigned-ipa
+          path: app-unsigned.ipa
