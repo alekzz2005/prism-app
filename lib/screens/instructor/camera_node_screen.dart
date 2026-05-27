@@ -529,6 +529,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                             _buildMetricCard('Phase',
                               session.phase.split('_')[0],
                               const Color(0xFFFCD34D)),
+                            /*
                             const SizedBox(width: 8),
                             _buildMetricCard('Angle',
                               _detectionLost ? '---' : '${_liveAngle.toStringAsFixed(1)}°',
@@ -537,6 +538,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                             _buildMetricCard('Score',
                               _detectionLost ? '-' : '$_liveScore/5',
                               _liveScore >= 4 ? _green : _liveScore >= 2 ? const Color(0xFFFCD34D) : _red),
+                            */
                           ],
                         ),
                         const SizedBox(height: 10),
