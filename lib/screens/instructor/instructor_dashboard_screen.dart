@@ -504,8 +504,6 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
             children: [
               Expanded(child: _buildFilterDropdown('STATUS', _statusOptions, _statusFilter, (v) => setState(() => _statusFilter = v!))),
               const SizedBox(width: 8),
-              Expanded(child: _buildFilterDropdown('TYPE', _typeOptions, _typeFilter, (v) => setState(() => _typeFilter = v!))),
-              const SizedBox(width: 8),
               Expanded(
                 child: StreamBuilder<List<InstructorSection>>(
                   stream: _sectionsStream,
