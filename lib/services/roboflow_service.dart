@@ -138,8 +138,14 @@ class RoboflowDetectionService {
       // 4. Base64 encode
       final base64Image = base64Encode(jpegBytes);
 
+      final bool isRotated = frameData.sensorOrientation == 90 || frameData.sensorOrientation == 270;
+      final int uprightW = isRotated ? frameData.height : frameData.width;
+      final int uprightH = isRotated ? frameData.width : frameData.height;
+      final int sentW = 640;
+      final int sentH = (uprightH * (640.0 / uprightW)).round();
+
       // 5. Call the Roboflow Workflow API
-      final detection = await _callApi(base64Image);
+      final detection = await _callApi(base64Image, sentW, sentH);
       if (detection == null || !detection.hasSyringe || !detection.hasArm) {
         debugPrint('[RoboflowService] Detection missing: syringe=${detection?.hasSyringe}, arm=${detection?.hasArm}');
         return AngleResult.lost;
@@ -191,7 +197,13 @@ class RoboflowDetectionService {
 
       final base64Image = base64Encode(jpegBytes);
 
-      final detection = await _callApi(base64Image);
+      final bool isRotated = frameData.sensorOrientation == 90 || frameData.sensorOrientation == 270;
+      final int uprightW = isRotated ? frameData.height : frameData.width;
+      final int uprightH = isRotated ? frameData.width : frameData.height;
+      final int sentW = 640;
+      final int sentH = (uprightH * (640.0 / uprightW)).round();
+
+      final detection = await _callApi(base64Image, sentW, sentH);
       if (detection == null) {
         debugPrint('[RoboflowService] Detection: null (parser returned nothing)');
         return AngleResult.lost;
@@ -276,19 +288,16 @@ class RoboflowDetectionService {
   //  ROBOFLOW API CALL
   // ═══════════════════════════════════════════════════════════════════════════
 
-  static Future<RoboflowDetection?> _callApi(String base64Image) async {
+  static Future<RoboflowDetection?> _callApi(String base64Image, int sentW, int sentH) async {
     try {
-      final payload = jsonEncode({
-        'api_key': _apiKey,
-        'inputs': {
-          'image': {'type': 'base64', 'value': base64Image},
-        },
-      });
+      // Use direct Infer API for version 33 to force a low confidence threshold (15%)
+      // This allows detecting the syringe even when perfectly horizontal.
+      final String inferUrl = 'https://detect.roboflow.com/find-syringe-arm-and-needle/33?api_key=$_apiKey&confidence=15';
 
       final response = await http.post(
-        Uri.parse(_workflowUrl),
-        headers: {'Content-Type': 'application/json'},
-        body: payload,
+        Uri.parse(inferUrl),
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: base64Image,
       ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode != 200) {
@@ -298,7 +307,7 @@ class RoboflowDetectionService {
 
       debugPrint('[RoboflowService] Response (first 500): ${response.body.substring(0, math.min(500, response.body.length))}');
 
-      return _parseResponses(response.body);
+      return _parseResponses(response.body, sentW, sentH);
     } catch (e) {
       debugPrint('[RoboflowService] API call failed: $e');
       return null;
@@ -309,8 +318,25 @@ class RoboflowDetectionService {
   //  ROBUST JSON PARSER  —  handles multiple Roboflow response shapes
   // ═══════════════════════════════════════════════════════════════════════════
 
-  static RoboflowDetection? _parseResponses(String body) {
+  static RoboflowDetection? _parseResponses(String body, int sentW, int sentH) {
     try {
+      final decoded = jsonDecode(body);
+      int imgW = sentW;
+      int imgH = sentH;
+
+      if (decoded is Map<String, dynamic>) {
+        if (decoded.containsKey('image') && decoded['image'] is Map) {
+          imgW = (decoded['image']['width'] ?? sentW).toInt();
+          imgH = (decoded['image']['height'] ?? sentH).toInt();
+        } else if (decoded.containsKey('outputs') && decoded['outputs'] is List && decoded['outputs'].isNotEmpty) {
+          final first = decoded['outputs'][0];
+          if (first is Map && first.containsKey('image') && first['image'] is Map) {
+            imgW = (first['image']['width'] ?? sentW).toInt();
+            imgH = (first['image']['height'] ?? sentH).toInt();
+          }
+        }
+      }
+
       final predictions = _extractPredictions(body);
 
       if (predictions.isEmpty) {
@@ -318,8 +344,8 @@ class RoboflowDetectionService {
         return null;
       }
 
-      debugPrint('[RoboflowService] Found ${predictions.length} combined predictions');
-      return _mergeAndBuildDetection(predictions);
+      debugPrint('[RoboflowService] Found ${predictions.length} combined predictions. Image size: ${imgW}x${imgH}');
+      return _mergeAndBuildDetection(predictions, imgW, imgH);
     } catch (e) {
       debugPrint('[RoboflowService] Error parsing responses: $e');
       return null;
@@ -365,7 +391,7 @@ class RoboflowDetectionService {
     }
   }
 
-  static RoboflowDetection? _mergeAndBuildDetection(List<dynamic> predictions) {
+  static RoboflowDetection? _mergeAndBuildDetection(List<dynamic> predictions, int imgW, int imgH) {
     try {
       double? sCx, sCy, sW, sH;
       double? aCx, aCy, aW, aH;
@@ -397,8 +423,8 @@ class RoboflowDetectionService {
         syringeCx: sCx, syringeCy: sCy, syringeW: sW, syringeH: sH,
         armCx: aCx, armCy: aCy, armW: aW, armH: aH,
         needleCx: nCx, needleCy: nCy, needleW: nW, needleH: nH,
-        imageWidth: 640,
-        imageHeight: 480,
+        imageWidth: imgW,
+        imageHeight: imgH,
       );
     } catch (e) {
       debugPrint('[RoboflowService] JSON parse error: $e');
@@ -424,13 +450,15 @@ class RoboflowDetectionService {
 
     // Syringe direction vector
     double syringeDx, syringeDy;
-    if (d.hasNeedle) {
-      syringeDx = d.needleCx! - d.syringeCx!;
-      syringeDy = d.needleCy! - d.syringeCy!;
-    } else {
-      syringeDx = d.armCx! - d.syringeCx!;
-      syringeDy = d.armCy! - d.syringeCy!;
-    }
+    // (Needle logic removed to improve performance/clean UI per user request)
+    // Estimate angle using the syringe bounding box aspect ratio.
+    // tan(theta) ≈ height / width.
+    // We point the vector towards the arm horizontally (sign of dx).
+    double directionX = (d.armCx! - d.syringeCx!).sign;
+    if (directionX == 0) directionX = 1.0;
+    
+    syringeDx = (d.syringeW ?? 1.0) * directionX;
+    syringeDy = (d.syringeH ?? 0.0); // Bounding box height gives the vertical tilt
 
     // Normalise syringe vector
     final mag = math.sqrt(syringeDx * syringeDx + syringeDy * syringeDy);

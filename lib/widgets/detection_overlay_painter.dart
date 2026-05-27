@@ -33,11 +33,7 @@ class DetectionOverlayPainter extends CustomPainter {
           scaleX, scaleY, const Color(0xFF22D3EE), 'SYRINGE');
     }
 
-    // ── Needle bounding box (yellow) ──
-    if (d.hasNeedle) {
-      _drawBox(canvas, d.needleCx!, d.needleCy!, d.needleW ?? 30, d.needleH ?? 30,
-          scaleX, scaleY, const Color(0xFFFCD34D), 'NEEDLE');
-    }
+    // (Needle bounding box removed per user request)
 
     // ── Syringe→Needle / Syringe→Arm direction line (magenta) ──
     if (d.hasSyringe) {
@@ -47,11 +43,12 @@ class DetectionOverlayPainter extends CustomPainter {
         ..style = PaintingStyle.stroke;
 
       final from = Offset(d.syringeCx! * scaleX, d.syringeCy! * scaleY);
-      final to = d.hasNeedle
-          ? Offset(d.needleCx! * scaleX, d.needleCy! * scaleY)
-          : d.hasArm
-              ? Offset(d.armCx! * scaleX, d.armCy! * scaleY)
-              : null;
+      final to = d.hasArm
+          ? Offset(
+              d.syringeCx! * scaleX + (d.armCx! - d.syringeCx!).sign * (d.syringeW! * scaleX * 0.5),
+              d.syringeCy! * scaleY + (d.syringeH! * scaleY * 0.5),
+            )
+          : null;
 
       if (to != null) {
         // Extend the line beyond the endpoints for visibility
