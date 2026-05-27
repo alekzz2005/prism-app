@@ -35,6 +35,7 @@ class DetectionOverlayPainter extends CustomPainter {
 
     // (Needle bounding box removed per user request)
 
+    /*
     // ── Syringe→Needle / Syringe→Arm direction line (magenta) ──
     if (d.hasSyringe) {
       final Paint linePaint = Paint()
@@ -63,6 +64,7 @@ class DetectionOverlayPainter extends CustomPainter {
         canvas.drawCircle(from, 5, Paint()..color = const Color(0xFFFF6BD6));
       }
     }
+    */
   }
 
   void _drawBox(Canvas canvas, double cx, double cy, double w, double h,
