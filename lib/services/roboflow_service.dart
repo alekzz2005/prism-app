@@ -7,6 +7,8 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:image/image.dart' as img;
 
+import 'tflite_detection_service.dart' show TfliteFrameData;
+
 // ─── Roboflow Detection Result ──────────────────────────────────────────────
 /// Holds the bounding-box centres and dimensions of detected objects.
 class RoboflowDetection {
@@ -159,6 +161,61 @@ class RoboflowDetectionService {
     }
   }
 
+  /// Accepts pre-extracted [TfliteFrameData] (raw YUV bytes already copied
+  /// synchronously from CameraImage). This avoids holding a native camera
+  /// buffer reference which causes buffer starvation.
+  static Future<AngleResult> detectAngleFromFrameData(TfliteFrameData frameData) async {
+    try {
+      if (mockMode) return _mockDetect();
+
+      final internalFrame = _FrameData(
+        width: frameData.width,
+        height: frameData.height,
+        yBytes: frameData.yBytes,
+        uBytes: frameData.uBytes,
+        vBytes: frameData.vBytes,
+        yRowStride: frameData.yRowStride,
+        uRowStride: frameData.uRowStride,
+        uvPixelStride: frameData.uvPixelStride,
+        sensorOrientation: frameData.sensorOrientation,
+        isIOS: frameData.isIOS,
+      );
+
+      final jpegBytes = await compute(_convertFrameDataToJpeg, internalFrame);
+      if (jpegBytes == null || jpegBytes.isEmpty) {
+        debugPrint('[RoboflowService] JPEG conversion returned empty');
+        return AngleResult.lost;
+      }
+
+      debugPrint('[RoboflowService] JPEG size: ${jpegBytes.length} bytes. Sending to API...');
+
+      final base64Image = base64Encode(jpegBytes);
+
+      final detection = await _callApi(base64Image);
+      if (detection == null) {
+        debugPrint('[RoboflowService] Detection: null (parser returned nothing)');
+        return AngleResult.lost;
+      }
+
+      debugPrint('[RoboflowService] Detected! syringe=(${detection.syringeCx?.toStringAsFixed(0)},${detection.syringeCy?.toStringAsFixed(0)}) arm=(${detection.armCx?.toStringAsFixed(0)},${detection.armCy?.toStringAsFixed(0)}) needle=${detection.hasNeedle}');
+
+      // Need BOTH syringe and arm to compute angle
+      if (!detection.hasSyringe || !detection.hasArm) {
+        debugPrint('[RoboflowService] Partial detection — returning detection for overlay but no angle');
+        return AngleResult(angle: -1, score: 0, detectionLost: true, detection: detection);
+      }
+
+      final rawAngle = _computeAngle(detection);
+      final smoothed = _smooth(rawAngle);
+      final score = scoreIMAngle(smoothed);
+
+      return AngleResult(angle: smoothed, score: score, detectionLost: false, detection: detection);
+    } catch (e, st) {
+      debugPrint('[RoboflowService] Error (fromFrameData): $e\n$st');
+      return AngleResult.lost;
+    }
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   //  IMAGE CONVERSION  (runs inside compute isolate)
   // ═══════════════════════════════════════════════════════════════════════════
@@ -221,24 +278,27 @@ class RoboflowDetectionService {
 
   static Future<RoboflowDetection?> _callApi(String base64Image) async {
     try {
+      final payload = jsonEncode({
+        'api_key': _apiKey,
+        'inputs': {
+          'image': {'type': 'base64', 'value': base64Image},
+        },
+      });
+
       final response = await http.post(
         Uri.parse(_workflowUrl),
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'api_key': _apiKey,
-          'inputs': {
-            'image': {'type': 'base64', 'value': base64Image},
-          },
-        }),
+        body: payload,
       ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode != 200) {
-        debugPrint('[RoboflowService] API error ${response.statusCode}: ${response.body.substring(0, math.min(200, response.body.length))}');
+        debugPrint('[RoboflowService] API error: ${response.statusCode}');
         return null;
       }
 
-      debugPrint('[RoboflowService] API response (first 300 chars): ${response.body.substring(0, math.min(300, response.body.length))}');
-      return _parseResponse(response.body);
+      debugPrint('[RoboflowService] Response (first 500): ${response.body.substring(0, math.min(500, response.body.length))}');
+
+      return _parseResponses(response.body);
     } catch (e) {
       debugPrint('[RoboflowService] API call failed: $e');
       return null;
@@ -249,69 +309,64 @@ class RoboflowDetectionService {
   //  ROBUST JSON PARSER  —  handles multiple Roboflow response shapes
   // ═══════════════════════════════════════════════════════════════════════════
 
-  static RoboflowDetection? _parseResponse(String body) {
+  static RoboflowDetection? _parseResponses(String body) {
+    try {
+      final predictions = _extractPredictions(body);
+
+      if (predictions.isEmpty) {
+        debugPrint('[RoboflowService] No predictions found in response.');
+        return null;
+      }
+
+      debugPrint('[RoboflowService] Found ${predictions.length} combined predictions');
+      return _mergeAndBuildDetection(predictions);
+    } catch (e) {
+      debugPrint('[RoboflowService] Error parsing responses: $e');
+      return null;
+    }
+  }
+
+  static List<dynamic> _extractPredictions(String body) {
     try {
       final decoded = jsonDecode(body);
-
       List<dynamic>? predictions;
 
       if (decoded is Map<String, dynamic>) {
-        // Try outputs array first
         if (decoded.containsKey('outputs') && decoded['outputs'] is List) {
           final outputs = decoded['outputs'] as List;
           if (outputs.isNotEmpty && outputs[0] is Map<String, dynamic>) {
             final first = outputs[0] as Map<String, dynamic>;
-
-            // Check for "predictions" key directly in outputs[0]
             if (first.containsKey('predictions')) {
               final preds = first['predictions'];
-              if (preds is List) {
-                predictions = preds;
-              } else if (preds is Map && preds.containsKey('predictions')) {
-                predictions = preds['predictions'] as List?;
-              }
+              if (preds is List) predictions = preds;
+              else if (preds is Map && preds.containsKey('predictions')) predictions = preds['predictions'] as List?;
             }
-
-            // Check for "result" → "predictions"
             if (predictions == null && first.containsKey('result')) {
               final result = first['result'];
-              if (result is Map && result.containsKey('predictions')) {
-                predictions = result['predictions'] as List?;
-              }
+              if (result is Map && result.containsKey('predictions')) predictions = result['predictions'] as List?;
             }
-
-            // Fallback: iterate all keys in outputs[0] for a list of predictions
             if (predictions == null) {
               for (final entry in first.entries) {
-                final value = entry.value;
-                if (value is List && value.isNotEmpty && value[0] is Map) {
-                  debugPrint('[RoboflowService] Found predictions under key: ${entry.key}');
-                  predictions = value;
-                  break;
-                }
-                if (value is Map && value.containsKey('predictions')) {
-                  predictions = value['predictions'] as List?;
+                if (entry.value is List && (entry.value as List).isNotEmpty && (entry.value as List)[0] is Map) {
+                  predictions = entry.value as List;
                   break;
                 }
               }
             }
           }
         }
-
-        // Root-level "predictions"
         if (predictions == null && decoded.containsKey('predictions')) {
           predictions = decoded['predictions'] as List?;
         }
       }
+      return predictions ?? [];
+    } catch (e) {
+      return [];
+    }
+  }
 
-      if (predictions == null || predictions.isEmpty) {
-        debugPrint('[RoboflowService] No predictions found in response. Full body: ${body.substring(0, math.min(500, body.length))}');
-        return null;
-      }
-
-      debugPrint('[RoboflowService] Found ${predictions.length} predictions');
-
-      // Extract bounding boxes by class name
+  static RoboflowDetection? _mergeAndBuildDetection(List<dynamic> predictions) {
+    try {
       double? sCx, sCy, sW, sH;
       double? aCx, aCy, aW, aH;
       double? nCx, nCy, nW, nH;
@@ -356,6 +411,9 @@ class RoboflowDetectionService {
   // ═══════════════════════════════════════════════════════════════════════════
 
   static double _computeAngle(RoboflowDetection d) {
+    // Need both syringe and arm to compute a meaningful angle
+    if (!d.hasSyringe || !d.hasArm) return 0;
+
     // Arm surface direction vector
     double armDx, armDy;
     if ((d.armW ?? 0) > (d.armH ?? 0)) {

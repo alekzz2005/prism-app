@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:io';
+
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
@@ -69,7 +69,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
     if (_instructorId != null) {
       _liveService.setCameraActive(_instructorId!, false);
     }
-    TfliteDetectionService.resetSmoothing();
+    RoboflowDetectionService.resetSmoothing();
     super.dispose();
   }
 
@@ -84,7 +84,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
       _camera = CameraController(cam, ResolutionPreset.medium,
           enableAudio: false, imageFormatGroup: ImageFormatGroup.yuv420);
       await _camera!.initialize();
-      await TfliteDetectionService.init(); // <--- Load AI models into memory
+      // Roboflow API — no local model loading needed
       await _camera!.startImageStream(_onFrame);
       if (mounted) setState(() => _cameraReady = true);
       
@@ -103,14 +103,26 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
     if (!mounted) return;
     
     final instructorId = _instructorId;
-    if (instructorId == null) return;
+    if (instructorId == null) {
+      debugPrint('[CameraNode] ❌ No instructorId, skipping');
+      return;
+    }
 
-    if (_currentPhase == 'waiting' || _currentPhase == 'completed') return;
+    if (_currentPhase == 'waiting' || _currentPhase == 'completed') {
+      debugPrint('[CameraNode] ⏸ Phase=$_currentPhase, skipping frame');
+      return;
+    }
 
-    // Send to Tflite and get angle result
-    final result = await TfliteDetectionService.detectAngleFromFrameData(frameData);
+    debugPrint('[CameraNode] 📸 Sending frame to Roboflow API (phase=$_currentPhase, ${frameData.width}x${frameData.height})');
+
+    // Send to Roboflow API and get angle result
+    final result = await RoboflowDetectionService.detectAngleFromFrameData(frameData);
     
-    if (result == null) return; // Skip updating UI if frame was dropped
+    debugPrint('[CameraNode] 📊 Result: lost=${result.detectionLost}, angle=${result.angle.toStringAsFixed(1)}, score=${result.score}, hasDetection=${result.detection != null}');
+    if (result.detection != null) {
+      final d = result.detection!;
+      debugPrint('[CameraNode] 🎯 Arm=(${d.armCx?.toStringAsFixed(0)},${d.armCy?.toStringAsFixed(0)}) Syringe=(${d.syringeCx?.toStringAsFixed(0)},${d.syringeCy?.toStringAsFixed(0)}) Needle=(${d.needleCx?.toStringAsFixed(0)},${d.needleCy?.toStringAsFixed(0)})');
+    }
 
     if (!mounted) return;
 
@@ -175,6 +187,8 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
       isIOS: isIOS,
     );
 
+    debugPrint('[CameraNode] 🖼 _onFrame fired — phase=$_currentPhase, ${image.width}x${image.height}');
+
     // Now process the copied bytes asynchronously (CameraImage is NOT referenced)
     _processFrameWrapper(frameData);
   }
@@ -189,7 +203,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
 
   // ─── Scoring ──────────────────────────────────────────────────────────────
   int _scoreAngle(double measured, double target) {
-    return TfliteDetectionService.scoreIMAngle(measured);
+    return RoboflowDetectionService.scoreIMAngle(measured);
   }
 
   void _handlePhaseChange(String instructorId, LiveSessionModel session, String oldPhase) {
@@ -201,17 +215,17 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
         _lastInsertionAngle = null;
         _detectionLost = false;
       });
-      TfliteDetectionService.resetSmoothing();
+      RoboflowDetectionService.resetSmoothing();
     } else if (session.phase == 'insertion_locked' && oldPhase == 'insertion') {
       final score = _scoreAngle(_liveAngle, session.targetAngle);
       _lastInsertionAngle = _liveAngle;
       _liveService.saveInsertionMetrics(instructorId, _liveAngle, score);
     } else if (session.phase == 'aspiration' && oldPhase == 'insertion_locked') {
-      TfliteDetectionService.resetSmoothing();
+      RoboflowDetectionService.resetSmoothing();
     } else if (session.phase == 'aspiration_locked' && oldPhase == 'aspiration') {
-      TfliteDetectionService.resetSmoothing();
+      RoboflowDetectionService.resetSmoothing();
     } else if (session.phase == 'withdrawal' && oldPhase == 'aspiration_locked') {
-      TfliteDetectionService.resetSmoothing();
+      RoboflowDetectionService.resetSmoothing();
     } else if (session.phase == 'withdrawal_locked' && oldPhase == 'withdrawal') {
       final score = _scoreAngle(_liveAngle, session.targetAngle);
       final delta = (_liveAngle - (_lastInsertionAngle ?? 0)).abs();
@@ -261,7 +275,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                   _currentPhase = 'waiting';
                   _lastInsertionAngle = null;
                 });
-                TfliteDetectionService.resetSmoothing();
+                RoboflowDetectionService.resetSmoothing();
               }
             });
           }
