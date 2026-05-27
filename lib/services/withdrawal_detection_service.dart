@@ -1,13 +1,9 @@
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
-import 'package:hand_landmarker/hand_landmarker.dart';
-import 'detection_service.dart';
+import 'roboflow_service.dart';
 
-/// Detects the withdrawal angle using the dart-grip syringe axis (L5→L6).
+/// Detects the withdrawal angle using the Roboflow model.
 /// Compares against the insertion angle to determine correspondence.
-///
-/// Uses the same [AngleComputationUtil.computeDartGripAngle] as insertion
-/// so that both phases measure the identical vector, making the
-/// angular delta (correspondence) comparison consistent.
 class WithdrawalDetectionService {
   double _withdrawalAngle = 0.0;
   int _withdrawalScore = 1;
@@ -26,26 +22,18 @@ class WithdrawalDetectionService {
     _angularDelta = 0.0;
   }
 
-  /// Call when student begins withdrawal phase.
-  /// [hands] — current hand landmarks, [insertionAngle] — recorded insertion angle,
-  /// [targetAngle] and [tolerance] from InjectionConfig.
-  void update(
-    List<Hand> hands, {
+  /// Updates withdrawal metrics from a pre-computed angle (from RoboflowDetectionService).
+  void updateFromAngle({
+    required double angle,
     required double insertionAngle,
     required double targetAngle,
     required double tolerance,
-    required Size imageSize,
-    int sensorOrientation = 90,
   }) {
-    final angle = AngleComputationUtil.computeDartGripAngle(hands, imageSize, sensorOrientation: sensorOrientation);
     if (angle < 0) return;
 
     _withdrawalAngle = angle;
-    _withdrawalScore =
-        AngleComputationUtil.scoreAngle(angle, targetAngle, tolerance);
-
+    _withdrawalScore = RoboflowDetectionService.scoreIMAngle(angle);
     _angularDelta = (insertionAngle - _withdrawalAngle).abs();
     _correspondenceResult = _angularDelta <= tolerance ? 'Matches' : 'Deviates';
   }
 }
-

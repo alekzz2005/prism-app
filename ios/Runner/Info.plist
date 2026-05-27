@@ -66,5 +66,9 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>PRISM requires camera access to track injection angles in real-time.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>PRISM requires microphone access for the camera stream.</string>
 </dict>
 </plist>

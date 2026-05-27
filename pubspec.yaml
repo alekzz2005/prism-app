@@ -38,7 +38,6 @@ dependencies:
   cloud_firestore: ^6.0.0
 
   camera: ^0.11.1
-  hand_landmarker: ^2.2.0
   provider: ^6.1.5+1
   http: ^1.2.2
   intl: ^0.20.2
@@ -47,9 +46,9 @@ dependencies:
   csv: ^8.0.0
   excel: ^4.0.6
   flutter_svg: ^2.3.0
+  image: ^4.3.0
   shared_preferences: ^2.5.5
-  google_mlkit_pose_detection: ^0.14.1
-
+  tflite_flutter: ^0.12.1
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -74,9 +73,9 @@ flutter:
   uses-material-design: true
 
   # To add assets to your application, add an assets section, like this:
-  # assets:
-  #   - images/a_dot_burr.jpeg
-  #   - images/a_dot_ham.jpeg
+  assets:
+    - assets/models/arms/
+    - assets/models/syringe/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

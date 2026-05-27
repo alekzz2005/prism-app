@@ -187,9 +187,9 @@ class SessionDetailScreen extends StatelessWidget {
                             thickness: 4,
                             child: SingleChildScrollView(
                               child: Text(
-                                  session.instructorNote.isNotEmpty
-                                      ? session.instructorNote
-                                      : (session.aiFeedbackText.isEmpty ? 'No feedback available yet.' : session.aiFeedbackText),
+                                  session.aiFeedbackText.isEmpty
+                                      ? 'No feedback available yet.'
+                                      : session.aiFeedbackText,
                                   style: const TextStyle(color: _textMid, fontSize: 15, height: 1.6),
                                 ),
                             ),

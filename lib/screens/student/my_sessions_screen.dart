@@ -59,7 +59,7 @@ class _MySessionsScreenState extends State<MySessionsScreen> with SingleTickerPr
   }
 
   Stream<QuerySnapshot> _buildAggregateQuery() {
-    final email = FirebaseAuth.instance.currentUser?.email ?? '';
+    final email = (FirebaseAuth.instance.currentUser?.email ?? '').toLowerCase();
     return FirebaseFirestore.instance
         .collection('sessions')
         .where('userId', isEqualTo: email)
@@ -288,7 +288,7 @@ class _SessionListState extends State<_SessionList> with AutomaticKeepAliveClien
   @override
   void initState() {
     super.initState();
-    final email = FirebaseAuth.instance.currentUser?.email ?? '';
+    final email = (FirebaseAuth.instance.currentUser?.email ?? '').toLowerCase();
     _stream = FirebaseFirestore.instance
         .collection('sessions')
         .where('userId', isEqualTo: email)
