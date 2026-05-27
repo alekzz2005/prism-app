@@ -3,6 +3,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:provider/provider.dart';
 import '../../providers/user_role_provider.dart';
 import '../../services/roster_service.dart';
+import 'package:file_picker/file_picker.dart';
 
 // --- Brand Colours ------------------------------------------------------------
 const _navy = Color(0xFF003366);
@@ -31,6 +32,7 @@ class SectionStudentsScreen extends StatefulWidget {
 class _SectionStudentsScreenState extends State<SectionStudentsScreen> {
   final _rosterService = RosterService();
   String _searchQuery = '';
+  bool _fabOpen = false;
   bool _showArchived = false;
   Stream<List<StudentRoster>>? _rosterStream;
   String? _lastInstructorId;
@@ -46,6 +48,7 @@ class _SectionStudentsScreenState extends State<SectionStudentsScreen> {
   }
 
   void _showAddStudentModal(String instructorId) {
+    _toggleFab();
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -56,6 +59,59 @@ class _SectionStudentsScreenState extends State<SectionStudentsScreen> {
         rosterService: _rosterService,
       ),
     );
+  }
+
+  void _toggleFab() => setState(() => _fabOpen = !_fabOpen);
+
+  Widget _buildFabOption(String label, Widget icon, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+            decoration: BoxDecoration(
+              color: _navy,
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [BoxShadow(color: _navy.withValues(alpha: 0.28), blurRadius: 14, offset: const Offset(0, 4))],
+            ),
+            child: Text(label, style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+          ),
+          const SizedBox(width: 10),
+          Container(
+            width: 44, height: 44,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              shape: BoxShape.circle,
+              border: Border.all(color: _cardBorder, width: 2),
+              boxShadow: [BoxShadow(color: _navy.withValues(alpha: 0.18), blurRadius: 14, offset: const Offset(0, 4))],
+            ),
+            child: Center(child: icon),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _pickAndUploadCSV(String instructorId) async {
+    _toggleFab();
+    try {
+      final result = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['csv', 'xlsx', 'xls'],
+        withData: true,
+      );
+      if (result != null && result.files.single.bytes != null) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Uploading roster...')));
+        final bytes = result.files.single.bytes!;
+        final name = result.files.single.name;
+        await _rosterService.importRoster(instructorId, widget.section.id, bytes, name);
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Roster imported successfully')));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error importing roster: $e')));
+    }
   }
 
   void _confirmArchive(String instructorId, StudentRoster student) {
@@ -232,21 +288,57 @@ class _SectionStudentsScreenState extends State<SectionStudentsScreen> {
       ),
       floatingActionButton: instructorId == null
           ? null
-          : GestureDetector(
-              onTap: () => _showAddStudentModal(instructorId),
-              child: Container(
-                width: 56, height: 56,
-                decoration: BoxDecoration(
-                  color: _navy,
-                  shape: BoxShape.circle,
-                  boxShadow: [BoxShadow(color: _navy.withValues(alpha: 0.38), blurRadius: 24, offset: const Offset(0, 6))],
-                ),
-                child: Center(
-                  child: SvgPicture.string(
-                    '<svg width="22" height="22" viewBox="0 0 22 22" fill="none"><path d="M11 5v12M5 11h12" stroke="white" stroke-width="2.2" stroke-linecap="round"/></svg>',
+          : Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                if (_fabOpen) ...[
+                  _buildFabOption(
+                    'Add Single Student',
+                    const Icon(Icons.person_add, color: _navy, size: 20),
+                    () => _showAddStudentModal(instructorId),
+                  ),
+                  const SizedBox(height: 10),
+                  _buildFabOption(
+                    'Upload CSV / Excel',
+                    const Icon(Icons.upload_file, color: _navy, size: 20),
+                    () => _pickAndUploadCSV(instructorId),
+                  ),
+                  const SizedBox(height: 10),
+                ],
+                GestureDetector(
+                  onTap: _toggleFab,
+                  child: Container(
+                    width: 56, height: 56,
+                    decoration: BoxDecoration(
+                      color: _fabOpen ? const Color(0xFF4A6080) : _navy,
+                      shape: BoxShape.circle,
+                      boxShadow: [BoxShadow(color: _navy.withValues(alpha: 0.38), blurRadius: 24, offset: const Offset(0, 6))],
+                    ),
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        AnimatedOpacity(
+                          opacity: _fabOpen ? 0.0 : 1.0,
+                          duration: const Duration(milliseconds: 180),
+                          child: Transform.rotate(
+                            angle: _fabOpen ? 0.785 : 0, // 45 deg in rad
+                            child: SvgPicture.string('<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="white" stroke-width="2.2" stroke-linecap="round"/></svg>'),
+                          ),
+                        ),
+                        AnimatedOpacity(
+                          opacity: _fabOpen ? 1.0 : 0.0,
+                          duration: const Duration(milliseconds: 180),
+                          child: Transform.rotate(
+                            angle: _fabOpen ? 0 : -0.785,
+                            child: SvgPicture.string('<svg width="22" height="22" viewBox="0 0 22 22" fill="none"><path d="M5 5l12 12M17 5L5 17" stroke="white" stroke-width="2" stroke-linecap="round"/></svg>'),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
+              ],
             ),
     );
   }

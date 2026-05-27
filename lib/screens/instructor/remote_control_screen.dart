@@ -190,40 +190,49 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
                         const SizedBox(height: 18),
 
                         // Angle ring
-                        Container(
+                        SizedBox(
                           width: 180, height: 180,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: _navy.withValues(alpha: 0.04),
-                            border: Border.all(color: _cardBorder, width: 2),
-                          ),
-                          alignment: Alignment.center,
-                          child: Container(
-                            width: 160, height: 160,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              border: Border.all(color: _navy.withValues(alpha: 0.08)),
-                            ),
-                            alignment: Alignment.center,
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.baseline,
-                              textBaseline: TextBaseline.alphabetic,
-                              children: [
-                                Text(
-                                  session.liveAngle.toStringAsFixed(0),
-                                  style: const TextStyle(color: _navy, fontSize: 58,
-                                      fontWeight: FontWeight.w700, fontFamily: 'DM Mono', height: 1),
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              CircularProgressIndicator(
+                                value: (session.liveAngle.clamp(0, 180) / 180).clamp(0.0, 1.0),
+                                backgroundColor: _navy.withValues(alpha: 0.08),
+                                color: _navy,
+                                strokeWidth: 8,
+                                strokeCap: StrokeCap.round,
+                              ),
+                              Center(
+                                child: Container(
+                                  width: 150, height: 150,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    border: Border.all(color: _navy.withValues(alpha: 0.04)),
+                                    color: _cardBg,
+                                  ),
+                                  alignment: Alignment.center,
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    crossAxisAlignment: CrossAxisAlignment.baseline,
+                                    textBaseline: TextBaseline.alphabetic,
+                                    children: [
+                                      Text(
+                                        session.liveAngle.toStringAsFixed(0),
+                                        style: const TextStyle(color: _navy, fontSize: 58,
+                                            fontWeight: FontWeight.w700, fontFamily: 'DM Mono', height: 1),
+                                      ),
+                                      const Text('\u00b0',
+                                        style: TextStyle(color: _textMid, fontSize: 22,
+                                            fontWeight: FontWeight.w500)),
+                                    ],
+                                  ),
                                 ),
-                                const Text('\u00b0',
-                                  style: TextStyle(color: _textMid, fontSize: 22,
-                                      fontWeight: FontWeight.w500)),
-                              ],
-                            ),
+                              ),
+                            ],
                           ),
                         ),
 
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 24),
 
                         // Pills
                         Row(
@@ -248,12 +257,7 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
                           ],
                         ),
 
-                        const SizedBox(height: 18),
-
-                        // Gauge
-                        _Gauge(angle: session.liveAngle),
-
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 24),
 
                         // Metrics preview
                         Container(
@@ -588,62 +592,6 @@ class _PhaseStep extends StatelessWidget {
   }
 }
 
-// ── Gauge ─────────────────────────────────────────────────────────────────────
-class _Gauge extends StatelessWidget {
-  final double angle;
-  const _Gauge({required this.angle});
-
-  @override
-  Widget build(BuildContext context) {
-    final fill = (angle.clamp(0, 180) / 180).clamp(0.0, 1.0);
-    return Column(
-      children: [
-        Stack(
-          clipBehavior: Clip.none,
-          children: [
-            Container(
-              height: 7,
-              decoration: BoxDecoration(color: _cardBorder, borderRadius: BorderRadius.circular(4)),
-              child: FractionallySizedBox(
-                widthFactor: fill,
-                alignment: Alignment.centerLeft,
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: _navy,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                ),
-              ),
-            ),
-            Positioned(
-              left: (MediaQuery.of(context).size.width - 40 - 32) * fill - 7,
-              top: -3.5,
-              child: Container(
-                width: 14, height: 14,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle, color: _cardBg,
-                  border: Border.all(color: _navy, width: 2.5),
-                  boxShadow: [BoxShadow(color: _navy.withValues(alpha: 0.18), blurRadius: 4, offset: const Offset(0, 1))],
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 6),
-        const Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text('0\u00b0',   style: TextStyle(color: _textMid, fontSize: 10, fontWeight: FontWeight.w500)),
-            Text('45\u00b0',  style: TextStyle(color: _textMid, fontSize: 10, fontWeight: FontWeight.w500)),
-            Text('90\u00b0',  style: TextStyle(color: _textMid, fontSize: 10, fontWeight: FontWeight.w500)),
-            Text('135\u00b0', style: TextStyle(color: _textMid, fontSize: 10, fontWeight: FontWeight.w500)),
-            Text('180\u00b0', style: TextStyle(color: _textMid, fontSize: 10, fontWeight: FontWeight.w500)),
-          ],
-        ),
-      ],
-    );
-  }
-}
 
 // ── Metric Row ────────────────────────────────────────────────────────────────
 class _MetricRow extends StatelessWidget {
