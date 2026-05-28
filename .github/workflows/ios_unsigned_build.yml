@@ -40,12 +40,19 @@ jobs:
           echo "CODE_SIGNING_ALLOWED=NO" >> ios/Flutter/Release.xcconfig
 
       - name: Build iOS App without Codesign
-        run: flutter build ios --release --no-codesign
+        run: |
+          flutter build ios --release --no-codesign || echo "Flutter build codesign check failed, fallback to xcodebuild"
+          cd ios
+          xcodebuild build -workspace Runner.xcworkspace -scheme Runner -configuration Release -destination "generic/platform=iOS" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
 
       - name: Package to IPA
         run: |
           mkdir -p Payload
-          mv build/ios/iphoneos/Runner.app Payload/
+          if [ -d "build/ios/iphoneos/Runner.app" ]; then
+            mv build/ios/iphoneos/Runner.app Payload/
+          else
+            mv ios/build/Release-iphoneos/Runner.app Payload/
+          fi
           zip -qq -r app-unsigned.ipa Payload
 
       - name: Upload IPA Artifact
