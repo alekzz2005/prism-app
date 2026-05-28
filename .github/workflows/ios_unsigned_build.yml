@@ -25,34 +25,17 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Disable SPM
-        run: flutter config --no-enable-swift-package-manager
-
       - name: Restore GoogleService-Info.plist
         run: |
           echo "${{ secrets.GOOGLE_SERVICE_INFO_PLIST }}" | base64 --decode > ios/Runner/GoogleService-Info.plist
 
-      - name: Disable Code Signing Requirements
-        run: |
-          sed -i '' 's/CODE_SIGN_STYLE = Automatic;/CODE_SIGN_STYLE = Manual;/g' ios/Runner.xcodeproj/project.pbxproj || true
-          sed -i '' 's/"CODE_SIGN_IDENTITY\[sdk=iphoneos\*\]" = "iPhone Developer";/"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "";/g' ios/Runner.xcodeproj/project.pbxproj || true
-          echo "CODE_SIGNING_REQUIRED=NO" >> ios/Flutter/Release.xcconfig
-          echo "CODE_SIGNING_ALLOWED=NO" >> ios/Flutter/Release.xcconfig
-
       - name: Build iOS App without Codesign
-        run: |
-          flutter build ios --release --no-codesign || echo "Flutter build codesign check failed, fallback to xcodebuild"
-          cd ios
-          xcodebuild build -workspace Runner.xcworkspace -scheme Runner -configuration Release -destination "generic/platform=iOS" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+        run: flutter build ios --release --no-codesign
 
       - name: Package to IPA
         run: |
           mkdir -p Payload
-          if [ -d "build/ios/iphoneos/Runner.app" ]; then
-            mv build/ios/iphoneos/Runner.app Payload/
-          else
-            mv ios/build/Release-iphoneos/Runner.app Payload/
-          fi
+          mv build/ios/iphoneos/Runner.app Payload/
           zip -qq -r app-unsigned.ipa Payload
 
       - name: Upload IPA Artifact
