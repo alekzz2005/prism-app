@@ -257,11 +257,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         GestureDetector(
                           onTap: () => Navigator.pop(context),
                           child: Container(
-                            width: 40, height: 40,
+                            width: 36, height: 36,
                             decoration: BoxDecoration(
                               color: Colors.white.withValues(alpha: 0.10),
                               border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
-                              borderRadius: BorderRadius.circular(24),
+                              borderRadius: BorderRadius.circular(10),
                             ),
                             alignment: Alignment.center,
                             child: SvgPicture.string(
