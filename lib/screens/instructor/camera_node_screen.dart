@@ -16,7 +16,6 @@ import '../../services/live_session_service.dart';
 import '../../widgets/angle_overlay_painter.dart';
 =======
 import '../../services/roboflow_service.dart';
-import '../../services/tflite_detection_service.dart';
 import '../../services/live_session_service.dart';
 import '../../widgets/detection_overlay_painter.dart';
 >>>>>>> 74ac01c059d91ae140119d83ade8f5ca3d44124e
@@ -49,16 +48,11 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
 
   Timer? _syncTimer;
   double? _lastInsertionAngle;
-<<<<<<< HEAD
-  math.Point<double>? _lockedWristPos;
-  String? _instructorId;  // cached to avoid context.read in dispose/timers
-=======
   String? _instructorId;
 
   // Roboflow detection state
   bool _detectionLost = false;
   RoboflowDetection? _latestDetection;
->>>>>>> 74ac01c059d91ae140119d83ade8f5ca3d44124e
 
   @override
   void initState() {
@@ -103,34 +97,14 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
         _liveService.setCameraActive(_instructorId!, true);
       }
       
-<<<<<<< HEAD
-      // Start 2Hz sync timer
-      _syncTimer = Timer.periodic(const Duration(milliseconds: 500), (_) => _syncMetrics());
-=======
       // 2Hz sync timer removed. We process frames directly using throttling in _onFrame.
->>>>>>> 74ac01c059d91ae140119d83ade8f5ca3d44124e
     } catch (_) {
       if (mounted) setState(() => _cameraReady = false);
     }
   }
 
-<<<<<<< HEAD
-  void _syncMetrics() {
-    if (!mounted) return;
-    
-    final instructorId = _instructorId;
-    if (instructorId == null) return;
-
-    if (_currentPhase == 'waiting' || _currentPhase == 'completed') return;
-
-    // Sync detection state regardless of whether a perfect angle is computed yet
-    bool isLost = _hands.isEmpty;
-    _liveService.setDetectionLost(instructorId, isLost);
-
-    if (_liveAngle < 0 && _currentPhase != 'aspiration') return;
-=======
   // ─── 2Hz Sync ─────────────────────────────────────────────────────────────
-  Future<void> _syncMetrics(TfliteFrameData frameData) async {
+  Future<void> _syncMetrics(RoboflowFrameData frameData) async {
     if (!mounted) return;
     
     final instructorId = _instructorId;
@@ -169,7 +143,6 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
     _liveService.setDetectionLost(instructorId, result.detectionLost);
 
     if (result.detectionLost) return;
->>>>>>> 74ac01c059d91ae140119d83ade8f5ca3d44124e
 
     if (_currentPhase == 'insertion' || _currentPhase == 'withdrawal') {
       if (_liveAngle >= 0) {
@@ -178,102 +151,6 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
     }
   }
 
-<<<<<<< HEAD
-  List<Hand> _sortAndLockActiveHand(List<Hand> detectedHands) {
-    if (detectedHands.isEmpty) return detectedHands;
-
-    List<Hand> candidateHands = List.from(detectedHands);
-    Hand? activeHand;
-
-    // 1. Try to maintain existing lock on the instructor's hand
-    if (_lockedWristPos != null) {
-      double minLockDist = double.infinity;
-      for (final h in candidateHands) {
-        final w = h.landmarks[0];
-        final dist = math.pow(w.x - _lockedWristPos!.x, 2) + math.pow(w.y - _lockedWristPos!.y, 2);
-        if (dist < minLockDist) {
-          minLockDist = dist.toDouble();
-          activeHand = h;
-        }
-      }
-
-      if (minLockDist > 0.05) {
-        _lockedWristPos = null; // Lock broken
-        activeHand = null;
-      }
-    }
-
-    // 2. If no lock, find the hand closest to the center of the screen
-    if (_lockedWristPos == null && candidateHands.isNotEmpty) {
-      double bestScore = double.infinity;
-      for (final h in candidateHands) {
-        final w = h.landmarks[0];
-        // Center of normalized screen is (0.5, 0.5)
-        double dx = w.x - 0.5;
-        double dy = w.y - 0.5;
-        double score = dx * dx + dy * dy;
-
-        if (score < bestScore) { 
-          bestScore = score;
-          activeHand = h;
-        }
-      }
-    }
-
-    if (activeHand != null) {
-      final w = activeHand.landmarks[0];
-      _lockedWristPos = math.Point(w.x, w.y);
-
-      final sorted = [activeHand];
-      for (final h in detectedHands) {
-        if (h != activeHand) sorted.add(h);
-      }
-      return sorted;
-    } else {
-      // If no valid active hand (e.g. only stabilizing hand detected), don't put it at index 0.
-      // But we still want to draw it! 
-      // We return an empty list so that the detection engine skips this frame, 
-      // but we lose the drawing of the stabilizing hand. That's acceptable for correct tracking.
-      return []; 
-    }
-  }
-
-  Future<void> _onFrame(CameraImage image) async {
-    if (_processing) return;
-    if (_currentPhase == 'waiting' || _currentPhase == 'completed') return;
-    _processing = true;
-    try {
-      final cam = _camera?.description;
-      if (cam == null) return;
-      
-      final sensorOrientation = cam.sensorOrientation;
-      
-      // Run both models
-      final detectedHands = _landmarkService.detect(image, sensorOrientation);
-      final detectedPoses = await _poseService.detect(image, sensorOrientation);
-      
-      if (mounted) {
-        setState(() {
-          _imageSize = Size(image.width.toDouble(), image.height.toDouble());
-          _hands = _sortAndLockActiveHand(detectedHands);
-          if (detectedPoses != null) {
-            _poses = detectedPoses;
-          }
-          _sensorOrientation = sensorOrientation;
-          
-          if (_hands.isNotEmpty && _currentSession != null) {
-            final angle = AngleComputationUtil.computeBodyRelativeInjectionAngle(
-                _hands, _poses, _imageSize!, 
-                injectionType: _currentSession!.injectionType, 
-                sensorOrientation: _sensorOrientation);
-                
-            if (angle >= 0) _liveAngle = angle;
-          }
-        });
-      }
-    } finally {
-      _processing = false;
-=======
   // ─── Frame Processing ────────────────────────────────────────────────────────
   
   int _lastProcessTime = 0;
@@ -300,7 +177,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
     // *** CRITICAL: Extract raw bytes SYNCHRONOUSLY right here ***
     // This ensures CameraImage native buffer is freed the instant _onFrame returns
     final isIOS = image.planes.length == 2;
-    final frameData = TfliteFrameData(
+    final frameData = RoboflowFrameData(
       width: image.width,
       height: image.height,
       yBytes: Uint8List.fromList(image.planes[0].bytes),
@@ -321,12 +198,11 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
     _processFrameWrapper(frameData);
   }
 
-  Future<void> _processFrameWrapper(TfliteFrameData frameData) async {
+  Future<void> _processFrameWrapper(RoboflowFrameData frameData) async {
     try {
       await _syncMetrics(frameData);
     } finally {
       _isProcessingFrame = false;
->>>>>>> 74ac01c059d91ae140119d83ade8f5ca3d44124e
     }
   }
 

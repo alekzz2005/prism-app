@@ -7,7 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:image/image.dart' as img;
 
-import 'tflite_detection_service.dart' show TfliteFrameData;
+// Removed tflite_detection_service.dart import
 
 // ─── Roboflow Detection Result ──────────────────────────────────────────────
 /// Holds the bounding-box centres and dimensions of detected objects.
@@ -49,7 +49,7 @@ class AngleResult {
 }
 
 // ─── Plain data object to pass into compute isolate ─────────────────────────
-class _FrameData {
+class RoboflowFrameData {
   final int width;
   final int height;
   final Uint8List yBytes;
@@ -61,7 +61,7 @@ class _FrameData {
   final int uvPixelStride;
   final int sensorOrientation;
 
-  _FrameData({
+  RoboflowFrameData({
     required this.width,
     required this.height,
     required this.yBytes,
@@ -112,7 +112,7 @@ class RoboflowDetectionService {
 
       // 2. Extract raw plane data (serializable) from CameraImage
       final isIOS = cameraImage.planes.length == 2;
-      final frameData = _FrameData(
+      final frameData = RoboflowFrameData(
         width:  cameraImage.width,
         height: cameraImage.height,
         yBytes: Uint8List.fromList(cameraImage.planes[0].bytes),
@@ -170,11 +170,11 @@ class RoboflowDetectionService {
   /// Accepts pre-extracted [TfliteFrameData] (raw YUV bytes already copied
   /// synchronously from CameraImage). This avoids holding a native camera
   /// buffer reference which causes buffer starvation.
-  static Future<AngleResult> detectAngleFromFrameData(TfliteFrameData frameData) async {
+  static Future<AngleResult> detectAngleFromFrameData(RoboflowFrameData frameData) async {
     try {
       if (mockMode) return _mockDetect();
 
-      final internalFrame = _FrameData(
+      final internalFrame = RoboflowFrameData(
         width: frameData.width,
         height: frameData.height,
         yBytes: frameData.yBytes,
@@ -234,7 +234,7 @@ class RoboflowDetectionService {
 
   /// Converts extracted frame data to compressed JPEG bytes.
   /// This runs in a separate isolate via [compute] so the UI stays smooth.
-  static Uint8List? _convertFrameDataToJpeg(_FrameData frame) {
+  static Uint8List? _convertFrameDataToJpeg(RoboflowFrameData frame) {
     try {
       final int width  = frame.width;
       final int height = frame.height;
