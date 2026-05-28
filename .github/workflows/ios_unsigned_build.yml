@@ -32,6 +32,11 @@ jobs:
         run: |
           echo "${{ secrets.GOOGLE_SERVICE_INFO_PLIST }}" | base64 --decode > ios/Runner/GoogleService-Info.plist
 
+      - name: Disable Code Signing Requirements
+        run: |
+          echo "CODE_SIGNING_REQUIRED=NO" >> ios/Flutter/Release.xcconfig
+          echo "CODE_SIGNING_ALLOWED=NO" >> ios/Flutter/Release.xcconfig
+
       - name: Build iOS App without Codesign
         run: flutter build ios --release --no-codesign
 
