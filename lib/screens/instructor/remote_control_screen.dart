@@ -63,7 +63,7 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
       ),
     );
 
-    String finalUserId = session.studentEmail;
+    String finalUserId = session.studentEmail.toLowerCase();
 
     // Build final session model
     // For ID injections, aspiration is N/A per the rubric
