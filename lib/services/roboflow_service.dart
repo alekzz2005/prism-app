@@ -81,7 +81,7 @@ class RoboflowDetectionService {
   static const String _workflowUrl =
       'https://detect.roboflow.com/infer/workflows/veincarmell-pangilinan-cit-edu/find-syringe-arm-and-needle';
 
-  static const String _apiKey = 'J9jW40Es9tFmhUzmXpMe';
+  static const String _apiKey = 'hIFLbCmiFrxFrwcrXe5e';
 
   /// When true, bypasses the API and generates simulated detections.
   static bool mockMode = false;
@@ -292,7 +292,7 @@ class RoboflowDetectionService {
     try {
       // Use direct Infer API for version 33 to force a low confidence threshold (15%)
       // This allows detecting the syringe even when perfectly horizontal.
-      final String inferUrl = 'https://detect.roboflow.com/find-syringe-arm-and-needle/33?api_key=$_apiKey&confidence=15';
+      final String inferUrl = 'https://detect.roboflow.com/find-syringe-arm-and-needle/41?api_key=$_apiKey&confidence=15';
 
       final response = await http.post(
         Uri.parse(inferUrl),
