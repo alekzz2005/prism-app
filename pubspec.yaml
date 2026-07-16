@@ -73,9 +73,9 @@ flutter:
   uses-material-design: true
 
   # To add assets to your application, add an assets section, like this:
-  assets:
-    - assets/models/arms/
-    - assets/models/syringe/
+  # assets:
+  #   - assets/models/arms/
+  #   - assets/models/syringe/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
