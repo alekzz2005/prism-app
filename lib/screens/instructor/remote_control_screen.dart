@@ -256,14 +256,6 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
                                     : '--',
                                 valueColor: session.finalInsertionAngle != null ? _green : _textMid,
                               ),
-                              const SizedBox(height: 6),
-                              _MetricRow(
-                                label: 'Aspiration Phase',
-                                value: session.phase == 'aspiration'
-                                    ? 'Active\u2026'
-                                    : (session.aspirationResult ?? '--'),
-                                valueColor: session.phase == 'aspiration' ? _amber : _textMid,
-                              ),
                             ],
                           ),
                         ),
