@@ -401,55 +401,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                       ),
                     ),
-                    const SizedBox(height: 16),
-                    
-                    // Temporary Nuke Button
-                    GestureDetector(
-                      onTap: () async {
-                        showDialog(
-                          context: context,
-                          builder: (ctx) => AlertDialog(
-                            title: const Text("Wipe Sessions"),
-                            content: const Text("Delete ALL sessions and live_sessions from the database? Users and Rosters will be kept."),
-                            actions: [
-                              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
-                              ElevatedButton(
-                                style: ElevatedButton.styleFrom(backgroundColor: _red),
-                                onPressed: () async {
-                                  Navigator.pop(ctx);
-                                  try {
-                                    final sessions = await FirebaseFirestore.instance.collection('sessions').get();
-                                    for (var doc in sessions.docs) await doc.reference.delete();
-                                    final live = await FirebaseFirestore.instance.collection('live_sessions').get();
-                                    for (var doc in live.docs) await doc.reference.delete();
-                                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Database cleanly wiped!')));
-                                  } catch (e) {
-                                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
-                                  }
-                                },
-                                child: const Text("WIPE EVERYTHING", style: TextStyle(color: Colors.white)),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        decoration: BoxDecoration(
-                          color: const Color(0x0A991B1B),
-                          border: Border.all(color: const Color(0x33991B1B)),
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(Icons.delete_forever, color: _red),
-                            const SizedBox(width: 10),
-                            const Text('DANGER: Wipe All Sessions', style: TextStyle(color: _red, fontSize: 15, fontWeight: FontWeight.w700)),
-                          ],
-                        ),
-                      ),
-                    ),
+
                   ],
                 ),
               ),
