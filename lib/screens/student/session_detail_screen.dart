@@ -33,6 +33,7 @@ class SessionDetailScreen extends StatelessWidget {
     final target = config['target']!;
     final tolerance = config['tolerance']!;
     final insertionPass = (session.insertionAngle - target).abs() <= tolerance;
+    final withdrawalPass = (session.withdrawalAngle - target).abs() <= tolerance;
     final formattedDate = DateFormat('MMMM d, yyyy · h:mm a').format(session.timestamp.toDate());
 
     return Scaffold(
@@ -115,7 +116,15 @@ class SessionDetailScreen extends StatelessWidget {
                             bgColor: session.correspondenceResult == 'Matches' ? _greenBg : _amberBg,
                           ),
                         ),
-                        _DataRow('Rubric Score', "${session.withdrawalScore ?? '—'} / 5", true),
+                        _DataRow('Rubric Score', "${session.withdrawalScore ?? '—'} / 5", false),
+                        _DataRow(
+                          'Result', '', true,
+                          trailing: _Chip(
+                            text: withdrawalPass ? 'Pass' : 'Fail',
+                            textColor: withdrawalPass ? _green : _red,
+                            bgColor: withdrawalPass ? _greenBg : _redBg,
+                          ),
+                        ),
                       ],
                     ),
                     const SizedBox(height: 10),
@@ -292,7 +301,7 @@ class SessionDetailScreen extends StatelessWidget {
 
   Map<String, double> _targetForType(String type) {
     const targets = {
-      'IM': {'target': 90.0, 'tolerance': 5.0},
+      'IM': {'target': 90.0, 'tolerance': 10.0},
     };
     return targets[type] ?? {'target': 0, 'tolerance': 5};
   }

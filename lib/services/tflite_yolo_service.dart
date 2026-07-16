@@ -359,9 +359,9 @@ class TFLiteYoloService {
   static int scoreIMAngle(double measuredAngle) {
     final delta = (measuredAngle - 90.0).abs();
     if (delta <= 1) return 5;
-    if (delta <= 2) return 4;
-    if (delta <= 3) return 3;
-    if (delta <= 5) return 2;
+    if (delta <= 5) return 4;
+    if (delta <= 10) return 3; // 80-100 degrees passes
+    if (delta <= 15) return 2;
     return 1;
   }
 }
