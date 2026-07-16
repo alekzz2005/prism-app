@@ -12,7 +12,7 @@ class PayloadBuilder {
 
     // Injection-specific clinical context from CIT-U rubrics
     final clinicalContext = switch (session.injectionType) {
-      'IM' => 'CIT-U rubric: dart-like motion at 90 deg, aspirate for blood, if no blood inject slowly (~10 sec/ml), wait 10s, smoothly withdraw at same angle of insertion.',
+      'IM' => 'CIT-U rubric: dart-like motion at 90 deg, inject slowly (~10 sec/ml), wait 10s, smoothly withdraw at same angle of insertion.',
       _ => '',
     };
 
@@ -20,7 +20,6 @@ class PayloadBuilder {
         '${session.injectionType} injection RD results:\n'
         'Target angle: ${config.targetAngle.toStringAsFixed(0)} deg (tolerance ±${config.tolerance.toStringAsFixed(0)} deg)\n'
         'Insertion: ${session.insertionAngle.toStringAsFixed(1)} deg, rubric ${session.insertionScore}/5\n'
-        'Aspiration: ${session.aspirationResult}, ${session.aspirationDuration.toStringAsFixed(1)}s, smoothness ${session.motionSmoothness}\n'
         'Withdrawal: ${session.withdrawalAngle.toStringAsFixed(1)} deg, rubric ${session.withdrawalScore}/5\n'
         'Angular delta (insertion vs withdrawal): ${session.angularDelta.toStringAsFixed(1)} deg, ${session.correspondenceResult}\n'
         'Overall rubric: ${session.overallScore}/5'

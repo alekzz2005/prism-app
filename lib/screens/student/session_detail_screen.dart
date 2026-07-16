@@ -100,36 +100,10 @@ class SessionDetailScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 10),
 
-                    // Section 2: Aspiration
-                    _SectionCard(
-                      themeColor: const Color(0xFF1A4A7A),
-                      title: 'Section 2 — Aspiration',
-                      children: [
-                        _DataRow(
-                          'Detection Result', '', false,
-                          trailing: _Chip(
-                            text: session.aspirationResult,
-                            textColor: session.aspirationResult == 'Correct' ? _green : (session.aspirationResult == 'Incorrect' ? _red : _textMid),
-                            bgColor: session.aspirationResult == 'Correct' ? _greenBg : (session.aspirationResult == 'Incorrect' ? _redBg : _surface),
-                          ),
-                        ),
-                        _DataRow('Plunger Duration', '${session.aspirationDuration.toStringAsFixed(1)} s', false),
-                        _DataRow(
-                          'Motion Smoothness', '', true,
-                          trailing: _Chip(
-                            text: session.motionSmoothness,
-                            textColor: _navy,
-                            bgColor: const Color(0x14003366),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-
-                    // Section 3: Withdrawal
+                    // Section 2: Withdrawal
                     _SectionCard(
                       themeColor: const Color(0xFF2E6DA4),
-                      title: 'Section 3 — Needle Withdrawal',
+                      title: 'Section 2 — Needle Withdrawal',
                       children: [
                         _DataRow('Withdrawal Angle', '${session.withdrawalAngle.toStringAsFixed(1)}°', false),
                         _DataRow('Angular Delta', '${session.angularDelta.toStringAsFixed(1)}°', false),
@@ -146,7 +120,7 @@ class SessionDetailScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 10),
 
-                    // Section 4: Feedback
+                    // Section 3: Feedback
                     _SectionCard(
                       themeColor: _accent,
                       titleColor: const Color(0xFF3A7CA5),

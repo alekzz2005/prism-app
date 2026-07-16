@@ -220,11 +220,8 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
       final score = _scoreAngle(_liveAngle, session.targetAngle);
       _lastInsertionAngle = _liveAngle;
       _liveService.saveInsertionMetrics(instructorId, _liveAngle, score);
-    } else if (session.phase == 'aspiration' && oldPhase == 'insertion_locked') {
-      RoboflowDetectionService.resetSmoothing();
-    } else if (session.phase == 'aspiration_locked' && oldPhase == 'aspiration') {
-      RoboflowDetectionService.resetSmoothing();
-    } else if (session.phase == 'withdrawal' && oldPhase == 'aspiration_locked') {
+    } else if (session.phase == 'withdrawal' && oldPhase == 'insertion_locked') {
+      // Aspiration skipped — go directly from insertion_locked to withdrawal
       RoboflowDetectionService.resetSmoothing();
     } else if (session.phase == 'withdrawal_locked' && oldPhase == 'withdrawal') {
       final score = _scoreAngle(_liveAngle, session.targetAngle);

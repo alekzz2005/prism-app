@@ -37,21 +37,8 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
   final _repo = InstructorSessionRepository();
   final _feedbackService = FeedbackService();
 
-  DateTime? _aspirationStartTime;
-
   void _updatePhase(String instructorId, String newPhase) {
-    if (newPhase == 'aspiration') {
-      _aspirationStartTime = DateTime.now();
-      _liveService.updatePhase(instructorId, newPhase);
-    } else if (newPhase == 'aspiration_locked') {
-      _liveService.updatePhase(instructorId, newPhase);
-      if (_aspirationStartTime != null) {
-        final duration = DateTime.now().difference(_aspirationStartTime!).inMilliseconds / 1000.0;
-        _liveService.saveAspirationMetrics(instructorId, 'Correct', duration, 'N/A');
-      }
-    } else {
-      _liveService.updatePhase(instructorId, newPhase);
-    }
+    _liveService.updatePhase(instructorId, newPhase);
   }
 
   void _completeSession(String instructorId, LiveSessionModel session) async {
@@ -66,15 +53,11 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
     String finalUserId = session.studentEmail;
 
     // Build final session model
-    // For ID injections, aspiration is N/A per the rubric
-    final isID = session.injectionType == 'ID';
-    final aspirationResult = isID ? 'N/A' : (session.aspirationResult ?? 'Not Detected');
-    final aspirationScore = isID ? 0 : ((aspirationResult == 'Correct') ? 5 : 1);
+    // Aspiration is skipped — hardcode values
+    const aspirationResult = 'Skipped';
 
-    // ID averages 2 components (insertion + withdrawal), others average 3 (+ aspiration)
-    final overallScore = isID
-        ? (((session.insertionScore ?? 1) + (session.withdrawalScore ?? 1)) / 2).round()
-        : (((session.insertionScore ?? 1) + (session.withdrawalScore ?? 1) + aspirationScore) / 3).round();
+    // Overall score: average of insertion + withdrawal only
+    final overallScore = (((session.insertionScore ?? 1) + (session.withdrawalScore ?? 1)) / 2).round();
 
     // Build final session model with empty feedback
     SessionModel initialSession = SessionModel(
@@ -87,8 +70,8 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
       insertionAngle: session.finalInsertionAngle ?? 0,
       insertionScore: session.insertionScore ?? 1,
       aspirationResult: aspirationResult,
-      aspirationDuration: isID ? 0 : (session.aspirationDuration ?? 0),
-      motionSmoothness: isID ? 'N/A' : (session.motionSmoothness ?? 'Low'),
+      aspirationDuration: 0,
+      motionSmoothness: 'N/A',
       withdrawalAngle: session.finalWithdrawalAngle ?? 0,
       withdrawalScore: session.withdrawalScore ?? 1,
       correspondenceResult: session.correspondenceResult ?? 'Deviates',
@@ -114,8 +97,8 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
       insertionAngle: session.finalInsertionAngle ?? 0,
       insertionScore: session.insertionScore ?? 1,
       aspirationResult: aspirationResult,
-      aspirationDuration: isID ? 0 : (session.aspirationDuration ?? 0),
-      motionSmoothness: isID ? 'N/A' : (session.motionSmoothness ?? 'Low'),
+      aspirationDuration: 0,
+      motionSmoothness: 'N/A',
       withdrawalAngle: session.finalWithdrawalAngle ?? 0,
       withdrawalScore: session.withdrawalScore ?? 1,
       correspondenceResult: session.correspondenceResult ?? 'Deviates',
@@ -430,10 +413,7 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
           _PhaseStep(label: 'Insertion',  state: _getPhaseState(session.phase, 1)),
           const Padding(padding: EdgeInsets.symmetric(horizontal: 8),
             child: Text('\u203a', style: TextStyle(color: _cardBorder, fontSize: 14))),
-          _PhaseStep(label: 'Aspiration', state: _getPhaseState(session.phase, 2)),
-          const Padding(padding: EdgeInsets.symmetric(horizontal: 8),
-            child: Text('\u203a', style: TextStyle(color: _cardBorder, fontSize: 14))),
-          _PhaseStep(label: 'Withdrawal', state: _getPhaseState(session.phase, 3)),
+          _PhaseStep(label: 'Withdrawal', state: _getPhaseState(session.phase, 2)),
         ],
       ),
     );
@@ -495,24 +475,10 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
       );
     } else if (session.phase == 'insertion_locked') {
       button = _ControlButton(
-        label: 'Proceed to Aspiration',
-        hint: 'Tap to begin aspiration hold',
-        color: _navy,
-        onPressed: guardrailBlocked ? () {} : () => _updatePhase(instructorId, 'aspiration'),
-      );
-    } else if (session.phase == 'aspiration') {
-      button = _ControlButton(
-        label: 'Done Aspirating',
-        hint: 'Tap to stop timer',
-        color: const Color(0xFF92400E),
-        onPressed: guardrailBlocked ? () {} : () => _updatePhase(instructorId, 'aspiration_locked'),
-      );
-    } else if (session.phase == 'aspiration_locked') {
-      button = _ControlButton(
         label: 'Proceed to Withdrawal',
-        hint: 'Tap to advance phase',
+        hint: 'Tap to continue to withdrawal phase',
         color: _navy,
-        onPressed: guardrailBlocked ? () {} : () => _updatePhase(instructorId, 'withdrawal'),
+        onPressed: () => _updatePhase(instructorId, 'withdrawal'),
       );
     } else if (session.phase == 'withdrawal') {
       button = _ControlButton(
@@ -553,12 +519,10 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
     if (step == 1) {
       if (currentPhase == 'waiting' || currentPhase == 'insertion') return 1;
       return 2;
-    } else if (step == 2) {
-      if (currentPhase == 'insertion_locked' || currentPhase == 'aspiration') return 1;
-      if (currentPhase == 'aspiration_locked' || currentPhase == 'withdrawal' || currentPhase == 'withdrawal_locked') return 2;
-      return 0;
     } else {
-      if (currentPhase == 'aspiration_locked' || currentPhase == 'withdrawal' || currentPhase == 'withdrawal_locked') return 1;
+      // Step 2 = Withdrawal
+      if (currentPhase == 'insertion_locked' || currentPhase == 'withdrawal') return 1;
+      if (currentPhase == 'withdrawal_locked') return 2;
       return 0;
     }
   }

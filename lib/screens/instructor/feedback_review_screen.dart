@@ -158,12 +158,6 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
                             score: s.insertionScore,
                           ),
                           _ResultRow(
-                            label: 'Aspiration',
-                            value: s.aspirationResult ?? 'Not Detected',
-                            subValue: '(${s.aspirationDuration?.toStringAsFixed(1) ?? "0.0"}s, ${s.motionSmoothness ?? "Low"})',
-                            isValueGreen: s.aspirationResult == 'Correct',
-                          ),
-                          _ResultRow(
                             label: 'Withdrawal',
                             value: '${s.withdrawalAngle.toStringAsFixed(1)}\u00b0',
                             score: s.withdrawalScore,
@@ -315,7 +309,7 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
                             const SizedBox(width: 8),
                             const Expanded(
                               child: Text(
-                                'Aspiration note flagged for manual review (UC-1.2)',
+                                'Session flagged for manual review',
                                 style: TextStyle(color: _red, fontSize: 12, fontWeight: FontWeight.w600),
                               ),
                             ),

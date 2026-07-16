@@ -13,8 +13,8 @@ const bool kUseMockFeedback = bool.fromEnvironment(
 /// Mock feedback returned when [kUseMockFeedback] is true.
 const String _mockFeedbackText =
     'Your insertion angle of 88.2° was well within the ±5° tolerance for an IM injection, '
-    'earning a 4/5 on the CIT-U rubric. Aspiration technique was correctly performed with '
-    'smooth plunger retraction over 2.1 seconds, demonstrating good motor control.\n\n'
+    'earning a 4/5 on the CIT-U rubric. The dart-like motion was executed with good precision '
+    'and confidence.\n\n'
     'Your withdrawal angle deviated 8.2° from your insertion path, which falls outside the '
     'acceptable range and suggests lateral wrist movement during needle removal. Focus on '
     'keeping your elbow stationary and withdrawing along the same vector as insertion to '
@@ -53,7 +53,8 @@ class OpenRouterApiClient {
       '(1) Objectively summarize which metrics met or exceeded the target, citing the exact angles and scores, '
       '(2) Objectively identify which metrics fell short of the target, citing the deviation and what it indicates clinically, '
       '(3) Provide one specific, actionable practice recommendation based on the weakest metric. '
-      'Tone: professional, direct, constructive, factual. Never fabricate observations. Max 150 words total.';
+      'Tone: professional, direct, constructive, factual. Never fabricate observations. '
+      'Do NOT mention aspiration — it is assessed separately and not included in this data. Max 150 words total.';
 
   /// Sends [prompt] to Llama 3.3 70B free and returns the response text.
   ///
