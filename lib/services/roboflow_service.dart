@@ -481,7 +481,7 @@ class RoboflowDetectionService {
 
   static int scoreIMAngle(double measuredAngle) {
     final delta = (measuredAngle - 90.0).abs();
-    if (delta <= 1) return 5;
+    if (delta <= 0.5) return 5; // Near perfect 90.0 degrees
     if (delta <= 5) return 4;
     if (delta <= 10) return 3; // 80-100 degrees passes
     if (delta <= 15) return 2;
