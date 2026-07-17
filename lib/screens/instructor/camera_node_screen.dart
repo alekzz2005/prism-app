@@ -8,7 +8,6 @@ import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../providers/user_role_provider.dart';
 import '../../services/roboflow_service.dart';
-import '../../services/tflite_detection_service.dart';
 import '../../services/live_session_service.dart';
 import '../../widgets/detection_overlay_painter.dart';
 
@@ -99,7 +98,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
   }
 
   // ─── 2Hz Sync ─────────────────────────────────────────────────────────────
-  Future<void> _syncMetrics(TfliteFrameData frameData) async {
+  Future<void> _syncMetrics(RawFrameData frameData) async {
     if (!mounted) return;
     
     final instructorId = _instructorId;
@@ -172,7 +171,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
     // *** CRITICAL: Extract raw bytes SYNCHRONOUSLY right here ***
     // This ensures CameraImage native buffer is freed the instant _onFrame returns
     final isIOS = image.planes.length == 2;
-    final frameData = TfliteFrameData(
+    final frameData = RawFrameData(
       width: image.width,
       height: image.height,
       yBytes: Uint8List.fromList(image.planes[0].bytes),
@@ -193,7 +192,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
     _processFrameWrapper(frameData);
   }
 
-  Future<void> _processFrameWrapper(TfliteFrameData frameData) async {
+  Future<void> _processFrameWrapper(RawFrameData frameData) async {
     try {
       await _syncMetrics(frameData);
     } finally {

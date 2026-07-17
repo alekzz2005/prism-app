@@ -48,7 +48,6 @@ dependencies:
   flutter_svg: ^2.3.0
   image: ^4.3.0
   shared_preferences: ^2.5.5
-  tflite_flutter: ^0.12.1
 dev_dependencies:
   flutter_test:
     sdk: flutter
