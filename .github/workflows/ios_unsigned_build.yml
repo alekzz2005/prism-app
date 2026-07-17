@@ -29,6 +29,11 @@ jobs:
         run: |
           echo "${{ secrets.GOOGLE_SERVICE_INFO_PLIST }}" | base64 --decode > ios/Runner/GoogleService-Info.plist
 
+      - name: Link GoogleService-Info.plist to Xcode
+        run: |
+          gem install xcodeproj
+          ruby -e "require 'xcodeproj'; project = Xcodeproj::Project.open('ios/Runner.xcodeproj'); group = project.main_group.find_subpath('Runner', true); file = group.new_file('GoogleService-Info.plist'); project.targets.first.resources_build_phase.add_file_reference(file); project.save"
+
       - name: Build iOS App without Codesign
         run: flutter build ios --release --no-codesign
 
