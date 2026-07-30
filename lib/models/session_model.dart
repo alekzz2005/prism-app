@@ -8,6 +8,7 @@ class SessionModel {
   final Timestamp timestamp;
   final String injectionType; // "IM"
   final String? sectionName; // e.g. "Section 3A"
+  final String? partnerName;
 
   // Insertion
   final double insertionAngle;
@@ -43,6 +44,7 @@ class SessionModel {
     required this.timestamp,
     required this.injectionType,
     this.sectionName,
+    this.partnerName,
     required this.insertionAngle,
     required this.insertionScore,
     required this.aspirationResult,
@@ -75,6 +77,7 @@ class SessionModel {
       timestamp: data['timestamp'] as Timestamp? ?? Timestamp.now(),
       injectionType: data['injectionType'] as String? ?? 'IM',
       sectionName: rawSection,
+      partnerName: data['partnerName'] as String?,
       insertionAngle: (data['insertionAngle'] as num?)?.toDouble() ?? 0.0,
       insertionScore: data['insertionScore'] as int? ?? 1,
       aspirationResult: data['aspirationResult'] as String? ?? 'Not Detected',
@@ -99,6 +102,7 @@ class SessionModel {
         'timestamp': timestamp,
         'injectionType': injectionType,
         'sectionName': sectionName,
+        'partnerName': partnerName,
         'insertionAngle': insertionAngle,
         'insertionScore': insertionScore,
         'aspirationResult': aspirationResult,

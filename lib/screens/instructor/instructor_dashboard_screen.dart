@@ -1049,7 +1049,7 @@ class _SessionCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    '${date.day}/${date.month}/${date.year}  •  ${session.studentName}',
+                    '${date.day}/${date.month}/${date.year}  •  ${session.partnerName != null && session.partnerName!.isNotEmpty ? session.partnerName! : '—'}',
                     style: const TextStyle(color: _textMid, fontSize: 12),
                   ),
                 ],
@@ -1325,6 +1325,8 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
   int _step = 1;
   String? _selectedSection;
   StudentRoster? _selectedStudent;
+  StudentRoster? _selectedPartner;
+  List<StudentRoster> _sectionStudents = [];
 
 
   Stream<List<InstructorSection>>? _sectionsStream;
@@ -1380,6 +1382,7 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
       injectionType: 'IM',
       targetAngle: 90.0,
       sectionName: _selectedSection,
+      partnerName: _selectedPartner?.formattedFullName,
     );
 
     if (mounted) {
@@ -1409,7 +1412,7 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('Live Demo', style: TextStyle(color: Color(0xFF003366), fontSize: 18, fontWeight: FontWeight.bold)),
-                Text('Step 1 of 2 · Select a section', style: TextStyle(color: Color(0xFF8A9BB0), fontSize: 11, fontWeight: FontWeight.w500)),
+                Text('Step 1 of 3 · Select a section', style: TextStyle(color: Color(0xFF8A9BB0), fontSize: 11, fontWeight: FontWeight.w500)),
               ],
             ),
           ],
@@ -1438,10 +1441,13 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
               itemBuilder: (context, index) {
                 final sec = sections[index];
                 return InkWell(
-                  onTap: () {
+                  onTap: () async {
+                    final stream = widget.rosterService.watchRoster(widget.instructorId, sec.id);
+                    final students = await stream.first;
                     setState(() {
                       _selectedSection = sec.name;
-                      _rosterStream = widget.rosterService.watchRoster(widget.instructorId, sec.id);
+                      _rosterStream = stream;
+                      _sectionStudents = students;
                       _step = 2;
                     });
                   },
@@ -1517,7 +1523,7 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(_selectedSection ?? '', style: const TextStyle(color: Color(0xFF003366), fontSize: 14, fontWeight: FontWeight.bold)),
-                  const Text('Step 2 of 2 · Select student', style: TextStyle(color: Color(0xFF8A9BB0), fontSize: 11)),
+                  const Text('Step 2 of 3 · Select student', style: TextStyle(color: Color(0xFF8A9BB0), fontSize: 11)),
                 ],
               ),
             ),
@@ -1531,7 +1537,7 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
           ],
         ),
         const SizedBox(height: 12),
-        const Text('Tap a student to start the session.', style: TextStyle(color: Color(0xFF8A9BB0), fontSize: 12)),
+        const Text('Tap a student to select them for the demonstration.', style: TextStyle(color: Color(0xFF8A9BB0), fontSize: 12)),
         const SizedBox(height: 12),
         StreamBuilder<List<StudentRoster>>(
           stream: _rosterStream,
@@ -1563,12 +1569,13 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      InkWell(
+                       InkWell(
                         onTap: () {
                           setState(() {
                             _selectedStudent = s;
+                            _selectedPartner = null;
+                            _step = 3;
                           });
-                          _startSession();
                         },
                         borderRadius: BorderRadius.circular(14),
                         child: Padding(
@@ -1610,6 +1617,103 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
     );
   }
 
+  Widget _buildStep3() {
+    final partners = _sectionStudents.where((s) => s.email != _selectedStudent!.email).toList();
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            InkWell(
+              onTap: () => setState(() {
+                _step = 2;
+                _selectedPartner = null;
+              }),
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                width: 30, height: 30,
+                decoration: BoxDecoration(color: const Color(0xFF003366).withValues(alpha: 0.07), borderRadius: BorderRadius.circular(8)),
+                child: Center(
+                  child: SvgPicture.string('<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M10 12L5 8 10 4" stroke="#003366" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>')
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(_selectedStudent!.formattedFullName, style: const TextStyle(color: Color(0xFF003366), fontSize: 14, fontWeight: FontWeight.bold)),
+                  const Text('Step 3 of 3 · Select partner', style: TextStyle(color: Color(0xFF8A9BB0), fontSize: 11)),
+                ],
+              ),
+            ),
+            Container(
+              width: 44, height: 44,
+              decoration: BoxDecoration(color: const Color(0xFF003366).withValues(alpha: 0.07), borderRadius: BorderRadius.circular(12)),
+              child: Center(
+                child: SvgPicture.string('<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="7" cy="7" r="3.5" stroke="#003366" stroke-width="1.5"/><path d="M1 17c0-3.314 2.686-6 6-6" stroke="#003366" stroke-width="1.5" stroke-linecap="round"/><circle cx="14" cy="7" r="3.5" stroke="#003366" stroke-width="1.5"/><path d="M13 11c3.314 0 6 2.686 6 6" stroke="#003366" stroke-width="1.5" stroke-linecap="round"/></svg>')
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Text(
+          'Who is ${_selectedStudent!.formattedFullName.split(' ').first} paired with for this demonstration?',
+          style: const TextStyle(color: Color(0xFF8A9BB0), fontSize: 12),
+        ),
+        const SizedBox(height: 12),
+        if (partners.isEmpty)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 20),
+            child: Center(child: Text('No other students in this section.', style: TextStyle(color: Color(0xFF8A9BB0), fontSize: 13))),
+          )
+        else
+          Container(
+            decoration: BoxDecoration(
+              border: Border.all(color: const Color(0xFFE2EAF4), width: 1.5),
+              borderRadius: BorderRadius.circular(5),
+            ),
+            padding: const EdgeInsets.all(10),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: partners.map((p) {
+                return GestureDetector(
+                  onTap: () {
+                    setState(() => _selectedPartner = p);
+                    _startSession();
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFC),
+                      border: Border.all(color: const Color(0xFFE2EAF4), width: 1.5),
+                      borderRadius: BorderRadius.circular(5),
+                    ),
+                    child: Text(
+                      p.formattedFullName,
+                      style: const TextStyle(color: Color(0xFF003366), fontSize: 13, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+        const SizedBox(height: 10),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          style: TextButton.styleFrom(
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14), side: const BorderSide(color: Color(0xFFE2EAF4), width: 1.5)),
+          ),
+          child: const Text('Cancel', style: TextStyle(color: Color(0xFF8A9BB0), fontSize: 14, fontWeight: FontWeight.w600)),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -1631,7 +1735,7 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
                   decoration: BoxDecoration(color: const Color(0xFFE2EAF4), borderRadius: BorderRadius.circular(2)),
                 ),
               ),
-              if (_step == 1) _buildStep1() else _buildStep2(),
+              if (_step == 1) _buildStep1() else if (_step == 2) _buildStep2() else _buildStep3(),
             ],
           ),
         ),
