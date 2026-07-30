@@ -1028,7 +1028,7 @@ class _SessionCard extends StatelessWidget {
                   Row(
                     children: [
                       Flexible(
-                        child: Text('${session.injectionType} Injection',
+                        child: Text(session.studentName,
                             style: const TextStyle(color: _textDark, fontSize: 14, fontWeight: FontWeight.w700),
                             overflow: TextOverflow.ellipsis),
                       ),
