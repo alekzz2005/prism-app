@@ -499,9 +499,9 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
                   style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700, height: 1.2),
                 ),
                 const SizedBox(height: 4),
-                // Date · Section · Injection type
+                // Date · Section · Partner
                 Text(
-                  '$dateStr  ·  $sectionStr  ·  ${s.injectionType} Injection',
+                  '$dateStr  ·  $sectionStr  ·  ${s.partnerName != null && s.partnerName!.isNotEmpty ? s.partnerName! : '—'}',
                   style: const TextStyle(color: Color(0xFFA8C4E0), fontSize: 12, fontWeight: FontWeight.w500),
                 ),
               ],
