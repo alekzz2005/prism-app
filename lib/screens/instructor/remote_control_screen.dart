@@ -585,7 +585,7 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
           ),
           const SizedBox(height: 12),
           _ControlButton(
-            label: 'Cancel & Restart Process (Bleeding)',
+            label: 'Cancel (Patient Bleeding)',
             hint: 'Fails session immediately',
             color: Colors.redAccent,
             onPressed: () => _cancelSessionWithBleeding(instructorId, session),

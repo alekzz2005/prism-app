@@ -304,14 +304,22 @@ class RoboflowDetectionService {
 
   static Future<RoboflowDetection?> _callApi(String base64Image, int sentW, int sentH) async {
     try {
-      // Use direct Infer API for version 33 to force a low confidence threshold (15%)
-      // This allows detecting the syringe even when perfectly horizontal.
-      final String inferUrl = 'https://detect.roboflow.com/find-syringe-arm-and-needle/33?api_key=$_apiKey&confidence=15';
+      final String inferUrl = 'https://serverless.roboflow.com/veincarmell-pangilinan-cit-edu/workflows/syringe-plunger-needle-arm';
 
       final response = await http.post(
         Uri.parse(inferUrl),
-        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-        body: base64Image,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer J9jW40Es9tFmhUzmXpMe',
+        },
+        body: jsonEncode({
+          'inputs': {
+            'image': {
+              'type': 'base64',
+              'value': base64Image
+            }
+          }
+        }),
       ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode != 200) {
