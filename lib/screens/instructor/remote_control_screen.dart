@@ -189,14 +189,55 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
     // Fire and forget background generation
     _feedbackService.generateAndSaveFeedbackInBackground(sessionWithId);
 
-    if (!mounted) return;
-    Navigator.pop(context); // Pop the loading dialog
-    Navigator.pop(context); // Go back to dashboard instantly
-    
-    // Clear live session AFTER popping animation finishes to avoid jitter
-    Future.delayed(const Duration(milliseconds: 400), () {
+    if (mounted) {
+      Navigator.pop(context); // Close loading dialog
       _liveService.clearSession(instructorId);
-    });
+      Navigator.pop(context); // Close screen
+    }
+  }
+
+  void _cancelSessionWithBleeding(String instructorId, LiveSessionModel session) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(
+        child: CircularProgressIndicator(color: Colors.white),
+      ),
+    );
+
+    String finalUserId = session.studentEmail;
+
+    SessionModel failedSession = SessionModel(
+      sessionId: '', // Auto-generated
+      userId: finalUserId, 
+      studentName: session.studentName,
+      timestamp: Timestamp.now(), 
+      injectionType: session.injectionType,
+      sectionName: session.sectionName,
+      partnerName: session.partnerName,
+      insertionAngle: session.finalInsertionAngle ?? 0,
+      insertionScore: 1, // failed
+      aspirationResult: 'Failed (Bleeding)',
+      aspirationDuration: 0,
+      motionSmoothness: 'N/A',
+      withdrawalAngle: 0,
+      withdrawalScore: 1,
+      correspondenceResult: 'Deviates',
+      angularDelta: 0,
+      overallScore: 1, // Automatic fail
+      aiFeedbackText: 'Session automatically failed due to bleeding during aspiration.',
+      feedbackStatus: 'Failed',
+      instructorNote: 'Instructor triggered cancellation due to bleeding.',
+      flagged: true,
+    );
+
+    await _repo.saveSession(failedSession);
+    
+    if (mounted) {
+      Navigator.pop(context); // Close dialog
+      _liveService.clearSession(instructorId);
+      Navigator.pop(context); // Close screen
+    }
   }
 
   @override
@@ -241,10 +282,28 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
                   )
                 else
                   Positioned.fill(
-                    child: Container(
-                      color: Colors.black87,
-                      alignment: Alignment.center,
-                      child: const Text('Waiting for camera feed...', style: TextStyle(color: Colors.white70)),
+                    child: Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const CircularProgressIndicator(color: _accentBlue),
+                          const SizedBox(height: 16),
+                          const Text('Waiting for camera feed...', style: TextStyle(color: _accentBlue)),
+                          const SizedBox(height: 24),
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.white.withValues(alpha: 0.1),
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                            ),
+                            icon: const Icon(Icons.refresh, size: 16),
+                            label: const Text('Retry Connection'),
+                            onPressed: () {
+                              _initWebRTC();
+                            },
+                          )
+                        ],
+                      ),
                     ),
                   ),
 
@@ -509,10 +568,29 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
       );
     } else if (session.phase == 'insertion_locked') {
       button = _ControlButton(
-        label: 'Proceed to Withdrawal',
-        hint: 'Tap to continue to withdrawal phase',
+        label: 'Proceed to Aspiration',
+        hint: 'Tap to continue to aspiration phase',
         color: _navy,
-        onPressed: () => _updatePhase(instructorId, 'withdrawal'),
+        onPressed: () => _updatePhase(instructorId, 'aspiration'),
+      );
+    } else if (session.phase == 'aspiration') {
+      button = Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _ControlButton(
+            label: 'No Bleeding (Proceed to Withdrawal)',
+            hint: 'Aspiration clear',
+            color: const Color(0xFF16A34A),
+            onPressed: () => _updatePhase(instructorId, 'withdrawal'),
+          ),
+          const SizedBox(height: 12),
+          _ControlButton(
+            label: 'Cancel & Restart Process (Bleeding)',
+            hint: 'Fails session immediately',
+            color: Colors.redAccent,
+            onPressed: () => _cancelSessionWithBleeding(instructorId, session),
+          ),
+        ]
       );
     } else if (session.phase == 'withdrawal') {
       button = _ControlButton(
@@ -555,7 +633,7 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
       return 2;
     } else {
       // Step 2 = Withdrawal
-      if (currentPhase == 'insertion_locked' || currentPhase == 'withdrawal') return 1;
+      if (currentPhase == 'insertion_locked' || currentPhase == 'aspiration' || currentPhase == 'withdrawal') return 1;
       if (currentPhase == 'withdrawal_locked') return 2;
       return 0;
     }

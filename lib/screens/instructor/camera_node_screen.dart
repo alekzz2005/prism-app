@@ -166,7 +166,16 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
       return;
     }
 
-    if (_currentPhase == 'waiting' || _currentPhase == 'completed') {
+    if (_currentPhase == 'waiting') {
+      // Just mirror the camera, no AI inference
+      final base64Frame = await RoboflowDetectionService.getFrameBase64(frameData);
+      if (base64Frame != null && _dataChannel != null && _dataChannel!.state == RTCDataChannelState.RTCDataChannelOpen) {
+        _dataChannel!.send(RTCDataChannelMessage(base64Frame));
+      }
+      return;
+    }
+
+    if (_currentPhase == 'completed') {
       debugPrint('[CameraNode] ⏸ Phase=$_currentPhase, skipping frame');
       return;
     }
@@ -214,7 +223,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
   bool _isProcessingFrame = false;
 
   void _onFrame(CameraImage image) {
-    if (_currentPhase == 'waiting' || _currentPhase == 'completed') return;
+    if (_currentPhase == 'completed') return;
     
     // Always update aspect ratio
     if (mounted && _imageSize == null) {

@@ -79,7 +79,7 @@ class RawFrameData {
 class RoboflowDetectionService {
   // ---- Configuration ----
   static const String _workflowUrl =
-      'https://detect.roboflow.com/infer/workflows/veincarmell-pangilinan-cit-edu/find-syringe-arm-and-needle';
+      'https://serverless.roboflow.com/veincarmell-pangilinan-cit-edu/workflows/find-syringe-arm-and-needle-v39-logic';
 
   static const String _apiKey = 'hIFLbCmiFrxFrwcrXe5e';
 
@@ -102,6 +102,14 @@ class RoboflowDetectionService {
   // ═══════════════════════════════════════════════════════════════════════════
   //  PUBLIC API  —  called by CameraNodeScreen every 500 ms
   // ═══════════════════════════════════════════════════════════════════════════
+
+  /// Quickly convert frame data to base64 JPEG without calling the Roboflow API.
+  /// Used for WebRTC mirroring during the 'waiting' phase.
+  static Future<String?> getFrameBase64(RawFrameData frameData) async {
+    final jpegBytes = await compute(_convertFrameDataToJpeg, frameData);
+    if (jpegBytes == null || jpegBytes.isEmpty) return null;
+    return base64Encode(jpegBytes);
+  }
 
   /// Converts a [CameraImage] (YUV420) to JPEG, sends it to Roboflow,
   /// calculates the relative injection angle, and returns an [AngleResult].

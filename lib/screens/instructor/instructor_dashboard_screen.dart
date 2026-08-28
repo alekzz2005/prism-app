@@ -15,6 +15,7 @@ import '../shared/profile_screen.dart';
 import '../../services/roster_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../services/live_session_service.dart';
+import '../../services/feedback_release_service.dart';
 import 'remote_control_screen.dart';
 
 // ─── Brand Colours ────────────────────────────────────────────────────────────
@@ -241,6 +242,68 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
           ],
         ),
       ),
+    );
+  }
+
+  void _showBatchReleaseModal(String sectionName) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (context) {
+        bool isLoading = false;
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text('Batch Release Feedbacks', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _navy)),
+                  const SizedBox(height: 12),
+                  Text('Are you sure you want to release all pending feedbacks for section $sectionName?', style: const TextStyle(fontSize: 14, color: _textMid)),
+                  const SizedBox(height: 24),
+                  if (isLoading)
+                    const Center(child: CircularProgressIndicator(color: _navy))
+                  else
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextButton(
+                            onPressed: () => Navigator.pop(context),
+                            child: const Text('Cancel', style: TextStyle(color: _textMid)),
+                          ),
+                        ),
+                        Expanded(
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(backgroundColor: _green),
+                            onPressed: () async {
+                              setModalState(() => isLoading = true);
+                              try {
+                                final count = await FeedbackReleaseService().batchReleaseBySection(sectionName);
+                                if (context.mounted) {
+                                  Navigator.pop(context);
+                                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Released $count feedbacks for $sectionName')));
+                                }
+                              } catch (e) {
+                                if (context.mounted) {
+                                  setModalState(() => isLoading = false);
+                                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to batch release.')));
+                                }
+                              }
+                            },
+                            child: const Text('Confirm', style: TextStyle(color: Colors.white)),
+                          ),
+                        ),
+                      ],
+                    ),
+                ],
+              ),
+            );
+          }
+        );
+      },
     );
   }
 
@@ -531,12 +594,28 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text('Past Sessions', style: TextStyle(color: _textDark, fontSize: 15, fontWeight: FontWeight.bold)),
-              StreamBuilder<List<SessionModel>>(
-                stream: _sessionsStream,
-                builder: (context, snap) {
-                  final len = _applyFilters(snap.data ?? []).length;
-                  return Text('$len sessions', style: const TextStyle(color: _navy, fontSize: 12, fontWeight: FontWeight.w600));
-                }
+              Row(
+                children: [
+                  if (_statusFilter == 'Pending' && _sectionFilter != 'All')
+                    TextButton.icon(
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      onPressed: () => _showBatchReleaseModal(_sectionFilter),
+                      icon: const Icon(Icons.send_rounded, size: 14, color: _navy),
+                      label: const Text('Batch Release', style: TextStyle(color: _navy, fontSize: 12, fontWeight: FontWeight.bold)),
+                    ),
+                  const SizedBox(width: 8),
+                  StreamBuilder<List<SessionModel>>(
+                    stream: _sessionsStream,
+                    builder: (context, snap) {
+                      final len = _applyFilters(snap.data ?? []).length;
+                      return Text('$len sessions', style: const TextStyle(color: _navy, fontSize: 12, fontWeight: FontWeight.w600));
+                    }
+                  ),
+                ],
               ),
             ],
           ),
