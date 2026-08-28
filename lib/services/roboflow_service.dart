@@ -17,6 +17,7 @@ class RoboflowDetection {
   // RF-DETR Arm Keypoints
   final double? armTopCx, armTopCy, armBottomCx, armBottomCy;
   
+  final bool isFakeArm;
   final int imageWidth;
   final int imageHeight;
 
@@ -25,6 +26,7 @@ class RoboflowDetection {
     this.armCx,     this.armCy,     this.armW,     this.armH,
     this.needleCx,  this.needleCy,  this.needleW,  this.needleH,
     this.armTopCx,  this.armTopCy,  this.armBottomCx, this.armBottomCy,
+    this.isFakeArm   = false,
     this.imageWidth  = 640,
     this.imageHeight = 480,
   });
@@ -224,6 +226,8 @@ class RoboflowDetectionService {
         uvPixelStride: frameData.uvPixelStride,
         sensorOrientation: frameData.sensorOrientation,
         isIOS: frameData.isIOS,
+        targetWidth: 480, // Lowered so base64 stays < 64KB for WebRTC!
+        targetQuality: 50,
       );
 
       final jpegBytes = await compute(_convertFrameDataToJpeg, internalFrame);
@@ -239,13 +243,13 @@ class RoboflowDetectionService {
       final bool isRotated = frameData.sensorOrientation == 90 || frameData.sensorOrientation == 270;
       final int uprightW = isRotated ? frameData.height : frameData.width;
       final int uprightH = isRotated ? frameData.width : frameData.height;
-      final int sentW = 640;
-      final int sentH = (uprightH * (640.0 / uprightW)).round();
+      final int sentW = 480;
+      final int sentH = (uprightH * (480.0 / uprightW)).round();
 
       final detection = await _callApi(base64Image, sentW, sentH);
       if (detection == null) {
         debugPrint('[RoboflowService] Detection: null (parser returned nothing)');
-        return AngleResult.lost;
+        return AngleResult(angle: -1, score: 0, detectionLost: true, frameBase64: base64Image); // Send mirror even on fail!
       }
 
       debugPrint('[RoboflowService] Detected! syringe=(${detection.syringeCx?.toStringAsFixed(0)},${detection.syringeCy?.toStringAsFixed(0)}) arm=(${detection.armCx?.toStringAsFixed(0)},${detection.armCy?.toStringAsFixed(0)}) needle=${detection.hasNeedle}');
@@ -253,14 +257,14 @@ class RoboflowDetectionService {
       // Need BOTH syringe and arm to compute angle
       if (!detection.hasSyringe || !detection.hasArm) {
         debugPrint('[RoboflowService] Partial detection — returning detection for overlay but no angle');
-        return AngleResult(angle: -1, score: 0, detectionLost: true, detection: detection);
+        return AngleResult(angle: -1, score: 0, detectionLost: true, detection: detection, frameBase64: base64Image);
       }
 
       final rawAngle = _computeAngle(detection);
       final smoothed = _smooth(rawAngle);
       final score = scoreIMAngle(smoothed);
 
-      return AngleResult(angle: smoothed, score: score, detectionLost: false, detection: detection);
+      return AngleResult(angle: smoothed, score: score, detectionLost: false, detection: detection, frameBase64: base64Image);
     } catch (e, st) {
       debugPrint('[RoboflowService] Error (fromFrameData): $e\n$st');
       return AngleResult.lost;
@@ -506,11 +510,13 @@ class RoboflowDetectionService {
 
       // If we have syringe keypoints but no arm, create a fake horizontal arm 
       // directly under the syringe so the angle math still works perfectly.
+      bool fakeArm = false;
       if (sCx != null && sCy != null && aCx == null) {
         aCx = sCx;
         aCy = sCy + 100.0; // 100 pixels below
         aW = 200.0;
         aH = 20.0; // horizontal arm
+        fakeArm = true;
       }
 
       return RoboflowDetection(
@@ -518,6 +524,7 @@ class RoboflowDetectionService {
         armCx: aCx, armCy: aCy, armW: aW, armH: aH,
         needleCx: nCx, needleCy: nCy, needleW: nW, needleH: nH,
         armTopCx: aTopX, armTopCy: aTopY, armBottomCx: aBotX, armBottomCy: aBotY,
+        isFakeArm: fakeArm,
         imageWidth: imgW,
         imageHeight: imgH,
       );
