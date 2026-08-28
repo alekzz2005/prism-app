@@ -1250,7 +1250,7 @@ class _AddSectionBottomSheetState extends State<_AddSectionBottomSheet> {
                         '<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M10 13V4M10 4L7 7M10 4l3 3" stroke="#003366" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 14v1a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-1" stroke="#8A9BB0" stroke-width="1.4" stroke-linecap="round"/></svg>',
                       ),
                       const SizedBox(width: 10),
-                      Text(_selectedFileName ?? 'Upload Spreadsheet (CSV, XLSX) or Add it Later', style: const TextStyle(color: _navy, fontSize: 13, fontWeight: FontWeight.bold)),
+                      Text(_selectedFileName ?? 'Upload Spreadsheet (CSV, XLSX)', style: const TextStyle(color: _navy, fontSize: 13, fontWeight: FontWeight.bold)),
                     ],
                   ),
                 ),
@@ -1332,6 +1332,26 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
   Stream<List<InstructorSection>>? _sectionsStream;
   Stream<List<StudentRoster>>? _rosterStream;
 
+  // Pagination & Search State
+  final int _itemsPerPage = 10;
+  
+  final TextEditingController _sectionSearchController = TextEditingController();
+  int _sectionPage = 1;
+  
+  final TextEditingController _studentSearchController = TextEditingController();
+  int _studentPage = 1;
+  
+  final TextEditingController _partnerSearchController = TextEditingController();
+  int _partnerPage = 1;
+
+  @override
+  void dispose() {
+    _sectionSearchController.dispose();
+    _studentSearchController.dispose();
+    _partnerSearchController.dispose();
+    super.dispose();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -1390,6 +1410,70 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
       Navigator.push(context, MaterialPageRoute(builder: (_) => const RemoteControlScreen()));
     }
   }
+  Widget _buildSearchBar(TextEditingController controller, String hintText, VoidCallback onChanged) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      height: 40,
+      child: TextField(
+        controller: controller,
+        onChanged: (_) => onChanged(),
+        style: const TextStyle(fontSize: 14),
+        decoration: InputDecoration(
+          hintText: hintText,
+          hintStyle: const TextStyle(color: Color(0xFF8A9BB0), fontSize: 13),
+          prefixIcon: const Icon(Icons.search, color: Color(0xFF8A9BB0), size: 18),
+          filled: true,
+          fillColor: const Color(0xFFF4F7F9),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+          contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPaginationControl({
+    required int currentPage,
+    required int totalPages,
+    required VoidCallback onPrev,
+    required VoidCallback onNext,
+  }) {
+    if (totalPages <= 1) return const SizedBox();
+    return Padding(
+      padding: const EdgeInsets.only(top: 16),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          InkWell(
+            onTap: currentPage > 1 ? onPrev : null,
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                border: Border.all(color: currentPage > 1 ? const Color(0xFFE2EAF4) : Colors.transparent, width: 1.5),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(Icons.chevron_left, color: currentPage > 1 ? const Color(0xFF8A9BB0) : Colors.transparent, size: 20),
+            ),
+          ),
+          const SizedBox(width: 16),
+          Text('$currentPage of $totalPages', style: const TextStyle(color: Color(0xFF8A9BB0), fontSize: 13, fontWeight: FontWeight.w600)),
+          const SizedBox(width: 16),
+          InkWell(
+            onTap: currentPage < totalPages ? onNext : null,
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                border: Border.all(color: currentPage < totalPages ? const Color(0xFFE2EAF4) : Colors.transparent, width: 1.5),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(Icons.chevron_right, color: currentPage < totalPages ? const Color(0xFF8A9BB0) : Colors.transparent, size: 20),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _buildStep1() {
     return Column(
@@ -1420,65 +1504,94 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
         const SizedBox(height: 14),
         const Text('Choose a section to see the student roster.', style: TextStyle(color: Color(0xFF8A9BB0), fontSize: 12)),
         const SizedBox(height: 14),
+        
+        _buildSearchBar(_sectionSearchController, 'Search section...', () {
+          setState(() {
+            _sectionPage = 1;
+          });
+        }),
+
         StreamBuilder<List<InstructorSection>>(
           stream: _sectionsStream,
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Padding(padding: EdgeInsets.all(20), child: Center(child: CircularProgressIndicator()));
             }
-            final sections = snapshot.data ?? [];
+            var sections = snapshot.data ?? [];
+            if (_sectionSearchController.text.isNotEmpty) {
+              final query = _sectionSearchController.text.toLowerCase();
+              sections = sections.where((s) => s.name.toLowerCase().contains(query)).toList();
+            }
             if (sections.isEmpty) {
               return const Padding(
                 padding: EdgeInsets.symmetric(vertical: 20),
                 child: Center(child: Text('No sections found.', style: TextStyle(color: Color(0xFF8A9BB0), fontSize: 13))),
               );
             }
-            return ListView.separated(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: sections.length,
-              separatorBuilder: (_, __) => const Divider(height: 1, color: Color(0xFFE2EAF4)),
-              itemBuilder: (context, index) {
-                final sec = sections[index];
-                return InkWell(
-                  onTap: () async {
-                    final stream = widget.rosterService.watchRoster(widget.instructorId, sec.id);
-                    final students = await stream.first;
-                    setState(() {
-                      _selectedSection = sec.name;
-                      _rosterStream = stream;
-                      _sectionStudents = students;
-                      _step = 2;
-                    });
+            
+            final totalPages = (sections.length / _itemsPerPage).ceil();
+            final startIndex = (_sectionPage - 1) * _itemsPerPage;
+            final endIndex = (startIndex + _itemsPerPage).clamp(0, sections.length);
+            final pagedSections = sections.sublist(startIndex, endIndex);
+
+            return Column(
+              children: [
+                ListView.separated(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: pagedSections.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1, color: Color(0xFFE2EAF4)),
+                  itemBuilder: (context, index) {
+                    final sec = pagedSections[index];
+                    return InkWell(
+                      onTap: () async {
+                        final stream = widget.rosterService.watchRoster(widget.instructorId, sec.id);
+                        final students = await stream.first;
+                        setState(() {
+                          _selectedSection = sec.name;
+                          _rosterStream = stream;
+                          _sectionStudents = students;
+                          _step = 2;
+                          _studentPage = 1;
+                          _studentSearchController.clear();
+                        });
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 11),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 36, height: 36,
+                              decoration: BoxDecoration(color: const Color(0xFF003366).withValues(alpha: 0.07), borderRadius: BorderRadius.circular(10)),
+                              child: Center(
+                                child: SvgPicture.string(
+                                  '<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M14 16v-1.5a3 3 0 0 0-3-3H7a3 3 0 0 0-3 3V16" stroke="#003366" stroke-width="1.5" stroke-linecap="round"/><circle cx="9" cy="7" r="3" stroke="#003366" stroke-width="1.5"/></svg>'
+                                )
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(sec.name, style: const TextStyle(color: Color(0xFF003366), fontSize: 14, fontWeight: FontWeight.w600)),
+                                ],
+                              ),
+                            ),
+                            SvgPicture.string('<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="#C8D8E8" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
+                          ],
+                        ),
+                      ),
+                    );
                   },
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 11),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 36, height: 36,
-                          decoration: BoxDecoration(color: const Color(0xFF003366).withValues(alpha: 0.07), borderRadius: BorderRadius.circular(10)),
-                          child: Center(
-                            child: SvgPicture.string(
-                              '<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M14 16v-1.5a3 3 0 0 0-3-3H7a3 3 0 0 0-3 3V16" stroke="#003366" stroke-width="1.5" stroke-linecap="round"/><circle cx="9" cy="7" r="3" stroke="#003366" stroke-width="1.5"/></svg>'
-                            )
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(sec.name, style: const TextStyle(color: Color(0xFF003366), fontSize: 14, fontWeight: FontWeight.w600)),
-                            ],
-                          ),
-                        ),
-                        SvgPicture.string('<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="#C8D8E8" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
-                      ],
-                    ),
-                  ),
-                );
-              },
+                ),
+                _buildPaginationControl(
+                  currentPage: _sectionPage,
+                  totalPages: totalPages,
+                  onPrev: () => setState(() => _sectionPage--),
+                  onNext: () => setState(() => _sectionPage++),
+                ),
+              ],
             );
           },
         ),
@@ -1539,68 +1652,97 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
         const SizedBox(height: 12),
         const Text('Tap a student to select them for the demonstration.', style: TextStyle(color: Color(0xFF8A9BB0), fontSize: 12)),
         const SizedBox(height: 12),
+
+        _buildSearchBar(_studentSearchController, 'Search performer...', () {
+          setState(() {
+            _studentPage = 1;
+          });
+        }),
+
         StreamBuilder<List<StudentRoster>>(
           stream: _rosterStream,
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Padding(padding: EdgeInsets.all(20), child: Center(child: CircularProgressIndicator()));
             }
-            final students = snapshot.data ?? [];
+            var students = snapshot.data ?? [];
+            if (_studentSearchController.text.isNotEmpty) {
+              final query = _studentSearchController.text.toLowerCase();
+              students = students.where((s) => s.formattedFullName.toLowerCase().contains(query) || s.email.toLowerCase().contains(query)).toList();
+            }
             if (students.isEmpty) {
               return const Padding(
                 padding: EdgeInsets.symmetric(vertical: 20),
                 child: Center(child: Text('No students found in this section.', style: TextStyle(color: Color(0xFF8A9BB0), fontSize: 13))),
               );
             }
-            return ListView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: students.length,
-              itemBuilder: (context, index) {
-                final s = students[index];
-                final isSelected = _selectedStudent?.email == s.email;
-                return Container(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  decoration: BoxDecoration(
-                    color: isSelected ? const Color(0xFF003366).withValues(alpha: 0.035) : Colors.white,
-                    border: Border.all(color: isSelected ? const Color(0xFF003366) : const Color(0xFFE2EAF4), width: 1.5),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                       InkWell(
-                        onTap: () {
-                          setState(() {
-                            _selectedStudent = s;
-                            _selectedPartner = null;
-                            _step = 3;
-                          });
-                        },
+
+            final totalPages = (students.length / _itemsPerPage).ceil();
+            final startIndex = (_studentPage - 1) * _itemsPerPage;
+            final endIndex = (startIndex + _itemsPerPage).clamp(0, students.length);
+            final pagedStudents = students.sublist(startIndex, endIndex);
+
+            return Column(
+              children: [
+                ListView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: pagedStudents.length,
+                  itemBuilder: (context, index) {
+                    final s = pagedStudents[index];
+                    final isSelected = _selectedStudent?.email == s.email;
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      decoration: BoxDecoration(
+                        color: isSelected ? const Color(0xFF003366).withValues(alpha: 0.035) : Colors.white,
+                        border: Border.all(color: isSelected ? const Color(0xFF003366) : const Color(0xFFE2EAF4), width: 1.5),
                         borderRadius: BorderRadius.circular(14),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(s.formattedFullName, style: const TextStyle(color: Color(0xFF003366), fontSize: 14, fontWeight: FontWeight.w600)),
-                                    const SizedBox(height: 1),
-                                    Text(s.email, style: const TextStyle(color: Color(0xFF8A9BB0), fontSize: 11)),
-                                  ],
-                                ),
-                              ),
-                              SvgPicture.string('<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="#C8D8E8" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
-                            ],
-                          ),
-                        ),
                       ),
-                    ],
-                  ),
-                );
-              },
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                           InkWell(
+                            onTap: () {
+                              setState(() {
+                                _selectedStudent = s;
+                                _selectedPartner = null;
+                                _step = 3;
+                                _partnerPage = 1;
+                                _partnerSearchController.clear();
+                              });
+                            },
+                            borderRadius: BorderRadius.circular(14),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(s.formattedFullName, style: const TextStyle(color: Color(0xFF003366), fontSize: 14, fontWeight: FontWeight.w600)),
+                                        const SizedBox(height: 1),
+                                        Text(s.email, style: const TextStyle(color: Color(0xFF8A9BB0), fontSize: 11)),
+                                      ],
+                                    ),
+                                  ),
+                                  SvgPicture.string('<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="#C8D8E8" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+                _buildPaginationControl(
+                  currentPage: _studentPage,
+                  totalPages: totalPages,
+                  onPrev: () => setState(() => _studentPage--),
+                  onNext: () => setState(() => _studentPage++),
+                ),
+              ],
             );
           },
         ),
@@ -1664,43 +1806,92 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
           style: const TextStyle(color: Color(0xFF8A9BB0), fontSize: 12),
         ),
         const SizedBox(height: 12),
-        if (partners.isEmpty)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 20),
-            child: Center(child: Text('No other students in this section.', style: TextStyle(color: Color(0xFF8A9BB0), fontSize: 13))),
-          )
-        else
-          Container(
-            decoration: BoxDecoration(
-              border: Border.all(color: const Color(0xFFE2EAF4), width: 1.5),
-              borderRadius: BorderRadius.circular(5),
-            ),
-            padding: const EdgeInsets.all(10),
-            child: Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: partners.map((p) {
-                return GestureDetector(
-                  onTap: () {
-                    setState(() => _selectedPartner = p);
-                    _startSession();
+        
+        _buildSearchBar(_partnerSearchController, 'Search partner...', () {
+          setState(() {
+            _partnerPage = 1;
+          });
+        }),
+
+        Builder(
+          builder: (context) {
+            var filteredPartners = partners;
+            if (_partnerSearchController.text.isNotEmpty) {
+              final query = _partnerSearchController.text.toLowerCase();
+              filteredPartners = filteredPartners.where((p) => p.formattedFullName.toLowerCase().contains(query) || p.email.toLowerCase().contains(query)).toList();
+            }
+
+            if (filteredPartners.isEmpty) {
+              return const Padding(
+                padding: EdgeInsets.symmetric(vertical: 20),
+                child: Center(child: Text('No other students found.', style: TextStyle(color: Color(0xFF8A9BB0), fontSize: 13))),
+              );
+            }
+
+            final totalPages = (filteredPartners.length / _itemsPerPage).ceil();
+            final startIndex = (_partnerPage - 1) * _itemsPerPage;
+            final endIndex = (startIndex + _itemsPerPage).clamp(0, filteredPartners.length);
+            final pagedPartners = filteredPartners.sublist(startIndex, endIndex);
+
+            return Column(
+              children: [
+                ListView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: pagedPartners.length,
+                  itemBuilder: (context, index) {
+                    final p = pagedPartners[index];
+                    final isSelected = _selectedPartner?.email == p.email;
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      decoration: BoxDecoration(
+                        color: isSelected ? const Color(0xFF003366).withValues(alpha: 0.035) : Colors.white,
+                        border: Border.all(color: isSelected ? const Color(0xFF003366) : const Color(0xFFE2EAF4), width: 1.5),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                           InkWell(
+                            onTap: () {
+                              setState(() => _selectedPartner = p);
+                              _startSession();
+                            },
+                            borderRadius: BorderRadius.circular(14),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(p.formattedFullName, style: const TextStyle(color: Color(0xFF003366), fontSize: 14, fontWeight: FontWeight.w600)),
+                                        const SizedBox(height: 1),
+                                        Text(p.email, style: const TextStyle(color: Color(0xFF8A9BB0), fontSize: 11)),
+                                      ],
+                                    ),
+                                  ),
+                                  SvgPicture.string('<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="#C8D8E8" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
                   },
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF8FAFC),
-                      border: Border.all(color: const Color(0xFFE2EAF4), width: 1.5),
-                      borderRadius: BorderRadius.circular(5),
-                    ),
-                    child: Text(
-                      p.formattedFullName,
-                      style: const TextStyle(color: Color(0xFF003366), fontSize: 13, fontWeight: FontWeight.w600),
-                    ),
-                  ),
-                );
-              }).toList(),
-            ),
-          ),
+                ),
+                _buildPaginationControl(
+                  currentPage: _partnerPage,
+                  totalPages: totalPages,
+                  onPrev: () => setState(() => _partnerPage--),
+                  onNext: () => setState(() => _partnerPage++),
+                ),
+              ],
+            );
+          },
+        ),
         const SizedBox(height: 10),
         TextButton(
           onPressed: () => Navigator.pop(context),
