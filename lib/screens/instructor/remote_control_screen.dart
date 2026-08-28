@@ -232,7 +232,9 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
 
 
                 // ── Controls panel ─────────────────────────────────────────
-                _buildControls(instructorId, session),
+                    _buildControls(instructorId, session),
+                  ],
+                ),
               ],
             );
           },
