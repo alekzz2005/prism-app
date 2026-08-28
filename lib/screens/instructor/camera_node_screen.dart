@@ -100,7 +100,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
     _answerSub = _signalingService.watchAnswer(instructorId).listen((answer) async {
       if (answer != null) {
         final state = await _peerConnection!.getSignalingState();
-        if (state != RTCSignalingState.RTCSignalingStateStable) {
+        if (state == RTCSignalingState.RTCSignalingStateHaveLocalOffer) {
           await _peerConnection!.setRemoteDescription(answer);
         }
       }

@@ -86,7 +86,7 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
     _offerSub = _signalingService.watchOffer(instructorId).listen((offer) async {
       if (offer != null) {
         final state = await _peerConnection!.getSignalingState();
-        if (state != RTCSignalingState.RTCSignalingStateStable) {
+        if (state == RTCSignalingState.RTCSignalingStateStable || state == RTCSignalingState.RTCSignalingStateHaveRemoteOffer) {
           await _peerConnection!.setRemoteDescription(offer);
           final answer = await _peerConnection!.createAnswer({});
           await _peerConnection!.setLocalDescription(answer);
