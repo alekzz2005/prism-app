@@ -9,7 +9,9 @@ import 'package:flutter_svg/flutter_svg.dart';
 import '../../providers/user_role_provider.dart';
 import '../../services/roboflow_service.dart';
 import '../../services/live_session_service.dart';
+import '../../services/webrtc_signaling_service.dart';
 import '../../widgets/detection_overlay_painter.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 // ─── Brand Colours ─────────────────────────────────────────────────────────
 const _accentBlue = Color(0xFFA8C4E0);
@@ -47,12 +49,21 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
   bool _detectionLost = false;
   RoboflowDetection? _latestDetection;
 
+  // WebRTC P2P Mirroring
+  RTCPeerConnection? _peerConnection;
+  RTCDataChannel? _dataChannel;
+  final WebRtcSignalingService _signalingService = WebRtcSignalingService();
+  StreamSubscription? _answerSub;
+  StreamSubscription? _iceSub;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _instructorId = context.read<UserRoleProvider>().uid;
       
+      _initWebRTC(); // WebRTC init
+
       Future.delayed(const Duration(milliseconds: 350), () {
         if (!mounted) return;
         _initCamera();
@@ -60,8 +71,56 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
     });
   }
 
+  Future<void> _initWebRTC() async {
+    final instructorId = _instructorId;
+    if (instructorId == null) return;
+
+    // Clear old signaling
+    await _signalingService.clearSignaling(instructorId);
+
+    _peerConnection = await _signalingService.createConnection();
+
+    // Setup ICE candidate listener to send to Firestore
+    _peerConnection!.onIceCandidate = (candidate) {
+      _signalingService.sendIceCandidate(instructorId, 'camera', candidate);
+    };
+
+    // Create Data Channel
+    RTCDataChannelInit dataChannelDict = RTCDataChannelInit()
+      ..ordered = false // unordered is faster for video frames
+      ..maxRetransmits = 0; // drop lost frames, don't retransmit
+    _dataChannel = await _peerConnection!.createDataChannel('mirror', dataChannelDict);
+
+    // Create Offer
+    final offer = await _peerConnection!.createOffer({});
+    await _peerConnection!.setLocalDescription(offer);
+    await _signalingService.sendOffer(instructorId, offer);
+
+    // Listen for Answer
+    _answerSub = _signalingService.watchAnswer(instructorId).listen((answer) async {
+      if (answer != null) {
+        final state = await _peerConnection!.getSignalingState();
+        if (state != RTCSignalingState.RTCSignalingStateStable) {
+          await _peerConnection!.setRemoteDescription(answer);
+        }
+      }
+    });
+
+    // Listen for Remote ICE candidates
+    _iceSub = _signalingService.watchIceCandidates(instructorId, 'remote').listen((candidates) {
+      for (var candidate in candidates) {
+        _peerConnection!.addCandidate(candidate);
+      }
+    });
+  }
+
   @override
   void dispose() {
+    _answerSub?.cancel();
+    _iceSub?.cancel();
+    _dataChannel?.close();
+    _peerConnection?.close();
+    
     _syncTimer?.cancel();
     _camera?.stopImageStream();
     _camera?.dispose();
@@ -136,8 +195,8 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
 
     _liveService.setDetectionLost(instructorId, result.detectionLost);
 
-    if (result.frameBase64 != null) {
-      _liveService.updateLiveFrame(instructorId, result.frameBase64!);
+    if (result.frameBase64 != null && _dataChannel != null && _dataChannel!.state == RTCDataChannelState.RTCDataChannelOpen) {
+      _dataChannel!.send(RTCDataChannelMessage(result.frameBase64!));
     }
 
     if (result.detectionLost) return;

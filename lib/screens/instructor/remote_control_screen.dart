@@ -8,6 +8,8 @@ import '../../services/instructor_session_repository.dart';
 import '../../models/session_model.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../services/feedback_service.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart';
+import '../../services/webrtc_signaling_service.dart';
 
 // ─── Brand Colours ─────────────────────────────────────────────────────────
 const _navy       = Color(0xFF003366);
@@ -37,6 +39,76 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
   final _liveService = LiveSessionService();
   final _repo = InstructorSessionRepository();
   final _feedbackService = FeedbackService();
+
+  // WebRTC
+  RTCPeerConnection? _peerConnection;
+  final WebRtcSignalingService _signalingService = WebRtcSignalingService();
+  StreamSubscription? _offerSub;
+  StreamSubscription? _iceSub;
+  String? _webrtcFrameBase64;
+  String? _instructorId;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _instructorId = context.read<UserRoleProvider>().uid;
+      _initWebRTC();
+    });
+  }
+
+  Future<void> _initWebRTC() async {
+    final instructorId = _instructorId;
+    if (instructorId == null) return;
+
+    _peerConnection = await _signalingService.createConnection();
+
+    // Listen for data channel from the camera node
+    _peerConnection!.onDataChannel = (channel) {
+      channel.onMessage = (RTCDataChannelMessage message) {
+        if (message.type == MessageType.text) {
+          if (mounted) {
+            setState(() {
+              _webrtcFrameBase64 = message.text;
+            });
+          }
+        }
+      };
+    };
+
+    // Setup ICE candidate listener to send to Firestore
+    _peerConnection!.onIceCandidate = (candidate) {
+      _signalingService.sendIceCandidate(instructorId, 'remote', candidate);
+    };
+
+    // Listen for Offer
+    _offerSub = _signalingService.watchOffer(instructorId).listen((offer) async {
+      if (offer != null) {
+        final state = await _peerConnection!.getSignalingState();
+        if (state != RTCSignalingState.RTCSignalingStateStable) {
+          await _peerConnection!.setRemoteDescription(offer);
+          final answer = await _peerConnection!.createAnswer({});
+          await _peerConnection!.setLocalDescription(answer);
+          await _signalingService.sendAnswer(instructorId, answer);
+        }
+      }
+    });
+
+    // Listen for Remote ICE candidates
+    _iceSub = _signalingService.watchIceCandidates(instructorId, 'camera').listen((candidates) {
+      for (var candidate in candidates) {
+        _peerConnection!.addCandidate(candidate);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _offerSub?.cancel();
+    _iceSub?.cancel();
+    _peerConnection?.close();
+    super.dispose();
+  }
 
   void _updatePhase(String instructorId, String newPhase) {
     _liveService.updatePhase(instructorId, newPhase);
@@ -158,10 +230,10 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
             return Stack(
               children: [
                 // Camera Mirror Feed
-                if (session.latestFrameBase64 != null && session.latestFrameBase64!.isNotEmpty)
+                if (_webrtcFrameBase64 != null && _webrtcFrameBase64!.isNotEmpty)
                   Positioned.fill(
                     child: Image.memory(
-                      base64Decode(session.latestFrameBase64!),
+                      base64Decode(_webrtcFrameBase64!),
                       fit: BoxFit.cover,
                       gaplessPlayback: true,
                     ),

@@ -48,6 +48,7 @@ dependencies:
   flutter_svg: ^2.3.0
   image: ^4.3.0
   shared_preferences: ^2.5.5
+  flutter_webrtc: ^1.6.0
 dev_dependencies:
   flutter_test:
     sdk: flutter
