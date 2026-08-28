@@ -60,6 +60,8 @@ class RawFrameData {
   final bool isIOS;
   final int uvPixelStride;
   final int sensorOrientation;
+  final int targetWidth;
+  final int targetQuality;
 
   RawFrameData({
     required this.width,
@@ -72,6 +74,8 @@ class RawFrameData {
     required this.uvPixelStride,
     required this.sensorOrientation,
     required this.isIOS,
+    this.targetWidth = 640,
+    this.targetQuality = 70,
   });
 }
 
@@ -106,7 +110,23 @@ class RoboflowDetectionService {
   /// Quickly convert frame data to base64 JPEG without calling the Roboflow API.
   /// Used for WebRTC mirroring during the 'waiting' phase.
   static Future<String?> getFrameBase64(RawFrameData frameData) async {
-    final jpegBytes = await compute(_convertFrameDataToJpeg, frameData);
+    // For mirroring, shrink aggressively to stay under WebRTC limits (approx <60KB base64)
+    final mirrorFrame = RawFrameData(
+      width: frameData.width,
+      height: frameData.height,
+      yBytes: frameData.yBytes,
+      uBytes: frameData.uBytes,
+      vBytes: frameData.vBytes,
+      yRowStride: frameData.yRowStride,
+      uRowStride: frameData.uRowStride,
+      uvPixelStride: frameData.uvPixelStride,
+      sensorOrientation: frameData.sensorOrientation,
+      isIOS: frameData.isIOS,
+      targetWidth: 320, // Reduced resolution
+      targetQuality: 40, // Reduced quality
+    );
+
+    final jpegBytes = await compute(_convertFrameDataToJpeg, mirrorFrame);
     if (jpegBytes == null || jpegBytes.isEmpty) return null;
     return base64Encode(jpegBytes);
   }
@@ -288,11 +308,11 @@ class RoboflowDetectionService {
         uprightImage = img.copyRotate(image, angle: 180);
       }
 
-      // Resize to 640px max width/height for fast upload
-      final resized = img.copyResize(uprightImage, width: 640);
+      // Resize to max width/height for fast upload or mirroring
+      final resized = img.copyResize(uprightImage, width: frame.targetWidth);
 
-      // JPEG at quality 70
-      return Uint8List.fromList(img.encodeJpg(resized, quality: 70));
+      // JPEG at specified quality
+      return Uint8List.fromList(img.encodeJpg(resized, quality: frame.targetQuality));
     } catch (e) {
       return null;
     }
@@ -434,11 +454,38 @@ class RoboflowDetectionService {
 
         if (className.contains('syringe')) {
           sCx = cx; sCy = cy; sW = w; sH = h;
+          
+          // Check for keypoints (RF-DETR Preview)
+          if (pred.containsKey('keypoints') && pred['keypoints'] is List) {
+            final kps = pred['keypoints'] as List;
+            for (final kp in kps) {
+              if (kp is! Map) continue;
+              final kpClass = (kp['class'] ?? '').toString().toLowerCase();
+              final kpX = kp['x']?.toDouble();
+              final kpY = kp['y']?.toDouble();
+              if (kpX == null || kpY == null) continue;
+              
+              if (kpClass == 'plunger_top' || kpClass == 'barrel_base') {
+                sCx = kpX; sCy = kpY; // Use one of these as the syringe base
+              } else if (kpClass == 'needle_tip') {
+                nCx = kpX; nCy = kpY;
+              }
+            }
+          }
         } else if (className.contains('arm')) {
           aCx = cx; aCy = cy; aW = w; aH = h;
         } else if (className.contains('needle')) {
           nCx = cx; nCy = cy; nW = w; nH = h;
         }
+      }
+
+      // If we have syringe keypoints but no arm, create a fake horizontal arm 
+      // directly under the syringe so the angle math still works perfectly.
+      if (sCx != null && sCy != null && aCx == null) {
+        aCx = sCx;
+        aCy = sCy + 100.0; // 100 pixels below
+        aW = 200.0;
+        aH = 20.0; // horizontal arm
       }
 
       return RoboflowDetection(
@@ -472,15 +519,24 @@ class RoboflowDetectionService {
 
     // Syringe direction vector
     double syringeDx, syringeDy;
-    // (Needle logic removed to improve performance/clean UI per user request)
-    // Estimate angle using the syringe bounding box aspect ratio.
-    // tan(theta) ≈ height / width.
-    // We point the vector towards the arm horizontally (sign of dx).
-    double directionX = (d.armCx! - d.syringeCx!).sign;
-    if (directionX == 0) directionX = 1.0;
     
-    syringeDx = (d.syringeW ?? 1.0) * directionX;
-    syringeDy = (d.syringeH ?? 0.0); // Bounding box height gives the vertical tilt
+    // If we extracted the needle_tip keypoint, compute exact vector!
+    if (d.hasNeedle && d.syringeCx != null && d.syringeCy != null) {
+      syringeDx = d.needleCx! - d.syringeCx!;
+      syringeDy = d.needleCy! - d.syringeCy!;
+      // Ensure the vector points downwards towards the arm
+      if (syringeDy < 0) {
+        syringeDx = -syringeDx;
+        syringeDy = -syringeDy;
+      }
+    } else {
+      // Fallback: Estimate angle using the syringe bounding box aspect ratio.
+      double directionX = (d.armCx! - d.syringeCx!).sign;
+      if (directionX == 0) directionX = 1.0;
+      
+      syringeDx = (d.syringeW ?? 1.0) * directionX;
+      syringeDy = (d.syringeH ?? 0.0); // Bounding box height gives the vertical tilt
+    }
 
     // Normalise syringe vector
     final mag = math.sqrt(syringeDx * syringeDx + syringeDy * syringeDy);
