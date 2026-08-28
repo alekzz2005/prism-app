@@ -14,6 +14,7 @@ class LiveSessionModel {
   final bool detectionLost;
   final String liveAspirationResult;
   final double liveAspirationDuration;
+  final String? latestFrameBase64; // NEW
 
   // Stored results to be pushed to final session
   final double? finalInsertionAngle;
@@ -39,6 +40,7 @@ class LiveSessionModel {
     required this.detectionLost,
     required this.liveAspirationResult,
     required this.liveAspirationDuration,
+    this.latestFrameBase64,
     this.sectionName,
     this.finalInsertionAngle,
     this.insertionScore,
@@ -64,6 +66,7 @@ class LiveSessionModel {
       detectionLost: data['detectionLost'] ?? false,
       liveAspirationResult: data['liveAspirationResult'] ?? 'Not Detected',
       liveAspirationDuration: (data['liveAspirationDuration'] ?? 0).toDouble(),
+      latestFrameBase64: data['latestFrameBase64'] as String?,
       sectionName: data['sectionName'] as String?,
       finalInsertionAngle: data['finalInsertionAngle']?.toDouble(),
       insertionScore: data['insertionScore'],
@@ -150,6 +153,13 @@ class LiveSessionService {
   Future<void> updateLiveAngle(String instructorId, double angle) async {
     await _db.collection('live_sessions').doc(instructorId).set({
       'liveAngle': angle,
+    }, SetOptions(merge: true));
+  }
+
+  /// Pushes the raw camera frame (base64 JPEG) for remote mirroring.
+  Future<void> updateLiveFrame(String instructorId, String base64) async {
+    await _db.collection('live_sessions').doc(instructorId).set({
+      'latestFrameBase64': base64,
     }, SetOptions(merge: true));
   }
 

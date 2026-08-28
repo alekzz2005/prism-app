@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -154,117 +155,81 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
               );
             }
 
-            return Column(
+            return Stack(
               children: [
-                // ── Navy header with student info ──────────────────────────
-                _buildSessionHeader(instructorId, session),
+                // Camera Mirror Feed
+                if (session.latestFrameBase64 != null && session.latestFrameBase64!.isNotEmpty)
+                  Positioned.fill(
+                    child: Image.memory(
+                      base64Decode(session.latestFrameBase64!),
+                      fit: BoxFit.cover,
+                      gaplessPlayback: true,
+                    ),
+                  )
+                else
+                  Positioned.fill(
+                    child: Container(
+                      color: Colors.black87,
+                      alignment: Alignment.center,
+                      child: const Text('Waiting for camera feed...', style: TextStyle(color: Colors.white70)),
+                    ),
+                  ),
 
-                // ── Phase bar ─────────────────────────────────────────────
-                _buildPhaseBar(session),
+                // Floating UI Layer
+                Column(
+                  children: [
+                    // Header (semi-transparent)
+                    Opacity(
+                      opacity: 0.85,
+                      child: _buildSessionHeader(instructorId, session),
+                    ),
+                    
+                    Opacity(
+                      opacity: 0.85,
+                      child: _buildPhaseBar(session),
+                    ),
 
-                // ── Live angle + gauge + metrics ───────────────────────────
-                Expanded(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(20, 24, 20, 16),
-                    child: Column(
-                      children: [
-                        const Text('LIVE INSERTION ANGLE',
-                          style: TextStyle(color: _textMid, fontSize: 11,
-                              fontWeight: FontWeight.w700, letterSpacing: 0.15 * 10)),
-
-                        const SizedBox(height: 18),
-
-                        // Angle ring
-                        Container(
-                          width: 180, height: 180,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: _navy.withValues(alpha: 0.04),
-                            border: Border.all(color: _cardBorder, width: 2),
-                          ),
-                          alignment: Alignment.center,
-                          child: Container(
-                            width: 160, height: 160,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              border: Border.all(color: _navy.withValues(alpha: 0.08)),
-                            ),
-                            alignment: Alignment.center,
-                            child: Row(
+                    // Floating Angle Data
+                    Expanded(
+                      child: SafeArea(
+                        child: Align(
+                          alignment: Alignment.topRight,
+                          child: Padding(
+                            padding: const EdgeInsets.all(16.0),
+                            child: Column(
                               mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.baseline,
-                              textBaseline: TextBaseline.alphabetic,
+                              crossAxisAlignment: CrossAxisAlignment.end,
                               children: [
-                                Text(
-                                  session.liveAngle.toStringAsFixed(0),
-                                  style: const TextStyle(color: _navy, fontSize: 58,
-                                      fontWeight: FontWeight.w700, fontFamily: 'DM Mono', height: 1),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withValues(alpha: 0.6),
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
+                                  child: Text(
+                                    'Live Angle: ${session.liveAngle.toStringAsFixed(0)}\u00b0',
+                                    style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                                  ),
                                 ),
-                                const Text('\u00b0',
-                                  style: TextStyle(color: _textMid, fontSize: 22,
-                                      fontWeight: FontWeight.w500)),
+                                const SizedBox(height: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withValues(alpha: 0.6),
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
+                                  child: Text(
+                                    'Target: ${session.targetAngle.toStringAsFixed(0)}\u00b0',
+                                    style: const TextStyle(color: Colors.white, fontSize: 14),
+                                  ),
+                                ),
                               ],
                             ),
                           ),
                         ),
-
-                        const SizedBox(height: 16),
-
-                        // Pills
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            _pill(
-                              'Target: ${session.targetAngle.toStringAsFixed(0)}\u00b0',
-                              bg: _navy.withValues(alpha: 0.07),
-                              border: _cardBorder,
-                              text: _navy,
-                            ),
-                            const SizedBox(width: 8),
-                            if (session.phase == 'insertion' ||
-                                session.phase == 'withdrawal' ||
-                                session.phase == 'waiting')
-                              _pill(
-                                '\u0394 ${(session.liveAngle - session.targetAngle).abs().toStringAsFixed(0)}\u00b0 \u2014 Good',
-                                bg: _greenBg,
-                                border: _greenBorder,
-                                text: _green,
-                              ),
-                          ],
-                        ),
-
-                        const SizedBox(height: 18),
-
-                        // Gauge
-                        _Gauge(angle: session.liveAngle),
-
-                        const SizedBox(height: 16),
-
-                        // Metrics preview
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                          decoration: BoxDecoration(
-                            color: _bg,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: _cardBorder),
-                          ),
-                          child: Column(
-                            children: [
-                              _MetricRow(
-                                label: 'Insertion Locked',
-                                value: session.finalInsertionAngle != null
-                                    ? '${session.finalInsertionAngle!.toStringAsFixed(1)}\u00b0 \u00b7 ${session.insertionScore ?? "-"}/5'
-                                    : '--',
-                                valueColor: session.finalInsertionAngle != null ? _green : _textMid,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
-                  ),
-                ),
+
 
                 // ── Controls panel ─────────────────────────────────────────
                 _buildControls(instructorId, session),

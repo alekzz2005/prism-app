@@ -35,12 +35,14 @@ class AngleResult {
   final int    score;             // CIT-U 1–5 IM rubric
   final bool   detectionLost;
   final RoboflowDetection? detection; // nullable – carries bbox data for overlay
+  final String? frameBase64;      // low-res jpeg base64 for mirroring
 
   const AngleResult({
     required this.angle,
     required this.score,
     required this.detectionLost,
     this.detection,
+    this.frameBase64,
   });
 
   static const lost = AngleResult(angle: -1, score: 0, detectionLost: true);
@@ -146,7 +148,7 @@ class RoboflowDetectionService {
       final detection = await _callApi(base64Image, sentW, sentH);
       if (detection == null || !detection.hasSyringe || !detection.hasArm) {
         debugPrint('[RoboflowService] Detection missing: syringe=${detection?.hasSyringe}, arm=${detection?.hasArm}');
-        return AngleResult.lost;
+        return AngleResult(angle: -1, score: 0, detectionLost: true, frameBase64: base64Image);
       }
 
       debugPrint('[RoboflowService] Detected! syringe=(${detection.syringeCx?.toStringAsFixed(0)},${detection.syringeCy?.toStringAsFixed(0)}) arm=(${detection.armCx?.toStringAsFixed(0)},${detection.armCy?.toStringAsFixed(0)}) needle=${detection.hasNeedle}');
@@ -158,7 +160,13 @@ class RoboflowDetectionService {
       // 7. Score using CIT-U IM rubric
       final score = scoreIMAngle(smoothed);
 
-      return AngleResult(angle: smoothed, score: score, detectionLost: false, detection: detection);
+      return AngleResult(
+        angle: smoothed, 
+        score: score, 
+        detectionLost: false, 
+        detection: detection,
+        frameBase64: base64Image,
+      );
     } catch (e, st) {
       debugPrint('[RoboflowService] Error: $e\n$st');
       return AngleResult.lost;

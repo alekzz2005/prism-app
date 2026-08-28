@@ -136,6 +136,10 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
 
     _liveService.setDetectionLost(instructorId, result.detectionLost);
 
+    if (result.frameBase64 != null) {
+      _liveService.updateLiveFrame(instructorId, result.frameBase64!);
+    }
+
     if (result.detectionLost) return;
 
     if (_currentPhase == 'insertion' || _currentPhase == 'withdrawal') {
