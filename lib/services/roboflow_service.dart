@@ -13,6 +13,10 @@ class RoboflowDetection {
   final double? syringeCx, syringeCy, syringeW, syringeH;
   final double? armCx, armCy, armW, armH;
   final double? needleCx, needleCy, needleW, needleH;
+  
+  // RF-DETR Arm Keypoints
+  final double? armTopCx, armTopCy, armBottomCx, armBottomCy;
+  
   final int imageWidth;
   final int imageHeight;
 
@@ -20,6 +24,7 @@ class RoboflowDetection {
     this.syringeCx, this.syringeCy, this.syringeW, this.syringeH,
     this.armCx,     this.armCy,     this.armW,     this.armH,
     this.needleCx,  this.needleCy,  this.needleW,  this.needleH,
+    this.armTopCx,  this.armTopCy,  this.armBottomCx, this.armBottomCy,
     this.imageWidth  = 640,
     this.imageHeight = 480,
   });
@@ -438,6 +443,8 @@ class RoboflowDetectionService {
       double? sCx, sCy, sW, sH;
       double? aCx, aCy, aW, aH;
       double? nCx, nCy, nW, nH;
+      
+      double? aTopX, aTopY, aBotX, aBotY;
 
       for (final pred in predictions) {
         if (pred is! Map<String, dynamic>) continue;
@@ -474,6 +481,24 @@ class RoboflowDetectionService {
           }
         } else if (className.contains('arm')) {
           aCx = cx; aCy = cy; aW = w; aH = h;
+          
+          // Check for arm keypoints (RF-DETR Preview)
+          if (pred.containsKey('keypoints') && pred['keypoints'] is List) {
+            final kps = pred['keypoints'] as List;
+            for (final kp in kps) {
+              if (kp is! Map) continue;
+              final kpClass = (kp['class'] ?? '').toString().toLowerCase();
+              final kpX = kp['x']?.toDouble();
+              final kpY = kp['y']?.toDouble();
+              if (kpX == null || kpY == null) continue;
+              
+              if (kpClass == 'arm_top') {
+                aTopX = kpX; aTopY = kpY;
+              } else if (kpClass == 'arm_bottom') {
+                aBotX = kpX; aBotY = kpY;
+              }
+            }
+          }
         } else if (className.contains('needle')) {
           nCx = cx; nCy = cy; nW = w; nH = h;
         }
@@ -492,6 +517,7 @@ class RoboflowDetectionService {
         syringeCx: sCx, syringeCy: sCy, syringeW: sW, syringeH: sH,
         armCx: aCx, armCy: aCy, armW: aW, armH: aH,
         needleCx: nCx, needleCy: nCy, needleW: nW, needleH: nH,
+        armTopCx: aTopX, armTopCy: aTopY, armBottomCx: aBotX, armBottomCy: aBotY,
         imageWidth: imgW,
         imageHeight: imgH,
       );
@@ -511,7 +537,11 @@ class RoboflowDetectionService {
 
     // Arm surface direction vector
     double armDx, armDy;
-    if ((d.armW ?? 0) > (d.armH ?? 0)) {
+    if (d.armTopCx != null && d.armTopCy != null && d.armBottomCx != null && d.armBottomCy != null) {
+      // Exact vector from arm_top to arm_bottom (the skin surface)
+      armDx = d.armBottomCx! - d.armTopCx!;
+      armDy = d.armBottomCy! - d.armTopCy!;
+    } else if ((d.armW ?? 0) > (d.armH ?? 0)) {
       armDx = 1; armDy = 0; // horizontal arm
     } else {
       armDx = 0; armDy = 1; // vertical arm
