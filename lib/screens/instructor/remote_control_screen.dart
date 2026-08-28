@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -47,7 +49,18 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
   StreamSubscription? _offerSub;
   StreamSubscription? _iceSub;
   String? _webrtcFrameBase64;
+  final ValueNotifier<ui.Image?> _videoFrameNotifier = ValueNotifier<ui.Image?>(null);
+  ui.Image? _lastUiImage;
   String? _instructorId;
+  
+  // SDP deduplication
+  String? _lastOfferSdp;
+  bool _webrtcConnected = false;
+  final Set<String> _addedCandidates = {};
+  
+  String? _insertionBase64;
+  String? _aspirationBase64;
+  String? _withdrawalBase64;
 
   @override
   void initState() {
@@ -62,45 +75,108 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
     final instructorId = _instructorId;
     if (instructorId == null) return;
 
-    _peerConnection = await _signalingService.createConnection();
+    // Reset state for fresh connection
+    _lastOfferSdp = null;
+    _webrtcConnected = false;
+    _addedCandidates.clear();
+    _offerSub?.cancel();
+    _iceSub?.cancel();
+    try {
+      _peerConnection?.close();
+    } catch (_) {}
 
-    // Listen for data channel from the camera node
-    _peerConnection!.onDataChannel = (channel) {
-      channel.onMessage = (RTCDataChannelMessage message) {
-        if (message.type == MessageType.text) {
-          if (mounted) {
-            setState(() {
-              _webrtcFrameBase64 = message.text;
-            });
+    try {
+      _peerConnection = await _signalingService.createConnection();
+
+      // Listen for data channel from the camera node
+      _peerConnection!.onDataChannel = (channel) {
+        debugPrint('[RemoteControl WebRTC] 📡 DataChannel received: ${channel.label}');
+        channel.onDataChannelState = (state) {
+          debugPrint('[RemoteControl WebRTC] DataChannel state: $state');
+        };
+        channel.onMessage = (RTCDataChannelMessage message) {
+          if (message.type == MessageType.text) {
+            final text = message.text;
+            _webrtcFrameBase64 = text; // Keep for phase capture
+            try {
+              final bytes = base64Decode(text);
+              ui.decodeImageFromList(bytes, (ui.Image img) {
+                if (!mounted) {
+                  img.dispose();
+                  return;
+                }
+                final old = _lastUiImage;
+                _lastUiImage = img;
+                _videoFrameNotifier.value = img;
+                old?.dispose();
+              });
+            } catch (_) {}
           }
+        };
+      };
+
+      // Setup ICE candidate listener to send to Firestore
+      _peerConnection!.onIceCandidate = (candidate) {
+        _signalingService.sendIceCandidate(instructorId, 'remote', candidate);
+      };
+
+      _peerConnection!.onIceConnectionState = (state) {
+        debugPrint('[RemoteControl WebRTC] ICE state: $state');
+        if (state == RTCIceConnectionState.RTCIceConnectionStateConnected ||
+            state == RTCIceConnectionState.RTCIceConnectionStateCompleted) {
+          _webrtcConnected = true;
         }
       };
-    };
 
-    // Setup ICE candidate listener to send to Firestore
-    _peerConnection!.onIceCandidate = (candidate) {
-      _signalingService.sendIceCandidate(instructorId, 'remote', candidate);
-    };
+      // Listen for Offer — deduplicate and lock synchronously
+      bool isProcessingOffer = false;
+      _offerSub = _signalingService.watchOffer(instructorId).listen((offer) async {
+        if (offer == null) return;
+        if (_lastOfferSdp == offer.sdp) return;
+        if (isProcessingOffer) return;
+        if (_peerConnection == null) return;
 
-    // Listen for Offer
-    _offerSub = _signalingService.watchOffer(instructorId).listen((offer) async {
-      if (offer != null) {
-        final state = await _peerConnection!.getSignalingState();
-        if (state == RTCSignalingState.RTCSignalingStateStable || state == RTCSignalingState.RTCSignalingStateHaveRemoteOffer) {
-          await _peerConnection!.setRemoteDescription(offer);
-          final answer = await _peerConnection!.createAnswer({});
-          await _peerConnection!.setLocalDescription(answer);
-          await _signalingService.sendAnswer(instructorId, answer);
+        isProcessingOffer = true;
+        _lastOfferSdp = offer.sdp; // Lock immediately to prevent duplicate runs
+
+        try {
+          final state = await _peerConnection!.getSignalingState();
+          if (state == RTCSignalingState.RTCSignalingStateStable) {
+            await _peerConnection!.setRemoteDescription(offer);
+            final answer = await _peerConnection!.createAnswer({});
+            await _peerConnection!.setLocalDescription(answer);
+            await _signalingService.sendAnswer(instructorId, answer);
+            debugPrint('[RemoteControl WebRTC] ✅ Offer processed, answer sent');
+          }
+        } catch (e) {
+          debugPrint('[RemoteControl WebRTC] Error handling offer: $e');
+        } finally {
+          isProcessingOffer = false;
         }
-      }
-    });
+      });
 
-    // Listen for Remote ICE candidates
-    _iceSub = _signalingService.watchIceCandidates(instructorId, 'camera').listen((candidates) {
-      for (var candidate in candidates) {
-        _peerConnection!.addCandidate(candidate);
-      }
-    });
+      // Listen for Remote ICE candidates — deduplicate
+      _iceSub = _signalingService.watchIceCandidates(instructorId, 'camera').listen(
+        (candidates) {
+          for (var candidate in candidates) {
+            final key = candidate.candidate ?? '';
+            if (key.isNotEmpty && _addedCandidates.add(key)) {
+              _peerConnection!.addCandidate(candidate);
+            }
+          }
+        },
+        onError: (e) {
+          debugPrint('[RemoteControl WebRTC] ICE candidates stream error: $e');
+        },
+      );
+
+      // Explicitly request fresh offer from camera node
+      await _signalingService.requestOffer(instructorId);
+
+      debugPrint('[RemoteControl WebRTC] ✅ Initialization complete, offer requested');
+    } catch (e) {
+      debugPrint('[RemoteControl WebRTC] ❌ Init failed: $e');
+    }
   }
 
   @override
@@ -108,11 +184,24 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
     _offerSub?.cancel();
     _iceSub?.cancel();
     _peerConnection?.close();
+    _videoFrameNotifier.dispose();
+    _lastUiImage?.dispose();
     super.dispose();
   }
 
+
   void _updatePhase(String instructorId, String newPhase) {
     _liveService.updatePhase(instructorId, newPhase);
+    
+    if (newPhase == 'withdrawal') {
+      Future.delayed(const Duration(seconds: 2), () {
+        if (mounted) {
+          setState(() {
+            _withdrawalBase64 = _webrtcFrameBase64;
+          });
+        }
+      });
+    }
   }
 
   void _completeSession(String instructorId, LiveSessionModel session) async {
@@ -156,6 +245,9 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
       feedbackStatus: 'Pending',
       instructorNote: '',
       flagged: false,
+      insertionImageBase64: _insertionBase64,
+      aspirationImageBase64: _aspirationBase64,
+      withdrawalImageBase64: _withdrawalBase64,
     );
 
     // Save immediately and get ID
@@ -184,6 +276,9 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
       feedbackStatus: 'Pending',
       instructorNote: '',
       flagged: false,
+      insertionImageBase64: _insertionBase64,
+      aspirationImageBase64: _aspirationBase64,
+      withdrawalImageBase64: _withdrawalBase64,
     );
 
     // Fire and forget background generation
@@ -229,6 +324,8 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
       feedbackStatus: 'Failed',
       instructorNote: 'Instructor triggered cancellation due to bleeding.',
       flagged: true,
+      insertionImageBase64: _insertionBase64,
+      aspirationImageBase64: _aspirationBase64,
     );
 
     await _repo.saveSession(failedSession);
@@ -271,41 +368,53 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
 
             return Stack(
               children: [
-                // Camera Mirror Feed
-                if (_webrtcFrameBase64 != null && _webrtcFrameBase64!.isNotEmpty)
-                  Positioned.fill(
-                    child: Image.memory(
-                      base64Decode(_webrtcFrameBase64!),
-                      fit: BoxFit.cover,
-                      gaplessPlayback: true,
-                    ),
-                  )
-                else
-                  Positioned.fill(
-                    child: Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const CircularProgressIndicator(color: _accentBlue),
-                          const SizedBox(height: 16),
-                          const Text('Waiting for camera feed...', style: TextStyle(color: _accentBlue)),
-                          const SizedBox(height: 24),
-                          ElevatedButton.icon(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.white.withValues(alpha: 0.1),
-                              foregroundColor: Colors.white,
-                              elevation: 0,
+                // Camera Mirror Feed — GPU direct rendering via ValueNotifier (zero widget rebuilds)
+                Positioned.fill(
+                  child: ValueListenableBuilder<ui.Image?>(
+                    valueListenable: _videoFrameNotifier,
+                    builder: (context, frame, _) {
+                      if (frame == null) {
+                        return Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const CircularProgressIndicator(color: _accentBlue),
+                              const SizedBox(height: 16),
+                              const Text('Waiting for camera feed...', style: TextStyle(color: _accentBlue)),
+                              const SizedBox(height: 24),
+                              ElevatedButton.icon(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.white.withValues(alpha: 0.1),
+                                  foregroundColor: Colors.white,
+                                  elevation: 0,
+                                ),
+                                icon: const Icon(Icons.refresh, size: 16),
+                                label: const Text('Retry Connection'),
+                                onPressed: () {
+                                  _initWebRTC();
+                                },
+                              ),
+                            ],
+                          ),
+                        );
+                      }
+
+                      return SizedBox.expand(
+                        child: FittedBox(
+                          fit: BoxFit.cover,
+                          child: SizedBox(
+                            width: frame.width.toDouble(),
+                            height: frame.height.toDouble(),
+                            child: RawImage(
+                              image: frame,
+                              fit: BoxFit.fill,
                             ),
-                            icon: const Icon(Icons.refresh, size: 16),
-                            label: const Text('Retry Connection'),
-                            onPressed: () {
-                              _initWebRTC();
-                            },
-                          )
-                        ],
-                      ),
-                    ),
+                          ),
+                        ),
+                      );
+                    },
                   ),
+                ),
 
                 // Floating UI Layer
                 Column(
@@ -564,7 +673,10 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
         label: 'Confirm Needle Insertion',
         hint: 'Tap when the needle is fully inserted',
         color: const Color(0xFF92400E),
-        onPressed: guardrailBlocked ? () {} : () => _updatePhase(instructorId, 'insertion_locked'),
+        onPressed: guardrailBlocked ? () {} : () {
+          _insertionBase64 = _webrtcFrameBase64;
+          _updatePhase(instructorId, 'insertion_locked');
+        },
       );
     } else if (session.phase == 'insertion_locked') {
       button = _ControlButton(
@@ -581,7 +693,10 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
             label: 'No Bleeding (Proceed to Withdrawal)',
             hint: 'Aspiration clear',
             color: const Color(0xFF16A34A),
-            onPressed: () => _updatePhase(instructorId, 'withdrawal'),
+            onPressed: () {
+              _aspirationBase64 = _webrtcFrameBase64;
+              _updatePhase(instructorId, 'withdrawal');
+            },
           ),
           const SizedBox(height: 12),
           _ControlButton(
@@ -597,7 +712,12 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
         label: 'Confirm Needle Withdrawal',
         hint: 'Tap when the needle is fully withdrawn',
         color: const Color(0xFF92400E),
-        onPressed: guardrailBlocked ? () {} : () => _updatePhase(instructorId, 'withdrawal_locked'),
+        onPressed: guardrailBlocked ? () {} : () {
+          if (_withdrawalBase64 == null) {
+            _withdrawalBase64 = _webrtcFrameBase64;
+          }
+          _updatePhase(instructorId, 'withdrawal_locked');
+        },
       );
     } else {
       button = const SizedBox.shrink();

@@ -37,6 +37,11 @@ class SessionModel {
   final String instructorNote;
   final bool flagged;
 
+  // Snapshots
+  final String? insertionImageBase64;
+  final String? aspirationImageBase64;
+  final String? withdrawalImageBase64;
+
   const SessionModel({
     required this.sessionId,
     required this.userId,
@@ -60,6 +65,9 @@ class SessionModel {
     this.releaseTimestamp,
     required this.instructorNote,
     required this.flagged,
+    this.insertionImageBase64,
+    this.aspirationImageBase64,
+    this.withdrawalImageBase64,
   });
 
   factory SessionModel.fromFirestore(DocumentSnapshot doc) {
@@ -93,6 +101,9 @@ class SessionModel {
       releaseTimestamp: data['releaseTimestamp'] as Timestamp?,
       instructorNote: data['instructorNote'] as String? ?? '',
       flagged: data['flagged'] as bool? ?? false,
+      insertionImageBase64: data['insertionImageBase64'] as String?,
+      aspirationImageBase64: data['aspirationImageBase64'] as String?,
+      withdrawalImageBase64: data['withdrawalImageBase64'] as String?,
     );
   }
 
@@ -101,8 +112,8 @@ class SessionModel {
         'studentName': studentName,
         'timestamp': timestamp,
         'injectionType': injectionType,
-        'sectionName': sectionName,
-        'partnerName': partnerName,
+        if (sectionName != null) 'sectionName': sectionName,
+        if (partnerName != null) 'partnerName': partnerName,
         'insertionAngle': insertionAngle,
         'insertionScore': insertionScore,
         'aspirationResult': aspirationResult,
@@ -115,8 +126,11 @@ class SessionModel {
         'overallScore': overallScore,
         'aiFeedbackText': aiFeedbackText,
         'feedbackStatus': feedbackStatus,
-        'releaseTimestamp': releaseTimestamp,
+        if (releaseTimestamp != null) 'releaseTimestamp': releaseTimestamp,
         'instructorNote': instructorNote,
         'flagged': flagged,
+        if (insertionImageBase64 != null) 'insertionImageBase64': insertionImageBase64,
+        if (aspirationImageBase64 != null) 'aspirationImageBase64': aspirationImageBase64,
+        if (withdrawalImageBase64 != null) 'withdrawalImageBase64': withdrawalImageBase64,
       };
 }

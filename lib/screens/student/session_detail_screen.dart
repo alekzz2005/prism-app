@@ -1,7 +1,9 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../models/session_model.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import '../../widgets/image_zoom_dialog.dart';
 
 // ─── Brand Colours ────────────────────────────────────────────────────────────
 const _navy       = Color(0xFF003366);
@@ -129,7 +131,43 @@ class SessionDetailScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 10),
 
-                    // Section 3: Feedback
+                    // Session Snapshots
+                    if (session.insertionImageBase64 != null || session.aspirationImageBase64 != null || session.withdrawalImageBase64 != null) ...[
+                      _sectionLabel('SESSION SNAPSHOTS'),
+                      Builder(
+                        builder: (context) {
+                          final items = <SnapshotImageItem>[
+                            if (session.insertionImageBase64 != null)
+                              SnapshotImageItem(title: 'Insertion', base64Image: session.insertionImageBase64!),
+                            if (session.aspirationImageBase64 != null)
+                              SnapshotImageItem(title: 'Aspiration', base64Image: session.aspirationImageBase64!),
+                            if (session.withdrawalImageBase64 != null)
+                              SnapshotImageItem(title: 'Withdrawal', base64Image: session.withdrawalImageBase64!),
+                          ];
+
+                          return SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Row(
+                              children: items.asMap().entries.map((entry) {
+                                final index = entry.key;
+                                final item = entry.value;
+                                return _SnapshotCard(
+                                  title: item.title,
+                                  base64Image: item.base64Image,
+                                  onTap: () => showImageGalleryDialog(
+                                    context,
+                                    items: items,
+                                    initialIndex: index,
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+
                     _SectionCard(
                       themeColor: _accent,
                       titleColor: const Color(0xFF3A7CA5),
@@ -426,3 +464,90 @@ class _Chip extends StatelessWidget {
     );
   }
 }
+
+Widget _sectionLabel(String title) => Padding(
+  padding: const EdgeInsets.only(bottom: 8),
+  child: Text(
+    title,
+    style: const TextStyle(color: _navy, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.1),
+  ),
+);
+
+class _SnapshotCard extends StatelessWidget {
+  final String title;
+  final String base64Image;
+  final VoidCallback onTap;
+
+  const _SnapshotCard({
+    required this.title,
+    required this.base64Image,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.only(right: 12),
+        width: 140,
+        decoration: BoxDecoration(
+          color: _white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: _border),
+          boxShadow: [
+            BoxShadow(
+              color: _navy.withValues(alpha: 0.05),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Stack(
+              children: [
+                ClipRRect(
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(11)),
+                  child: AspectRatio(
+                    aspectRatio: 3 / 4,
+                    child: Image.memory(
+                      base64Decode(base64Image),
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) =>
+                          const Center(child: Icon(Icons.broken_image, color: _textLight)),
+                    ),
+                  ),
+                ),
+                // Zoom icon badge overlay on preview image
+                Positioned(
+                  right: 6,
+                  bottom: 6,
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.6),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Icon(Icons.zoom_in_rounded, color: Colors.white, size: 14),
+                  ),
+                ),
+              ],
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+              child: Text(
+                title,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: _textDark, fontSize: 12, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+

@@ -59,6 +59,21 @@ class WebRtcSignalingService {
     });
   }
 
+  /// Requests an SDP Offer from the Camera node (called by RemoteControlScreen on init or retry)
+  Future<void> requestOffer(String instructorId) async {
+    await _db.collection('live_sessions').doc(instructorId).set({
+      'webrtcOfferRequest': DateTime.now().millisecondsSinceEpoch,
+    }, SetOptions(merge: true));
+  }
+
+  /// Listens for offer requests from RemoteControlScreen (watched by CameraNodeScreen)
+  Stream<dynamic> watchOfferRequest(String instructorId) {
+    return _db.collection('live_sessions').doc(instructorId).snapshots().map((snap) {
+      final data = snap.data();
+      return data?['webrtcOfferRequest'];
+    });
+  }
+
   /// Sends an ICE Candidate.
   Future<void> sendIceCandidate(String instructorId, String sender, RTCIceCandidate candidate) async {
     await _db
@@ -94,22 +109,31 @@ class WebRtcSignalingService {
   }
 
   /// Clears the WebRTC signaling data.
+  /// Silently catches errors — the subcollection or doc may not exist yet.
   Future<void> clearSignaling(String instructorId) async {
-    // Delete candidates subcollection
-    final candidates = await _db
-        .collection('live_sessions')
-        .doc(instructorId)
-        .collection('ice_candidates')
-        .get();
-    
-    for (var doc in candidates.docs) {
-      await doc.reference.delete();
+    try {
+      // Delete candidates subcollection
+      final candidates = await _db
+          .collection('live_sessions')
+          .doc(instructorId)
+          .collection('ice_candidates')
+          .get();
+      
+      for (var doc in candidates.docs) {
+        await doc.reference.delete();
+      }
+    } catch (e) {
+      debugPrint('[WebRTC] clearSignaling: ice_candidates cleanup skipped ($e)');
     }
 
-    // Remove offer and answer from main doc
-    await _db.collection('live_sessions').doc(instructorId).update({
-      'webrtcOffer': FieldValue.delete(),
-      'webrtcAnswer': FieldValue.delete(),
-    });
+    try {
+      // Remove offer and answer from main doc (merge-set so doc is created if absent)
+      await _db.collection('live_sessions').doc(instructorId).set({
+        'webrtcOffer': FieldValue.delete(),
+        'webrtcAnswer': FieldValue.delete(),
+      }, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint('[WebRTC] clearSignaling: offer/answer cleanup skipped ($e)');
+    }
   }
 }

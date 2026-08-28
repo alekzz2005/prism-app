@@ -55,6 +55,8 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
   final WebRtcSignalingService _signalingService = WebRtcSignalingService();
   StreamSubscription? _answerSub;
   StreamSubscription? _iceSub;
+  StreamSubscription? _offerReqSub;
+  dynamic _lastOfferRequestId;
 
   @override
   void initState() {
@@ -62,7 +64,18 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _instructorId = context.read<UserRoleProvider>().uid;
       
-      _initWebRTC(); // WebRTC init
+      if (_instructorId != null) {
+        // Listen for offer requests from RemoteControlScreen (new session or retry)
+        _offerReqSub = _signalingService.watchOfferRequest(_instructorId!).listen((reqId) {
+          if (reqId != null && reqId != _lastOfferRequestId) {
+            _lastOfferRequestId = reqId;
+            debugPrint('[CameraNode WebRTC] 🔄 New offer request received ($reqId), negotiating...');
+            _initWebRTC();
+          }
+        });
+      }
+
+      _initWebRTC(); // Initial offer generation
 
       Future.delayed(const Duration(milliseconds: 350), () {
         if (!mounted) return;
@@ -71,51 +84,106 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
     });
   }
 
+  // Track processed SDP to prevent duplicate processing
+  String? _lastAnswerSdp;
+  bool _webrtcConnected = false;
+
   Future<void> _initWebRTC() async {
     final instructorId = _instructorId;
     if (instructorId == null) return;
 
-    // Clear old signaling
-    await _signalingService.clearSignaling(instructorId);
+    // Reset state and tear down old peer connection
+    _lastAnswerSdp = null;
+    _webrtcConnected = false;
+    _answerSub?.cancel();
+    _iceSub?.cancel();
+    try {
+      _dataChannel?.close();
+      _peerConnection?.close();
+    } catch (_) {}
 
-    _peerConnection = await _signalingService.createConnection();
+    try {
+      // Clear old signaling (non-fatal if it fails)
+      await _signalingService.clearSignaling(instructorId);
 
-    // Setup ICE candidate listener to send to Firestore
-    _peerConnection!.onIceCandidate = (candidate) {
-      _signalingService.sendIceCandidate(instructorId, 'camera', candidate);
-    };
+      _peerConnection = await _signalingService.createConnection();
 
-    // Create Data Channel
-    RTCDataChannelInit dataChannelDict = RTCDataChannelInit()
-      ..ordered = false // unordered is faster for video frames
-      ..maxRetransmits = 0; // drop lost frames, don't retransmit
-    _dataChannel = await _peerConnection!.createDataChannel('mirror', dataChannelDict);
+      // Setup ICE candidate listener to send to Firestore
+      _peerConnection!.onIceCandidate = (candidate) {
+        _signalingService.sendIceCandidate(instructorId, 'camera', candidate);
+      };
 
-    // Create Offer
-    final offer = await _peerConnection!.createOffer({});
-    await _peerConnection!.setLocalDescription(offer);
-    await _signalingService.sendOffer(instructorId, offer);
-
-    // Listen for Answer
-    _answerSub = _signalingService.watchAnswer(instructorId).listen((answer) async {
-      if (answer != null) {
-        final state = await _peerConnection!.getSignalingState();
-        if (state == RTCSignalingState.RTCSignalingStateHaveLocalOffer) {
-          await _peerConnection!.setRemoteDescription(answer);
+      _peerConnection!.onIceConnectionState = (state) {
+        debugPrint('[CameraNode WebRTC] ICE state: $state');
+        if (state == RTCIceConnectionState.RTCIceConnectionStateConnected ||
+            state == RTCIceConnectionState.RTCIceConnectionStateCompleted) {
+          _webrtcConnected = true;
         }
-      }
-    });
+      };
 
-    // Listen for Remote ICE candidates
-    _iceSub = _signalingService.watchIceCandidates(instructorId, 'remote').listen((candidates) {
-      for (var candidate in candidates) {
-        _peerConnection!.addCandidate(candidate);
-      }
-    });
+      // Create Data Channel
+      RTCDataChannelInit dataChannelDict = RTCDataChannelInit()
+        ..ordered = false // unordered is faster for video frames
+        ..maxRetransmits = 0; // drop lost frames, don't retransmit
+      _dataChannel = await _peerConnection!.createDataChannel('mirror', dataChannelDict);
+      _dataChannel!.onDataChannelState = (state) {
+        debugPrint('[CameraNode WebRTC] 📡 DataChannel state: $state');
+      };
+
+      // Create Offer
+      final offer = await _peerConnection!.createOffer({});
+      await _peerConnection!.setLocalDescription(offer);
+      await _signalingService.sendOffer(instructorId, offer);
+
+      // Listen for Answer — deduplicate and lock synchronously
+      bool isProcessingAnswer = false;
+      _answerSub = _signalingService.watchAnswer(instructorId).listen((answer) async {
+        if (answer == null) return;
+        if (_lastAnswerSdp == answer.sdp) return;
+        if (isProcessingAnswer) return;
+        if (_peerConnection == null) return;
+
+        isProcessingAnswer = true;
+        _lastAnswerSdp = answer.sdp; // Lock immediately to prevent duplicate runs
+
+        try {
+          final state = await _peerConnection!.getSignalingState();
+          if (state == RTCSignalingState.RTCSignalingStateHaveLocalOffer) {
+            await _peerConnection!.setRemoteDescription(answer);
+            debugPrint('[CameraNode WebRTC] ✅ Answer applied');
+          }
+        } catch (e) {
+          debugPrint('[CameraNode WebRTC] Error setting answer: $e');
+        } finally {
+          isProcessingAnswer = false;
+        }
+      });
+
+      // Listen for Remote ICE candidates — track already-added candidates
+      final Set<String> addedCandidates = {};
+      _iceSub = _signalingService.watchIceCandidates(instructorId, 'remote').listen(
+        (candidates) {
+          for (var candidate in candidates) {
+            final key = candidate.candidate ?? '';
+            if (key.isNotEmpty && addedCandidates.add(key)) {
+              _peerConnection!.addCandidate(candidate);
+            }
+          }
+        },
+        onError: (e) {
+          debugPrint('[CameraNode WebRTC] ICE candidates stream error: $e');
+        },
+      );
+
+      debugPrint('[CameraNode WebRTC] ✅ Initialization complete, offer published');
+    } catch (e) {
+      debugPrint('[CameraNode WebRTC] ❌ Init failed: $e');
+    }
   }
 
   @override
   void dispose() {
+    _offerReqSub?.cancel();
     _answerSub?.cancel();
     _iceSub?.cancel();
     _dataChannel?.close();
@@ -156,75 +224,16 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
     }
   }
 
-  // ─── 2Hz Sync ─────────────────────────────────────────────────────────────
-  Future<void> _syncMetrics(RawFrameData frameData) async {
-    if (!mounted) return;
-    
-    final instructorId = _instructorId;
-    if (instructorId == null) {
-      debugPrint('[CameraNode] ❌ No instructorId, skipping');
-      return;
-    }
+  // ─── Dual Pipeline (Independent Mirroring & Inference) ─────────────────────
+  int _lastMirrorTime = 0;
+  bool _isMirroring = false;
 
-    if (_currentPhase == 'waiting') {
-      // Just mirror the camera, no AI inference
-      final base64Frame = await RoboflowDetectionService.getFrameBase64(frameData);
-      if (base64Frame != null && _dataChannel != null && _dataChannel!.state == RTCDataChannelState.RTCDataChannelOpen) {
-        _dataChannel!.send(RTCDataChannelMessage(base64Frame));
-      }
-      return;
-    }
-
-    if (_currentPhase == 'completed') {
-      debugPrint('[CameraNode] ⏸ Phase=$_currentPhase, skipping frame');
-      return;
-    }
-
-    debugPrint('[CameraNode] 📸 Sending frame to Roboflow API (phase=$_currentPhase, ${frameData.width}x${frameData.height})');
-
-    // Send to Roboflow API and get angle result
-    final result = await RoboflowDetectionService.detectAngleFromFrameData(frameData);
-    
-    debugPrint('[CameraNode] 📊 Result: lost=${result.detectionLost}, angle=${result.angle.toStringAsFixed(1)}, score=${result.score}, hasDetection=${result.detection != null}');
-    if (result.detection != null) {
-      final d = result.detection!;
-      debugPrint('[CameraNode] 🎯 Arm=(${d.armCx?.toStringAsFixed(0)},${d.armCy?.toStringAsFixed(0)}) Syringe=(${d.syringeCx?.toStringAsFixed(0)},${d.syringeCy?.toStringAsFixed(0)}) Needle=(${d.needleCx?.toStringAsFixed(0)},${d.needleCy?.toStringAsFixed(0)})');
-    }
-
-    if (!mounted) return;
-
-    setState(() {
-      _detectionLost = result.detectionLost;
-      _latestDetection = result.detection;
-      if (!result.detectionLost) {
-        _liveAngle = result.angle;
-        _liveScore = result.score;
-      }
-    });
-
-    _liveService.setDetectionLost(instructorId, result.detectionLost);
-
-    if (result.frameBase64 != null && _dataChannel != null && _dataChannel!.state == RTCDataChannelState.RTCDataChannelOpen) {
-      _dataChannel!.send(RTCDataChannelMessage(result.frameBase64!));
-    }
-
-    if (result.detectionLost) return;
-
-    if (_currentPhase == 'insertion' || _currentPhase == 'withdrawal') {
-      if (_liveAngle >= 0) {
-        _liveService.updateLiveAngle(instructorId, _liveAngle);
-      }
-    }
-  }
-
-  // ─── Frame Processing ────────────────────────────────────────────────────────
-  
-  int _lastProcessTime = 0;
-  bool _isProcessingFrame = false;
+  int _lastInferenceTime = 0;
+  bool _isInferenceRunning = false;
 
   void _onFrame(CameraImage image) {
     if (_currentPhase == 'completed') return;
-    
+
     // Always update aspect ratio
     if (mounted && _imageSize == null) {
       setState(() {
@@ -232,16 +241,17 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
       });
     }
 
-    // Throttle to 2 FPS (500ms) to allow GC to release CameraImage buffers
     final now = DateTime.now().millisecondsSinceEpoch;
-    if (now - _lastProcessTime < 500) return;
-    if (_isProcessingFrame) return;
+    final needMirror = (now - _lastMirrorTime >= 55) &&
+        !_isMirroring &&
+        (_dataChannel != null && _dataChannel!.state == RTCDataChannelState.RTCDataChannelOpen);
+    final needInference = (now - _lastInferenceTime >= 500) &&
+        !_isInferenceRunning &&
+        (_currentPhase == 'insertion' || _currentPhase == 'withdrawal');
 
-    _isProcessingFrame = true;
-    _lastProcessTime = now;
+    if (!needMirror && !needInference) return;
 
-    // *** CRITICAL: Extract raw bytes SYNCHRONOUSLY right here ***
-    // This ensures CameraImage native buffer is freed the instant _onFrame returns
+    // Extract raw bytes synchronously so native CameraImage buffer is released immediately
     final isIOS = image.planes.length == 2;
     final frameData = RawFrameData(
       width: image.width,
@@ -258,17 +268,71 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
       isIOS: isIOS,
     );
 
-    debugPrint('[CameraNode] 🖼 _onFrame fired — phase=$_currentPhase, ${image.width}x${image.height}');
+    // 1. FAST MIRRORING PIPELINE (Immediate, 10 FPS, non-blocking)
+    if (needMirror) {
+      _lastMirrorTime = now;
+      _isMirroring = true;
+      _processMirrorFrame(frameData);
+    }
 
-    // Now process the copied bytes asynchronously (CameraImage is NOT referenced)
-    _processFrameWrapper(frameData);
+    // 2. AI INFERENCE PIPELINE (Parallel, 2 FPS)
+    if (needInference) {
+      _lastInferenceTime = now;
+      _isInferenceRunning = true;
+      _processInferenceFrame(frameData);
+    }
   }
 
-  Future<void> _processFrameWrapper(RawFrameData frameData) async {
+  Future<void> _processMirrorFrame(RawFrameData frameData) async {
     try {
-      await _syncMetrics(frameData);
+      if (_dataChannel == null || _dataChannel!.state != RTCDataChannelState.RTCDataChannelOpen) return;
+      if ((_dataChannel!.bufferedAmount ?? 0) > 65536) return; // Drop frame if SCTP buffer is busy
+
+      final base64Frame = await RoboflowDetectionService.getFrameBase64(frameData);
+      if (base64Frame != null && _dataChannel != null && _dataChannel!.state == RTCDataChannelState.RTCDataChannelOpen) {
+        _dataChannel!.send(RTCDataChannelMessage(base64Frame));
+      }
+    } catch (e) {
+      debugPrint('[CameraNode WebRTC] Error sending mirror frame: $e');
     } finally {
-      _isProcessingFrame = false;
+      _isMirroring = false;
+    }
+  }
+
+  Future<void> _processInferenceFrame(RawFrameData frameData) async {
+    final instructorId = _instructorId;
+    if (instructorId == null) {
+      _isInferenceRunning = false;
+      return;
+    }
+
+    try {
+      final result = await RoboflowDetectionService.detectAngleFromFrameData(frameData);
+
+      if (!mounted) return;
+
+      setState(() {
+        _detectionLost = result.detectionLost;
+        _latestDetection = result.detection;
+        if (!result.detectionLost) {
+          _liveAngle = result.angle;
+          _liveScore = result.score;
+        }
+      });
+
+      _liveService.setDetectionLost(instructorId, result.detectionLost);
+
+      if (!result.detectionLost) {
+        if (_currentPhase == 'insertion' || _currentPhase == 'withdrawal') {
+          if (_liveAngle >= 0) {
+            _liveService.updateLiveAngle(instructorId, _liveAngle);
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('[CameraNode] Error in inference pipeline: $e');
+    } finally {
+      _isInferenceRunning = false;
     }
   }
 

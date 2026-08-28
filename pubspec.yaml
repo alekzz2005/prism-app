@@ -49,6 +49,7 @@ dependencies:
   image: ^4.3.0
   shared_preferences: ^2.5.5
   flutter_webrtc: ^1.6.0
+  flutter_dotenv: ^6.0.1
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -73,7 +74,8 @@ flutter:
   uses-material-design: true
 
   # To add assets to your application, add an assets section, like this:
-  # assets:
+  assets:
+    - .env
   #   - assets/models/arms/
   #   - assets/models/syringe/
 

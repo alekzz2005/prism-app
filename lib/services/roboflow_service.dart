@@ -6,6 +6,7 @@ import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:image/image.dart' as img;
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 // ─── Roboflow Detection Result ──────────────────────────────────────────────
 /// Holds the bounding-box centres and dimensions of detected objects.
@@ -88,11 +89,9 @@ class RawFrameData {
 
 // ─── Service ────────────────────────────────────────────────────────────────
 class RoboflowDetectionService {
-  // ---- Configuration ----
-  static const String _workflowUrl =
-      'https://serverless.roboflow.com/veincarmell-pangilinan-cit-edu/workflows/find-syringe-arm-and-needle-v39-logic';
-
-  static const String _apiKey = 'hIFLbCmiFrxFrwcrXe5e';
+  // ---- Configuration from .env ----
+  static String get _workflowUrl => dotenv.env['ROBOFLOW_WORKFLOW_URL'] ?? '';
+  static String get _apiKey => dotenv.env['ROBOFLOW_API_KEY'] ?? '';
 
   /// When true, bypasses the API and generates simulated detections.
   static bool mockMode = false;
@@ -275,53 +274,74 @@ class RoboflowDetectionService {
   //  IMAGE CONVERSION  (runs inside compute isolate)
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /// Converts extracted frame data to compressed JPEG bytes.
-  /// This runs in a separate isolate via [compute] so the UI stays smooth.
+  /// Converts extracted frame data to compressed JPEG bytes in a single fast pass.
+  /// Subsamples and applies rotation on-the-fly to avoid expensive intermediate allocations.
   static Uint8List? _convertFrameDataToJpeg(RawFrameData frame) {
     try {
-      final int width  = frame.width;
-      final int height = frame.height;
-      final image = img.Image(width: width, height: height);
+      final int srcW = frame.width;
+      final int srcH = frame.height;
+      final int orientation = frame.sensorOrientation;
+      final bool isRotated = orientation == 90 || orientation == 270;
 
-      for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
-          final int yIndex  = y * frame.yRowStride + x;
-          final int uvIndex = (y ~/ 2) * frame.uRowStride + (x ~/ 2) * frame.uvPixelStride;
+      final int naturalW = isRotated ? srcH : srcW;
+      final int naturalH = isRotated ? srcW : srcH;
 
-          if (yIndex >= frame.yBytes.length || uvIndex >= frame.uBytes.length) continue;
-          
-          final int vIndex = frame.isIOS ? uvIndex + 1 : uvIndex;
-          if (vIndex >= frame.vBytes.length) continue;
+      final int targetW = math.min(frame.targetWidth, naturalW);
+      final double scale = targetW / naturalW;
+      final int targetH = (naturalH * scale).round();
 
-          final int yVal = frame.yBytes[yIndex];
-          // Subtract 128 to center around 0
-          final int uVal = frame.uBytes[uvIndex] - 128;
-          final int vVal = frame.vBytes[vIndex] - 128;
+      final outImg = img.Image(width: targetW, height: targetH);
 
-          // Standard YUV to RGB conversion
+      final yBytes = frame.yBytes;
+      final uBytes = frame.uBytes;
+      final vBytes = frame.vBytes;
+      final yStride = frame.yRowStride;
+      final uStride = frame.uRowStride;
+      final uvPixStride = frame.uvPixelStride;
+      final isIOS = frame.isIOS;
+      final yLen = yBytes.length;
+      final uLen = uBytes.length;
+      final vLen = vBytes.length;
+
+      for (int outY = 0; outY < targetH; outY++) {
+        for (int outX = 0; outX < targetW; outX++) {
+          int srcX, srcY;
+
+          if (orientation == 90) {
+            srcX = (outY / scale).floor().clamp(0, srcW - 1);
+            srcY = (srcH - 1 - (outX / scale).floor()).clamp(0, srcH - 1);
+          } else if (orientation == 270) {
+            srcX = (srcW - 1 - (outY / scale).floor()).clamp(0, srcW - 1);
+            srcY = (outX / scale).floor().clamp(0, srcH - 1);
+          } else if (orientation == 180) {
+            srcX = (srcW - 1 - (outX / scale).floor()).clamp(0, srcW - 1);
+            srcY = (srcH - 1 - (outY / scale).floor()).clamp(0, srcH - 1);
+          } else {
+            srcX = (outX / scale).floor().clamp(0, srcW - 1);
+            srcY = (outY / scale).floor().clamp(0, srcH - 1);
+          }
+
+          final int yIndex = srcY * yStride + srcX;
+          final int uvIndex = (srcY >> 1) * uStride + (srcX >> 1) * uvPixStride;
+
+          if (yIndex >= yLen || uvIndex >= uLen) continue;
+
+          final int vIndex = isIOS ? uvIndex + 1 : uvIndex;
+          if (vIndex >= vLen) continue;
+
+          final int yVal = yBytes[yIndex];
+          final int uVal = uBytes[uvIndex] - 128;
+          final int vVal = vBytes[vIndex] - 128;
+
           int r = (yVal + 1.402 * vVal).round().clamp(0, 255);
           int g = (yVal - 0.344136 * uVal - 0.714136 * vVal).round().clamp(0, 255);
           int b = (yVal + 1.772 * uVal).round().clamp(0, 255);
 
-          image.setPixelRgba(x, y, r, g, b, 255);
+          outImg.setPixelRgb(outX, outY, r, g, b);
         }
       }
 
-      // Rotate image based on sensor orientation (usually 90 on Android phones)
-      img.Image uprightImage = image;
-      if (frame.sensorOrientation == 90) {
-        uprightImage = img.copyRotate(image, angle: 90);
-      } else if (frame.sensorOrientation == 270) {
-        uprightImage = img.copyRotate(image, angle: 270);
-      } else if (frame.sensorOrientation == 180) {
-        uprightImage = img.copyRotate(image, angle: 180);
-      }
-
-      // Resize to max width/height for fast upload or mirroring
-      final resized = img.copyResize(uprightImage, width: frame.targetWidth);
-
-      // JPEG at specified quality
-      return Uint8List.fromList(img.encodeJpg(resized, quality: frame.targetQuality));
+      return Uint8List.fromList(img.encodeJpg(outImg, quality: frame.targetQuality));
     } catch (e) {
       return null;
     }
@@ -333,13 +353,14 @@ class RoboflowDetectionService {
 
   static Future<RoboflowDetection?> _callApi(String base64Image, int sentW, int sentH) async {
     try {
-      final String inferUrl = 'https://serverless.roboflow.com/veincarmell-pangilinan-cit-edu/workflows/syringe-plunger-needle-arm';
+      final String inferUrl = _workflowUrl;
+      final String apiKey = _apiKey;
 
       final response = await http.post(
         Uri.parse(inferUrl),
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer J9jW40Es9tFmhUzmXpMe',
+          if (apiKey.isNotEmpty) 'Authorization': 'Bearer $apiKey',
         },
         body: jsonEncode({
           'inputs': {
@@ -508,23 +529,11 @@ class RoboflowDetectionService {
         }
       }
 
-      // If we have syringe keypoints but no arm, create a fake horizontal arm 
-      // directly under the syringe so the angle math still works perfectly.
-      bool fakeArm = false;
-      if (sCx != null && sCy != null && aCx == null) {
-        aCx = sCx;
-        aCy = sCy + 100.0; // 100 pixels below
-        aW = 200.0;
-        aH = 20.0; // horizontal arm
-        fakeArm = true;
-      }
-
       return RoboflowDetection(
         syringeCx: sCx, syringeCy: sCy, syringeW: sW, syringeH: sH,
         armCx: aCx, armCy: aCy, armW: aW, armH: aH,
         needleCx: nCx, needleCy: nCy, needleW: nW, needleH: nH,
         armTopCx: aTopX, armTopCy: aTopY, armBottomCx: aBotX, armBottomCy: aBotY,
-        isFakeArm: fakeArm,
         imageWidth: imgW,
         imageHeight: imgH,
       );
@@ -574,6 +583,12 @@ class RoboflowDetectionService {
       syringeDx = (d.syringeW ?? 1.0) * directionX;
       syringeDy = (d.syringeH ?? 0.0); // Bounding box height gives the vertical tilt
     }
+
+    // Normalise arm vector
+    final armMag = math.sqrt(armDx * armDx + armDy * armDy);
+    if (armMag < 1e-6) return 0;
+    armDx /= armMag;
+    armDy /= armMag;
 
     // Normalise syringe vector
     final mag = math.sqrt(syringeDx * syringeDx + syringeDy * syringeDy);

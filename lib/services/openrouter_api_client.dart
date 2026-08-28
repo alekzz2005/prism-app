@@ -1,6 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'feedback_exceptions.dart';
 
 /// Set this to true to skip the real API call and return mock feedback.
@@ -25,17 +29,15 @@ const String _mockFeedbackText =
 
 /// HTTP client for the OpenRouter Llama 3.3 70B (free tier) API.
 ///
-/// **To use with a real key**, run flutter with:
-/// ```
-/// flutter run --dart-define-from-file=.env.json
-/// ```
+/// **To use with a real key**, ensure `OPENROUTER_API_KEY` is set in your `.env` file.
 ///
 /// **To test without a key** (mock mode):
 /// ```
 /// flutter run --dart-define=USE_MOCK_FEEDBACK=true
 /// ```
+
 class OpenRouterApiClient {
-  static const String _apiKey = String.fromEnvironment('OPENROUTER_API_KEY');
+  static String get _apiKey => dotenv.env['OPENROUTER_API_KEY'] ?? '';
 
   static const String _baseUrl =
       'https://openrouter.ai/api/v1/chat/completions';
@@ -70,8 +72,7 @@ class OpenRouterApiClient {
     if (_apiKey.isEmpty) {
       throw FeedbackApiException(
           0,
-          'OPENROUTER_API_KEY is not set. Run with:\n'
-          '  flutter run --dart-define-from-file=.env.json\n'
+          'OPENROUTER_API_KEY is not set. Please add OPENROUTER_API_KEY to your .env file.\n'
           'Or for mock mode:\n'
           '  flutter run --dart-define=USE_MOCK_FEEDBACK=true');
     }
