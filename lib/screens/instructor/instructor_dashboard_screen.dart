@@ -1417,7 +1417,7 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
       child: TextField(
         controller: controller,
         onChanged: (_) => onChanged(),
-        style: const TextStyle(fontSize: 14),
+        style: const TextStyle(fontSize: 14, color: Color(0xFF003366)),
         decoration: InputDecoration(
           hintText: hintText,
           hintStyle: const TextStyle(color: Color(0xFF8A9BB0), fontSize: 13),
