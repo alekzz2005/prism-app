@@ -1,16 +1,17 @@
 import 'dart:async';
-
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:camera/camera.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../providers/user_role_provider.dart';
 import '../../services/roboflow_service.dart';
-import '../../services/tflite_detection_service.dart';
 import '../../services/live_session_service.dart';
+import '../../services/webrtc_signaling_service.dart';
 import '../../widgets/detection_overlay_painter.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 // ─── Brand Colours ─────────────────────────────────────────────────────────
 const _accentBlue = Color(0xFFA8C4E0);
@@ -48,12 +49,41 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
   bool _detectionLost = false;
   RoboflowDetection? _latestDetection;
 
+  // WebRTC P2P Mirroring
+  RTCPeerConnection? _peerConnection;
+  RTCDataChannel? _dataChannel;
+  final WebRtcSignalingService _signalingService = WebRtcSignalingService();
+  StreamSubscription? _answerSub;
+  StreamSubscription? _iceSub;
+  StreamSubscription? _offerReqSub;
+  dynamic _lastOfferRequestId;
+
+  // Guide overlay
+  bool _showGuide = false;
+
+  // Withdrawal snapshot tracking
+  Timer? _withdrawalTimer;
+  bool _withdrawalSnapSent = false;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _instructorId = context.read<UserRoleProvider>().uid;
       
+      if (_instructorId != null) {
+        // Listen for offer requests from RemoteControlScreen (new session or retry)
+        _offerReqSub = _signalingService.watchOfferRequest(_instructorId!).listen((reqId) {
+          if (reqId != null && reqId != _lastOfferRequestId) {
+            _lastOfferRequestId = reqId;
+            debugPrint('[CameraNode WebRTC] 🔄 New offer request received ($reqId), negotiating...');
+            _initWebRTC();
+          }
+        });
+      }
+
+      _initWebRTC(); // Initial offer generation
+
       Future.delayed(const Duration(milliseconds: 350), () {
         if (!mounted) return;
         _initCamera();
@@ -61,9 +91,113 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
     });
   }
 
+  // Track processed SDP to prevent duplicate processing
+  String? _lastAnswerSdp;
+  bool _webrtcConnected = false;
+
+  Future<void> _initWebRTC() async {
+    final instructorId = _instructorId;
+    if (instructorId == null) return;
+
+    // Reset state and tear down old peer connection
+    _lastAnswerSdp = null;
+    _webrtcConnected = false;
+    _answerSub?.cancel();
+    _iceSub?.cancel();
+    try {
+      _dataChannel?.close();
+      _peerConnection?.close();
+    } catch (_) {}
+
+    try {
+      // Clear old signaling (non-fatal if it fails)
+      await _signalingService.clearSignaling(instructorId);
+
+      _peerConnection = await _signalingService.createConnection();
+
+      // Setup ICE candidate listener to send to Firestore
+      _peerConnection!.onIceCandidate = (candidate) {
+        _signalingService.sendIceCandidate(instructorId, 'camera', candidate);
+      };
+
+      _peerConnection!.onIceConnectionState = (state) {
+        debugPrint('[CameraNode WebRTC] ICE state: $state');
+        if (state == RTCIceConnectionState.RTCIceConnectionStateConnected ||
+            state == RTCIceConnectionState.RTCIceConnectionStateCompleted) {
+          _webrtcConnected = true;
+        }
+      };
+
+      // Create Data Channel
+      RTCDataChannelInit dataChannelDict = RTCDataChannelInit()
+        ..ordered = false // unordered is faster for video frames
+        ..maxRetransmits = 0; // drop lost frames, don't retransmit
+      _dataChannel = await _peerConnection!.createDataChannel('mirror', dataChannelDict);
+      _dataChannel!.onDataChannelState = (state) {
+        debugPrint('[CameraNode WebRTC] 📡 DataChannel state: $state');
+      };
+
+      // Create Offer
+      final offer = await _peerConnection!.createOffer({});
+      await _peerConnection!.setLocalDescription(offer);
+      await _signalingService.sendOffer(instructorId, offer);
+
+      // Listen for Answer — deduplicate and lock synchronously
+      bool isProcessingAnswer = false;
+      _answerSub = _signalingService.watchAnswer(instructorId).listen((answer) async {
+        if (answer == null) return;
+        if (_lastAnswerSdp == answer.sdp) return;
+        if (isProcessingAnswer) return;
+        if (_peerConnection == null) return;
+
+        isProcessingAnswer = true;
+        _lastAnswerSdp = answer.sdp; // Lock immediately to prevent duplicate runs
+
+        try {
+          final state = await _peerConnection!.getSignalingState();
+          if (state == RTCSignalingState.RTCSignalingStateHaveLocalOffer) {
+            await _peerConnection!.setRemoteDescription(answer);
+            debugPrint('[CameraNode WebRTC] ✅ Answer applied');
+          }
+        } catch (e) {
+          debugPrint('[CameraNode WebRTC] Error setting answer: $e');
+        } finally {
+          isProcessingAnswer = false;
+        }
+      });
+
+      // Listen for Remote ICE candidates — track already-added candidates
+      final Set<String> addedCandidates = {};
+      _iceSub = _signalingService.watchIceCandidates(instructorId, 'remote').listen(
+        (candidates) {
+          for (var candidate in candidates) {
+            final key = candidate.candidate ?? '';
+            if (key.isNotEmpty && addedCandidates.add(key)) {
+              _peerConnection!.addCandidate(candidate);
+            }
+          }
+        },
+        onError: (e) {
+          debugPrint('[CameraNode WebRTC] ICE candidates stream error: $e');
+        },
+      );
+
+      debugPrint('[CameraNode WebRTC] ✅ Initialization complete, offer published');
+    } catch (e) {
+      debugPrint('[CameraNode WebRTC] ❌ Init failed: $e');
+    }
+  }
+
   @override
   void dispose() {
+    _offerReqSub?.cancel();
+    _answerSub?.cancel();
+    _iceSub?.cancel();
+    _dataChannel?.close();
+    _peerConnection?.close();
+    
     _syncTimer?.cancel();
+    _withdrawalTimer?.cancel();
     _camera?.stopImageStream();
     _camera?.dispose();
     if (_instructorId != null) {
@@ -98,62 +232,20 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
     }
   }
 
-  // ─── 2Hz Sync ─────────────────────────────────────────────────────────────
-  Future<void> _syncMetrics(TfliteFrameData frameData) async {
-    if (!mounted) return;
-    
-    final instructorId = _instructorId;
-    if (instructorId == null) {
-      debugPrint('[CameraNode] ❌ No instructorId, skipping');
-      return;
-    }
+  // ─── Dual Pipeline (Independent Mirroring & Inference) ─────────────────────
+  int _lastMirrorTime = 0;
+  bool _isMirroring = false;
 
-    if (_currentPhase == 'waiting' || _currentPhase == 'completed') {
-      debugPrint('[CameraNode] ⏸ Phase=$_currentPhase, skipping frame');
-      return;
-    }
+  int _lastInferenceTime = 0;
+  bool _isInferenceRunning = false;
 
-    debugPrint('[CameraNode] 📸 Sending frame to Roboflow API (phase=$_currentPhase, ${frameData.width}x${frameData.height})');
+  // Cache of the most recent raw frame — used for on-demand snapshot capture
+  RawFrameData? _latestFrameData;
 
-    // Send to Roboflow API and get angle result
-    final result = await RoboflowDetectionService.detectAngleFromFrameData(frameData);
-    
-    debugPrint('[CameraNode] 📊 Result: lost=${result.detectionLost}, angle=${result.angle.toStringAsFixed(1)}, score=${result.score}, hasDetection=${result.detection != null}');
-    if (result.detection != null) {
-      final d = result.detection!;
-      debugPrint('[CameraNode] 🎯 Arm=(${d.armCx?.toStringAsFixed(0)},${d.armCy?.toStringAsFixed(0)}) Syringe=(${d.syringeCx?.toStringAsFixed(0)},${d.syringeCy?.toStringAsFixed(0)}) Needle=(${d.needleCx?.toStringAsFixed(0)},${d.needleCy?.toStringAsFixed(0)})');
-    }
-
-    if (!mounted) return;
-
-    setState(() {
-      _detectionLost = result.detectionLost;
-      _latestDetection = result.detection;
-      if (!result.detectionLost) {
-        _liveAngle = result.angle;
-        _liveScore = result.score;
-      }
-    });
-
-    _liveService.setDetectionLost(instructorId, result.detectionLost);
-
-    if (result.detectionLost) return;
-
-    if (_currentPhase == 'insertion' || _currentPhase == 'withdrawal') {
-      if (_liveAngle >= 0) {
-        _liveService.updateLiveAngle(instructorId, _liveAngle);
-      }
-    }
-  }
-
-  // ─── Frame Processing ────────────────────────────────────────────────────────
-  
-  int _lastProcessTime = 0;
-  bool _isProcessingFrame = false;
 
   void _onFrame(CameraImage image) {
-    if (_currentPhase == 'waiting' || _currentPhase == 'completed') return;
-    
+    if (_currentPhase == 'completed') return;
+
     // Always update aspect ratio
     if (mounted && _imageSize == null) {
       setState(() {
@@ -161,18 +253,19 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
       });
     }
 
-    // Throttle to 2 FPS (500ms) to allow GC to release CameraImage buffers
     final now = DateTime.now().millisecondsSinceEpoch;
-    if (now - _lastProcessTime < 500) return;
-    if (_isProcessingFrame) return;
+    final needMirror = (now - _lastMirrorTime >= 33) &&
+        !_isMirroring &&
+        (_dataChannel != null && _dataChannel!.state == RTCDataChannelState.RTCDataChannelOpen);
+    final needInference = (now - _lastInferenceTime >= 500) &&
+        !_isInferenceRunning &&
+        (_currentPhase != 'waiting' && _currentPhase != 'completed');
 
-    _isProcessingFrame = true;
-    _lastProcessTime = now;
+    if (!needMirror && !needInference) return;
 
-    // *** CRITICAL: Extract raw bytes SYNCHRONOUSLY right here ***
-    // This ensures CameraImage native buffer is freed the instant _onFrame returns
+    // Extract raw bytes synchronously so native CameraImage buffer is released immediately
     final isIOS = image.planes.length == 2;
-    final frameData = TfliteFrameData(
+    final frameData = RawFrameData(
       width: image.width,
       height: image.height,
       yBytes: Uint8List.fromList(image.planes[0].bytes),
@@ -187,17 +280,93 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
       isIOS: isIOS,
     );
 
-    debugPrint('[CameraNode] 🖼 _onFrame fired — phase=$_currentPhase, ${image.width}x${image.height}');
+    // Always cache latest frame for on-demand snapshot capture
+    _latestFrameData = frameData;
 
-    // Now process the copied bytes asynchronously (CameraImage is NOT referenced)
-    _processFrameWrapper(frameData);
+    // 1. FAST MIRRORING PIPELINE (Immediate, 30 FPS, non-blocking pure video stream)
+    if (needMirror) {
+      _lastMirrorTime = now;
+      _isMirroring = true;
+      _processMirrorFrame(frameData);
+    }
+
+    // 2. AI INFERENCE PIPELINE (Parallel, 2 FPS)
+    if (needInference) {
+      _lastInferenceTime = now;
+      _isInferenceRunning = true;
+      _processInferenceFrame(frameData);
+    }
   }
 
-  Future<void> _processFrameWrapper(TfliteFrameData frameData) async {
+  Future<void> _processMirrorFrame(RawFrameData frameData) async {
     try {
-      await _syncMetrics(frameData);
+      if (_dataChannel == null || _dataChannel!.state != RTCDataChannelState.RTCDataChannelOpen) return;
+      if ((_dataChannel!.bufferedAmount ?? 0) > 32768) return; // Drop frame if SCTP buffer is busy
+
+      final base64Frame = await RoboflowDetectionService.getFrameBase64(frameData);
+      if (base64Frame != null && _dataChannel != null && _dataChannel!.state == RTCDataChannelState.RTCDataChannelOpen) {
+        _dataChannel!.send(RTCDataChannelMessage(base64Frame));
+      }
+    } catch (e) {
+      debugPrint('[CameraNode WebRTC] Error sending mirror frame: $e');
     } finally {
-      _isProcessingFrame = false;
+      _isMirroring = false;
+    }
+  }
+
+  /// Captures a high-quality JPEG from the latest cached frame and sends it over
+  /// the WebRTC DataChannel tagged as `SNAP:phase:base64`. The Remote Control
+  /// screen stores this as the permanent feedback-module snapshot for that phase.
+  Future<void> _sendSnapshot(String phase) async {
+    final frameData = _latestFrameData;
+    if (frameData == null) return;
+    if (_dataChannel == null || _dataChannel!.state != RTCDataChannelState.RTCDataChannelOpen) return;
+
+    try {
+      final base64Snap = await RoboflowDetectionService.getSnapshotBase64(frameData);
+      if (base64Snap != null && _dataChannel != null && _dataChannel!.state == RTCDataChannelState.RTCDataChannelOpen) {
+        _dataChannel!.send(RTCDataChannelMessage('SNAP:$phase:$base64Snap'));
+        debugPrint('[CameraNode] 📸 Snapshot sent for phase: $phase');
+      }
+    } catch (e) {
+      debugPrint('[CameraNode] Error sending snapshot: $e');
+    }
+  }
+
+  Future<void> _processInferenceFrame(RawFrameData frameData) async {
+    final instructorId = _instructorId;
+    if (instructorId == null) {
+      _isInferenceRunning = false;
+      return;
+    }
+
+    try {
+      final result = await RoboflowDetectionService.detectAngleFromFrameData(frameData);
+
+      if (!mounted) return;
+
+      setState(() {
+        _detectionLost = result.detectionLost;
+        _latestDetection = result.detection;
+        if (!result.detectionLost) {
+          _liveAngle = result.angle;
+          _liveScore = result.score;
+        }
+      });
+
+      _liveService.setDetectionLost(instructorId, result.detectionLost);
+
+      if (!result.detectionLost) {
+        if (_currentPhase == 'insertion' || _currentPhase == 'withdrawal') {
+          if (_liveAngle >= 0) {
+            _liveService.updateLiveAngle(instructorId, _liveAngle);
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('[CameraNode] Error in inference pipeline: $e');
+    } finally {
+      _isInferenceRunning = false;
     }
   }
 
@@ -211,22 +380,41 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
     _currentPhase = session.phase;
 
     if (session.phase == 'waiting' || session.phase == 'completed') {
+      _withdrawalTimer?.cancel();
+      _withdrawalSnapSent = false;
       setState(() {
         _lastInsertionAngle = null;
         _detectionLost = false;
+        _latestDetection = null;
       });
       RoboflowDetectionService.resetSmoothing();
     } else if (session.phase == 'insertion_locked' && oldPhase == 'insertion') {
       final score = _scoreAngle(_liveAngle, session.targetAngle);
       _lastInsertionAngle = _liveAngle;
       _liveService.saveInsertionMetrics(instructorId, _liveAngle, score);
+      // 📸 Capture insertion snapshot
+      _sendSnapshot('insertion');
     } else if (session.phase == 'aspiration' && oldPhase == 'insertion_locked') {
+      // 📸 Capture aspiration snapshot (beginning of aspiration phase)
+      _sendSnapshot('aspiration');
+    } else if (session.phase == 'withdrawal' && oldPhase != 'withdrawal') {
       RoboflowDetectionService.resetSmoothing();
-    } else if (session.phase == 'aspiration_locked' && oldPhase == 'aspiration') {
-      RoboflowDetectionService.resetSmoothing();
-    } else if (session.phase == 'withdrawal' && oldPhase == 'aspiration_locked') {
-      RoboflowDetectionService.resetSmoothing();
+      _withdrawalSnapSent = false;
+      _withdrawalTimer?.cancel();
+      // 📸 2-second delay snapshot after start of withdrawal phase
+      _withdrawalTimer = Timer(const Duration(seconds: 2), () {
+        if (_currentPhase == 'withdrawal' && !_withdrawalSnapSent) {
+          _withdrawalSnapSent = true;
+          _sendSnapshot('withdrawal');
+        }
+      });
     } else if (session.phase == 'withdrawal_locked' && oldPhase == 'withdrawal') {
+      // If prematurely pressed confirm withdrawal before 2 seconds, auto capture immediately
+      if (!_withdrawalSnapSent) {
+        _withdrawalSnapSent = true;
+        _withdrawalTimer?.cancel();
+        _sendSnapshot('withdrawal');
+      }
       final score = _scoreAngle(_liveAngle, session.targetAngle);
       final delta = (_liveAngle - (_lastInsertionAngle ?? 0)).abs();
       final corr  = delta <= 5.0 ? 'Matches' : 'Deviates';
@@ -377,6 +565,30 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                               style: TextStyle(color: Colors.white.withValues(alpha: 0.7),
                                   fontSize: 12, height: 1.4),
                             ),
+                            const SizedBox(height: 14),
+                            GestureDetector(
+                              onTap: () {
+                                HapticFeedback.lightImpact();
+                                setState(() => _showGuide = true);
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: _accentBlue.withValues(alpha: 0.15),
+                                  border: Border.all(color: _accentBlue.withValues(alpha: 0.5)),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.help_outline_rounded, color: _accentBlue, size: 15),
+                                    SizedBox(width: 6),
+                                    Text('Show Placement Guide',
+                                        style: TextStyle(color: _accentBlue, fontSize: 12, fontWeight: FontWeight.w600)),
+                                  ],
+                                ),
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -411,7 +623,24 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                           'Frame the patient. Waiting for remote start...',
                           style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 13),
                         ),
-                        const SizedBox(height: 48),
+                        const SizedBox(height: 24),
+                        // Guide button
+                        GestureDetector(
+                          onTap: () { HapticFeedback.lightImpact(); setState(() => _showGuide = true); },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: _accentBlue.withValues(alpha: 0.12),
+                              border: Border.all(color: _accentBlue.withValues(alpha: 0.4)),
+                              borderRadius: BorderRadius.circular(12)),
+                            child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                              Icon(Icons.help_outline_rounded, color: _accentBlue, size: 16),
+                              SizedBox(width: 7),
+                              Text('Placement Guide', style: TextStyle(color: _accentBlue, fontSize: 13, fontWeight: FontWeight.w600)),
+                            ]),
+                          ),
+                        ),
+                        const SizedBox(height: 24),
                         GestureDetector(
                           onTap: () => Navigator.pop(context),
                           child: Container(
@@ -437,8 +666,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                     color: Colors.black.withValues(alpha: 0.88),
                     padding: const EdgeInsets.fromLTRB(18, 48, 18, 14),
                     child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                      crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
                         Expanded(
                           child: Column(
@@ -471,6 +699,28 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                                 ],
                               ),
                             ],
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        GestureDetector(
+                          onTap: () {
+                            HapticFeedback.lightImpact();
+                            setState(() => _showGuide = !_showGuide);
+                          },
+                          child: Container(
+                            width: 36, height: 36,
+                            decoration: BoxDecoration(
+                              color: _showGuide
+                                  ? _accentBlue.withValues(alpha: 0.25)
+                                  : Colors.white.withValues(alpha: 0.10),
+                              borderRadius: BorderRadius.circular(10),
+                              border: _showGuide
+                                  ? Border.all(color: _accentBlue.withValues(alpha: 0.6))
+                                  : null,
+                            ),
+                            alignment: Alignment.center,
+                            child: const Icon(Icons.help_outline_rounded,
+                                color: _accentBlue, size: 20),
                           ),
                         ),
                       ],
@@ -529,7 +779,6 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                             _buildMetricCard('Phase',
                               session.phase.split('_')[0],
                               const Color(0xFFFCD34D)),
-                            /*
                             const SizedBox(width: 8),
                             _buildMetricCard('Angle',
                               _detectionLost ? '---' : '${_liveAngle.toStringAsFixed(1)}°',
@@ -538,7 +787,6 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                             _buildMetricCard('Score',
                               _detectionLost ? '-' : '$_liveScore/5',
                               _liveScore >= 4 ? _green : _liveScore >= 2 ? const Color(0xFFFCD34D) : _red),
-                            */
                           ],
                         ),
                         const SizedBox(height: 10),
@@ -573,10 +821,57 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                     ),
                   ),
                 ),
+              if (_showGuide) _buildGuideOverlay(),
             ],
           );
         },
       ),
+    );
+  }
+
+  Widget _buildGuideOverlay() {
+    return GestureDetector(
+      onTap: () => setState(() => _showGuide = false),
+      child: Container(color: Colors.black.withValues(alpha: 0.92),
+        child: SafeArea(child: Column(children: [
+          Padding(padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+            child: Row(children: [
+              Container(width: 36, height: 36,
+                decoration: BoxDecoration(color: _accentBlue.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(10), border: Border.all(color: _accentBlue.withValues(alpha: 0.4))),
+                child: const Icon(Icons.camera_alt_outlined, color: _accentBlue, size: 18)),
+              const SizedBox(width: 12),
+              const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('Placement Guide', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800)),
+                Text('How to frame for best detection', style: TextStyle(color: _accentBlue, fontSize: 11)),
+              ]),
+              const Spacer(),
+              GestureDetector(onTap: () => setState(() => _showGuide = false),
+                child: Container(width: 32, height: 32,
+                  decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.10), borderRadius: BorderRadius.circular(8)),
+                  child: const Icon(Icons.close_rounded, color: Colors.white, size: 18))),
+            ])),
+          Expanded(child: Padding(padding: const EdgeInsets.all(20),
+            child: ClipRRect(borderRadius: BorderRadius.circular(16),
+              child: Image.asset('assets/injection_placement_guide.jpg', fit: BoxFit.contain)))),
+          Padding(padding: const EdgeInsets.fromLTRB(20, 0, 20, 12), child: Column(children: [
+            _InstructorGuideTip(icon: Icons.crop_free_rounded, color: _green, label: 'ARM',
+              text: 'Keep the bare upper-arm / deltoid area centered — the GREEN box tracks this.'),
+            const SizedBox(height: 10),
+            _InstructorGuideTip(icon: Icons.vaccines_rounded, color: const Color(0xFF22D3EE), label: 'SYRINGE',
+              text: 'The entire syringe barrel must be visible from the side — the CYAN box tracks this.'),
+            const SizedBox(height: 10),
+            _InstructorGuideTip(icon: Icons.straighten_rounded, color: const Color(0xFFFCD34D), label: 'TRIPOD POSITION',
+              text: 'Place the tripod level with the injection site, 30–50 cm away, facing the side of the arm.'),
+          ])),
+          Padding(padding: const EdgeInsets.fromLTRB(20, 0, 20, 30),
+            child: GestureDetector(onTap: () => setState(() => _showGuide = false),
+              child: Container(height: 46, alignment: Alignment.center,
+                decoration: BoxDecoration(color: _accentBlue.withValues(alpha: 0.15),
+                  border: Border.all(color: _accentBlue.withValues(alpha: 0.4)),
+                  borderRadius: BorderRadius.circular(14)),
+                child: const Text('Got it — Back to Camera', style: TextStyle(color: _accentBlue, fontSize: 14, fontWeight: FontWeight.w700))))),
+        ]))),
     );
   }
 
@@ -597,9 +892,13 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                   fontSize: 9, fontWeight: FontWeight.w700, letterSpacing: 1),
               maxLines: 1, overflow: TextOverflow.ellipsis),
             const SizedBox(height: 2),
-            Text(value,
-              style: TextStyle(color: valueColor, fontSize: 15,
-                  fontWeight: FontWeight.w700, fontFamily: 'DM Mono')),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(value,
+                style: TextStyle(color: valueColor, fontSize: 15,
+                    fontWeight: FontWeight.w700, fontFamily: 'DM Mono')),
+            ),
           ],
         ),
       ),
@@ -630,3 +929,50 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
     ];
   }
 }
+
+class _InstructorGuideTip extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String label;
+  final String text;
+  const _InstructorGuideTip({
+    required this.icon,
+    required this.color,
+    required this.label,
+    required this.text,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 32, height: 32,
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: color.withValues(alpha: 0.4)),
+          ),
+          child: Icon(icon, color: color, size: 16),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label,
+                  style: TextStyle(color: color, fontSize: 11,
+                      fontWeight: FontWeight.w800, letterSpacing: 1)),
+              const SizedBox(height: 2),
+              Text(text,
+                  style: TextStyle(color: Colors.white.withValues(alpha: 0.7),
+                      fontSize: 12, height: 1.4)),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+

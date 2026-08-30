@@ -15,7 +15,12 @@ import '../shared/profile_screen.dart';
 import '../../services/roster_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../services/live_session_service.dart';
+import '../../services/feedback_release_service.dart';
 import 'remote_control_screen.dart';
+import '../../models/notification_model.dart';
+import '../../services/notification_service.dart';
+import '../../widgets/notification_center_sheet.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 // ─── Brand Colours ────────────────────────────────────────────────────────────
 const _navy     = Color(0xFF003366);
@@ -61,7 +66,9 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
 
   // Filters for Sections
   String _schoolYearFilter = 'All';
-  bool _sortAscending = true;
+  String _sectionsSearchQuery = '';
+  int _sectionsPage = 1;
+  static const int _sectionsPageSize = 10;
 
   static const _statusOptions = ['All', 'Pending', 'Released', 'Failed'];
   static const _typeOptions   = ['All', 'IM'];
@@ -244,6 +251,68 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
     );
   }
 
+  void _showBatchReleaseModal(String sectionName) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (context) {
+        bool isLoading = false;
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text('Batch Release Feedbacks', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _navy)),
+                  const SizedBox(height: 12),
+                  Text('Are you sure you want to release all pending feedbacks for section $sectionName?', style: const TextStyle(fontSize: 14, color: _textMid)),
+                  const SizedBox(height: 24),
+                  if (isLoading)
+                    const Center(child: CircularProgressIndicator(color: _navy))
+                  else
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextButton(
+                            onPressed: () => Navigator.pop(context),
+                            child: const Text('Cancel', style: TextStyle(color: _textMid)),
+                          ),
+                        ),
+                        Expanded(
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(backgroundColor: _green),
+                            onPressed: () async {
+                              setModalState(() => isLoading = true);
+                              try {
+                                final count = await FeedbackReleaseService().batchReleaseBySection(sectionName);
+                                if (context.mounted) {
+                                  Navigator.pop(context);
+                                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Released $count feedbacks for $sectionName')));
+                                }
+                              } catch (e) {
+                                if (context.mounted) {
+                                  setModalState(() => isLoading = false);
+                                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to batch release.')));
+                                }
+                              }
+                            },
+                            child: const Text('Confirm', style: TextStyle(color: Colors.white)),
+                          ),
+                        ),
+                      ],
+                    ),
+                ],
+              ),
+            );
+          }
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final roleProvider = context.watch<UserRoleProvider>();
@@ -271,14 +340,13 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
             ),
           ),
 
-          // FAB Backdrop
+          // FAB Backdrop (pure transparent)
           if (_fabOpen)
             Positioned.fill(
               child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
                 onTap: _toggleFab,
-                child: Container(
-                  color: Colors.black.withValues(alpha: 0.18),
-                ),
+                child: const SizedBox.expand(),
               ),
             ),
             
@@ -342,7 +410,13 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
                       decoration: BoxDecoration(
                         color: _fabOpen ? const Color(0xFF4A6080) : _navy,
                         shape: BoxShape.circle,
-                        boxShadow: [BoxShadow(color: _navy.withValues(alpha: 0.38), blurRadius: 24, offset: const Offset(0, 6))],
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.15),
+                            blurRadius: 6,
+                            offset: const Offset(0, 3),
+                          ),
+                        ],
                       ),
                       child: Stack(
                         alignment: Alignment.center,
@@ -386,7 +460,13 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
             decoration: BoxDecoration(
               color: _navy,
               borderRadius: BorderRadius.circular(20),
-              boxShadow: [BoxShadow(color: _navy.withValues(alpha: 0.28), blurRadius: 14, offset: const Offset(0, 4))],
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.12),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
+                ),
+              ],
             ),
             child: Text(label, style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
           ),
@@ -396,8 +476,13 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
             decoration: BoxDecoration(
               color: Colors.white,
               shape: BoxShape.circle,
-              border: Border.all(color: _cardBorder, width: 2),
-              boxShadow: [BoxShadow(color: _navy.withValues(alpha: 0.18), blurRadius: 14, offset: const Offset(0, 4))],
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.10),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
+                ),
+              ],
             ),
             child: Center(child: SvgPicture.string(svg)),
           ),
@@ -529,12 +614,28 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text('Past Sessions', style: TextStyle(color: _textDark, fontSize: 15, fontWeight: FontWeight.bold)),
-              StreamBuilder<List<SessionModel>>(
-                stream: _sessionsStream,
-                builder: (context, snap) {
-                  final len = _applyFilters(snap.data ?? []).length;
-                  return Text('$len sessions', style: const TextStyle(color: _navy, fontSize: 12, fontWeight: FontWeight.w600));
-                }
+              Row(
+                children: [
+                  if (_statusFilter == 'Pending' && _sectionFilter != 'All')
+                    TextButton.icon(
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      onPressed: () => _showBatchReleaseModal(_sectionFilter),
+                      icon: const Icon(Icons.send_rounded, size: 14, color: _navy),
+                      label: const Text('Batch Release', style: TextStyle(color: _navy, fontSize: 12, fontWeight: FontWeight.bold)),
+                    ),
+                  const SizedBox(width: 8),
+                  StreamBuilder<List<SessionModel>>(
+                    stream: _sessionsStream,
+                    builder: (context, snap) {
+                      final len = _applyFilters(snap.data ?? []).length;
+                      return Text('$len sessions', style: const TextStyle(color: _navy, fontSize: 12, fontWeight: FontWeight.w600));
+                    }
+                  ),
+                ],
               ),
             ],
           ),
@@ -640,6 +741,58 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
           ),
         ),
 
+        // Search Sections
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+          child: Container(
+            height: 44,
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: _cardBorder, width: 1.5),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            child: Row(
+              children: [
+                SvgPicture.string(
+                  '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="4.5" stroke="#8A9BB0" stroke-width="1.4"/><path d="M10.5 10.5l3 3" stroke="#8A9BB0" stroke-width="1.4" stroke-linecap="round"/></svg>',
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextField(
+                    onChanged: (val) => setState(() => _sectionsSearchQuery = val),
+                    decoration: const InputDecoration(
+                      hintText: 'Search sections...',
+                      hintStyle: TextStyle(color: _textMid, fontSize: 13),
+                      border: InputBorder.none,
+                      isDense: true,
+                    ),
+                    style: const TextStyle(color: _textDark, fontSize: 13),
+                  ),
+                ),
+                if (_sectionsSearchQuery.isNotEmpty)
+                  GestureDetector(
+                    onTap: () {
+                      setState(() => _sectionsSearchQuery = '');
+                      FocusScope.of(context).unfocus();
+                    },
+                    child: Container(
+                      width: 18, height: 18,
+                      decoration: const BoxDecoration(
+                        color: _textMid,
+                        shape: BoxShape.circle,
+                      ),
+                      alignment: Alignment.center,
+                      child: SvgPicture.string(
+                        '<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 2l6 6M8 2l-6 6" stroke="white" stroke-width="1.5" stroke-linecap="round"/></svg>',
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
           child: StreamBuilder<List<InstructorSection>>(
@@ -687,74 +840,89 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
                     sections = sections.where((s) => s.schoolYear == _schoolYearFilter).toList();
                   }
 
-                  // Sort alphabetically
-                  sections.sort((a, b) {
-                    final cmp = a.name.toLowerCase().compareTo(b.name.toLowerCase());
-                    return _sortAscending ? cmp : -cmp;
-                  });
+                  if (_sectionsSearchQuery.isNotEmpty) {
+                    final q = _sectionsSearchQuery.toLowerCase();
+                    sections = sections.where((s) =>
+                      s.name.toLowerCase().contains(q) ||
+                      s.schoolYear.toLowerCase().contains(q)
+                    ).toList();
+                  }
 
                   if (sections.isEmpty) {
                     return const Center(child: Text('No sections found.', style: TextStyle(color: _textMid)));
                   }
 
-                  return ListView.separated(
+                  final totalPages = (sections.length / _sectionsPageSize).ceil();
+                  if (_sectionsPage > totalPages && totalPages > 0) {
+                    _sectionsPage = totalPages;
+                  }
+
+                  final pagedSections = sections.skip((_sectionsPage - 1) * _sectionsPageSize).take(_sectionsPageSize).toList();
+
+                  return ListView(
                     padding: const EdgeInsets.fromLTRB(16, 8, 16, 90),
-                    itemCount: sections.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 10),
-                    itemBuilder: (context, index) {
-                      final section = sections[index];
-                      return GestureDetector(
-                        onTap: () {
-                          Navigator.push(context, MaterialPageRoute(builder: (_) => SectionStudentsScreen(section: section)));
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: _cardBorder),
-                            boxShadow: [BoxShadow(color: _navy.withValues(alpha: 0.07), blurRadius: 12, offset: const Offset(0, 2))],
-                          ),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 48, height: 48,
-                                decoration: BoxDecoration(color: _navy.withValues(alpha: 0.07), borderRadius: BorderRadius.circular(13)),
-                                alignment: Alignment.center,
-                                child: SvgPicture.string('<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" stroke="#003366" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><circle cx="9" cy="7" r="4" stroke="#003366" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" stroke="#003366" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
-                              ),
-                              const SizedBox(width: 14),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(section.name, style: const TextStyle(color: _textDark, fontSize: 15, fontWeight: FontWeight.bold)),
-                                    const SizedBox(height: 3),
-                                    Text('Academic Year ${section.schoolYear}', style: const TextStyle(color: _textMid, fontSize: 12)),
-                                  ],
+                    children: [
+                      ...pagedSections.map((section) => Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: GestureDetector(
+                          onTap: () {
+                            Navigator.push(context, MaterialPageRoute(builder: (_) => SectionStudentsScreen(section: section)));
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: _cardBorder),
+                              boxShadow: [BoxShadow(color: _navy.withValues(alpha: 0.07), blurRadius: 12, offset: const Offset(0, 2))],
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 48, height: 48,
+                                  decoration: BoxDecoration(color: _navy.withValues(alpha: 0.07), borderRadius: BorderRadius.circular(13)),
+                                  alignment: Alignment.center,
+                                  child: SvgPicture.string('<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" stroke="#003366" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><circle cx="9" cy="7" r="4" stroke="#003366" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" stroke="#003366" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
                                 ),
-                              ),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                decoration: BoxDecoration(color: _navy.withValues(alpha: 0.07), borderRadius: BorderRadius.circular(20)),
-                                child: StreamBuilder<List<StudentRoster>>(
-                                  stream: _getRosterStream(instructorId, section.id),
-                                  builder: (context, snap) {
-                                    if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
-                                      return const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2, color: _navy));
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(section.name, style: const TextStyle(color: _textDark, fontSize: 15, fontWeight: FontWeight.bold)),
+                                      const SizedBox(height: 3),
+                                      Text('Academic Year ${section.schoolYear}', style: const TextStyle(color: _textMid, fontSize: 12)),
+                                    ],
+                                  ),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                  decoration: BoxDecoration(color: _navy.withValues(alpha: 0.07), borderRadius: BorderRadius.circular(20)),
+                                  child: StreamBuilder<List<StudentRoster>>(
+                                    stream: _getRosterStream(instructorId, section.id),
+                                    builder: (context, snap) {
+                                      if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+                                        return const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2, color: _navy));
+                                      }
+                                      final count = snap.data?.length ?? 0;
+                                      return Text('$count students', style: const TextStyle(color: _navy, fontSize: 12, fontWeight: FontWeight.bold));
                                     }
-                                    final count = snap.data?.length ?? 0;
-                                    return Text('$count students', style: const TextStyle(color: _navy, fontSize: 12, fontWeight: FontWeight.bold));
-                                  }
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(width: 8),
-                              SvgPicture.string('<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="#C8D8E8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
-                            ],
+                                const SizedBox(width: 8),
+                                SvgPicture.string('<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="#C8D8E8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
+                              ],
+                            ),
                           ),
                         ),
-                      );
-                    },
+                      )),
+                      _buildPaginationControl(
+                        currentPage: _sectionsPage,
+                        totalPages: totalPages,
+                        onPrev: () => setState(() => _sectionsPage--),
+                        onNext: () => setState(() => _sectionsPage++),
+                      ),
+                    ],
                   );
                 },
               );
@@ -762,6 +930,50 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildPaginationControl({
+    required int currentPage,
+    required int totalPages,
+    required VoidCallback onPrev,
+    required VoidCallback onNext,
+  }) {
+    if (totalPages <= 1) return const SizedBox();
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 14),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          InkWell(
+            onTap: currentPage > 1 ? onPrev : null,
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                border: Border.all(color: currentPage > 1 ? _cardBorder : Colors.transparent, width: 1.5),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(Icons.chevron_left, color: currentPage > 1 ? _textMid : Colors.transparent, size: 20),
+            ),
+          ),
+          const SizedBox(width: 16),
+          Text('$currentPage of $totalPages', style: const TextStyle(color: _textMid, fontSize: 13, fontWeight: FontWeight.w600)),
+          const SizedBox(width: 16),
+          InkWell(
+            onTap: currentPage < totalPages ? onNext : null,
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                border: Border.all(color: currentPage < totalPages ? _cardBorder : Colors.transparent, width: 1.5),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(Icons.chevron_right, color: currentPage < totalPages ? _textMid : Colors.transparent, size: 20),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -796,7 +1008,7 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 14),
             child: Column(
               children: [
-                // Top row: brand + sign-out
+                // Top row: brand + actions
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -806,10 +1018,85 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
                         const Text('PRISM', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w800, letterSpacing: 3, height: 1.0)),
                         const SizedBox(height: 3),
                         Text(subtitle.toUpperCase(), style: const TextStyle(color: _accentBlue, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.5)),
-                    ],
-                  ),
-                ],
-              ),
+                      ],
+                    ),
+                    const Spacer(),
+                    // Notification Bell with unread badge
+                    Builder(
+                      builder: (context) {
+                        final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+                        return StreamBuilder<List<NotificationModel>>(
+                          stream: NotificationService().watchNotifications(uid),
+                          builder: (context, snap) {
+                            final unread = snap.data?.where((n) => !n.isRead).length ?? 0;
+                            return GestureDetector(
+                              onTap: () => NotificationCenterSheet.show(context),
+                              child: Container(
+                                width: 40, height: 40,
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.10),
+                                  border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
+                                  borderRadius: BorderRadius.circular(24),
+                                ),
+                                alignment: Alignment.center,
+                                child: Stack(
+                                  clipBehavior: Clip.none,
+                                  children: [
+                                    const Icon(Icons.notifications_none_rounded, color: Colors.white, size: 20),
+                                    if (unread > 0)
+                                      Positioned(
+                                        right: -2, top: -2,
+                                        child: Container(
+                                          padding: const EdgeInsets.all(3),
+                                          decoration: const BoxDecoration(
+                                            color: Color(0xFFEF4444),
+                                            shape: BoxShape.circle,
+                                          ),
+                                          constraints: const BoxConstraints(minWidth: 14, minHeight: 14),
+                                          child: Text(
+                                            unread > 9 ? '9+' : '$unread',
+                                            style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold),
+                                            textAlign: TextAlign.center,
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          }
+                        );
+                      }
+                    ),
+                    const SizedBox(width: 8),
+                    // Profile avatar
+                    GestureDetector(
+                      key: const Key('instructor_signout'),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => const ProfileScreen()),
+                        );
+                      },
+                      child: Container(
+                        width: 40, height: 40,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.10),
+                          border: Border.all(color: _accentBlue, width: 2),
+                          borderRadius: BorderRadius.circular(24),
+                        ),
+                        alignment: Alignment.center,
+                        child: Builder(
+                          builder: (context) {
+                            final name = context.watch<UserRoleProvider>().fullName ?? 'I';
+                            final initial = name.isNotEmpty ? name[0].toUpperCase() : 'I';
+                            return Text(initial, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold));
+                          },
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               if (_currentIndex == 0) ...[
                 const SizedBox(height: 14),
                 // Stats card
@@ -1038,7 +1325,7 @@ class _SessionCard extends StatelessWidget {
                   Row(
                     children: [
                       Flexible(
-                        child: Text('${session.injectionType} Injection',
+                        child: Text(session.studentName,
                             style: const TextStyle(color: _textDark, fontSize: 14, fontWeight: FontWeight.w700),
                             overflow: TextOverflow.ellipsis),
                       ),
@@ -1059,7 +1346,7 @@ class _SessionCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    '${date.day}/${date.month}/${date.year}  •  ${session.studentName}',
+                    '${date.day}/${date.month}/${date.year}  •  ${session.partnerName != null && session.partnerName!.isNotEmpty ? session.partnerName! : '—'}',
                     style: const TextStyle(color: _textMid, fontSize: 12),
                   ),
                 ],
@@ -1260,7 +1547,7 @@ class _AddSectionBottomSheetState extends State<_AddSectionBottomSheet> {
                         '<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M10 13V4M10 4L7 7M10 4l3 3" stroke="#003366" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 14v1a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-1" stroke="#8A9BB0" stroke-width="1.4" stroke-linecap="round"/></svg>',
                       ),
                       const SizedBox(width: 10),
-                      Text(_selectedFileName ?? 'Upload Spreadsheet (CSV, XLSX) or Add it Later', style: const TextStyle(color: _navy, fontSize: 13, fontWeight: FontWeight.bold)),
+                      Text(_selectedFileName ?? 'Upload Spreadsheet (CSV, XLSX)', style: const TextStyle(color: _navy, fontSize: 13, fontWeight: FontWeight.bold)),
                     ],
                   ),
                 ),
@@ -1335,10 +1622,32 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
   int _step = 1;
   String? _selectedSection;
   StudentRoster? _selectedStudent;
-  String _studentSearchQuery = '';
+  StudentRoster? _selectedPartner;
+  List<StudentRoster> _sectionStudents = [];
+
 
   Stream<List<InstructorSection>>? _sectionsStream;
   Stream<List<StudentRoster>>? _rosterStream;
+
+  // Pagination & Search State
+  final int _itemsPerPage = 10;
+  
+  final TextEditingController _sectionSearchController = TextEditingController();
+  int _sectionPage = 1;
+  
+  final TextEditingController _studentSearchController = TextEditingController();
+  int _studentPage = 1;
+  
+  final TextEditingController _partnerSearchController = TextEditingController();
+  int _partnerPage = 1;
+
+  @override
+  void dispose() {
+    _sectionSearchController.dispose();
+    _studentSearchController.dispose();
+    _partnerSearchController.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -1390,12 +1699,77 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
       injectionType: 'IM',
       targetAngle: 90.0,
       sectionName: _selectedSection,
+      partnerName: _selectedPartner?.formattedFullName,
     );
 
     if (mounted) {
       Navigator.pop(context);
       Navigator.push(context, MaterialPageRoute(builder: (_) => const RemoteControlScreen()));
     }
+  }
+  Widget _buildSearchBar(TextEditingController controller, String hintText, VoidCallback onChanged) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      height: 40,
+      child: TextField(
+        controller: controller,
+        onChanged: (_) => onChanged(),
+        style: const TextStyle(fontSize: 14, color: Color(0xFF003366)),
+        decoration: InputDecoration(
+          hintText: hintText,
+          hintStyle: const TextStyle(color: Color(0xFF8A9BB0), fontSize: 13),
+          prefixIcon: const Icon(Icons.search, color: Color(0xFF8A9BB0), size: 18),
+          filled: true,
+          fillColor: const Color(0xFFF4F7F9),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+          contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPaginationControl({
+    required int currentPage,
+    required int totalPages,
+    required VoidCallback onPrev,
+    required VoidCallback onNext,
+  }) {
+    if (totalPages <= 1) return const SizedBox();
+    return Padding(
+      padding: const EdgeInsets.only(top: 16),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          InkWell(
+            onTap: currentPage > 1 ? onPrev : null,
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                border: Border.all(color: currentPage > 1 ? const Color(0xFFE2EAF4) : Colors.transparent, width: 1.5),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(Icons.chevron_left, color: currentPage > 1 ? const Color(0xFF8A9BB0) : Colors.transparent, size: 20),
+            ),
+          ),
+          const SizedBox(width: 16),
+          Text('$currentPage of $totalPages', style: const TextStyle(color: Color(0xFF8A9BB0), fontSize: 13, fontWeight: FontWeight.w600)),
+          const SizedBox(width: 16),
+          InkWell(
+            onTap: currentPage < totalPages ? onNext : null,
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                border: Border.all(color: currentPage < totalPages ? const Color(0xFFE2EAF4) : Colors.transparent, width: 1.5),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(Icons.chevron_right, color: currentPage < totalPages ? const Color(0xFF8A9BB0) : Colors.transparent, size: 20),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildStep1() {
@@ -1419,7 +1793,7 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('Live Demo', style: TextStyle(color: Color(0xFF003366), fontSize: 18, fontWeight: FontWeight.bold)),
-                Text('Step 1 of 2 · Select a section', style: TextStyle(color: Color(0xFF8A9BB0), fontSize: 11, fontWeight: FontWeight.w500)),
+                Text('Step 1 of 3 · Select a section', style: TextStyle(color: Color(0xFF8A9BB0), fontSize: 11, fontWeight: FontWeight.w500)),
               ],
             ),
           ],
@@ -1427,62 +1801,94 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
         const SizedBox(height: 14),
         const Text('Choose a section to see the student roster.', style: TextStyle(color: Color(0xFF8A9BB0), fontSize: 12)),
         const SizedBox(height: 14),
+        
+        _buildSearchBar(_sectionSearchController, 'Search section...', () {
+          setState(() {
+            _sectionPage = 1;
+          });
+        }),
+
         StreamBuilder<List<InstructorSection>>(
           stream: _sectionsStream,
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Padding(padding: EdgeInsets.all(20), child: Center(child: CircularProgressIndicator()));
             }
-            final sections = snapshot.data ?? [];
+            var sections = snapshot.data ?? [];
+            if (_sectionSearchController.text.isNotEmpty) {
+              final query = _sectionSearchController.text.toLowerCase();
+              sections = sections.where((s) => s.name.toLowerCase().contains(query)).toList();
+            }
             if (sections.isEmpty) {
               return const Padding(
                 padding: EdgeInsets.symmetric(vertical: 20),
                 child: Center(child: Text('No sections found.', style: TextStyle(color: Color(0xFF8A9BB0), fontSize: 13))),
               );
             }
-            return ListView.separated(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: sections.length,
-              separatorBuilder: (_, __) => const Divider(height: 1, color: Color(0xFFE2EAF4)),
-              itemBuilder: (context, index) {
-                final sec = sections[index];
-                return InkWell(
-                  onTap: () {
-                    setState(() {
-                      _selectedSection = sec.name;
-                      _rosterStream = widget.rosterService.watchRoster(widget.instructorId, sec.id);
-                      _step = 2;
-                    });
+            
+            final totalPages = (sections.length / _itemsPerPage).ceil();
+            final startIndex = (_sectionPage - 1) * _itemsPerPage;
+            final endIndex = (startIndex + _itemsPerPage).clamp(0, sections.length);
+            final pagedSections = sections.sublist(startIndex, endIndex);
+
+            return Column(
+              children: [
+                ListView.separated(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: pagedSections.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1, color: Color(0xFFE2EAF4)),
+                  itemBuilder: (context, index) {
+                    final sec = pagedSections[index];
+                    return InkWell(
+                      onTap: () async {
+                        final stream = widget.rosterService.watchRoster(widget.instructorId, sec.id);
+                        final students = await stream.first;
+                        setState(() {
+                          _selectedSection = sec.name;
+                          _rosterStream = stream;
+                          _sectionStudents = students;
+                          _step = 2;
+                          _studentPage = 1;
+                          _studentSearchController.clear();
+                        });
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 11),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 36, height: 36,
+                              decoration: BoxDecoration(color: const Color(0xFF003366).withValues(alpha: 0.07), borderRadius: BorderRadius.circular(10)),
+                              child: Center(
+                                child: SvgPicture.string(
+                                  '<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M14 16v-1.5a3 3 0 0 0-3-3H7a3 3 0 0 0-3 3V16" stroke="#003366" stroke-width="1.5" stroke-linecap="round"/><circle cx="9" cy="7" r="3" stroke="#003366" stroke-width="1.5"/></svg>'
+                                )
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(sec.name, style: const TextStyle(color: Color(0xFF003366), fontSize: 14, fontWeight: FontWeight.w600)),
+                                ],
+                              ),
+                            ),
+                            SvgPicture.string('<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="#C8D8E8" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
+                          ],
+                        ),
+                      ),
+                    );
                   },
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 11),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 36, height: 36,
-                          decoration: BoxDecoration(color: const Color(0xFF003366).withValues(alpha: 0.07), borderRadius: BorderRadius.circular(10)),
-                          child: Center(
-                            child: SvgPicture.string(
-                              '<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M14 16v-1.5a3 3 0 0 0-3-3H7a3 3 0 0 0-3 3V16" stroke="#003366" stroke-width="1.5" stroke-linecap="round"/><circle cx="9" cy="7" r="3" stroke="#003366" stroke-width="1.5"/></svg>'
-                            )
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(sec.name, style: const TextStyle(color: Color(0xFF003366), fontSize: 14, fontWeight: FontWeight.w600)),
-                            ],
-                          ),
-                        ),
-                        SvgPicture.string('<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="#C8D8E8" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
-                      ],
-                    ),
-                  ),
-                );
-              },
+                ),
+                _buildPaginationControl(
+                  currentPage: _sectionPage,
+                  totalPages: totalPages,
+                  onPrev: () => setState(() => _sectionPage--),
+                  onNext: () => setState(() => _sectionPage++),
+                ),
+              ],
             );
           },
         ),
@@ -1527,7 +1933,7 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(_selectedSection ?? '', style: const TextStyle(color: Color(0xFF003366), fontSize: 14, fontWeight: FontWeight.bold)),
-                  const Text('Step 2 of 2 · Select student', style: TextStyle(color: Color(0xFF8A9BB0), fontSize: 11)),
+                  const Text('Step 2 of 3 · Select student', style: TextStyle(color: Color(0xFF8A9BB0), fontSize: 11)),
                 ],
               ),
             ),
@@ -1541,56 +1947,15 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
           ],
         ),
         const SizedBox(height: 12),
-        const Text('Tap a student to start the session.', style: TextStyle(color: Color(0xFF8A9BB0), fontSize: 12)),
+        const Text('Tap a student to select them for the demonstration.', style: TextStyle(color: Color(0xFF8A9BB0), fontSize: 12)),
         const SizedBox(height: 12),
-        Container(
-          height: 40,
-          decoration: BoxDecoration(
-            color: const Color(0xFFF8FAFC),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: const Color(0xFFE2EAF4), width: 1.5),
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 14),
-          child: Row(
-            children: [
-              SvgPicture.string(
-                '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="4.5" stroke="#8A9BB0" stroke-width="1.4"/><path d="M10.5 10.5l3 3" stroke="#8A9BB0" stroke-width="1.4" stroke-linecap="round"/></svg>',
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: TextField(
-                  decoration: const InputDecoration(
-                    hintText: 'Search students...',
-                    hintStyle: TextStyle(color: Color(0xFF8A9BB0), fontSize: 13),
-                    border: InputBorder.none,
-                    isDense: true,
-                  ),
-                  style: const TextStyle(color: Color(0xFF1A2B3C), fontSize: 13),
-                  onChanged: (v) => setState(() => _studentSearchQuery = v.toLowerCase()),
-                ),
-              ),
-              if (_studentSearchQuery.isNotEmpty)
-                GestureDetector(
-                  onTap: () {
-                    setState(() => _studentSearchQuery = '');
-                    FocusScope.of(context).unfocus();
-                  },
-                  child: Container(
-                    width: 18, height: 18,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFF8A9BB0),
-                      shape: BoxShape.circle,
-                    ),
-                    alignment: Alignment.center,
-                    child: SvgPicture.string(
-                      '<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 2l6 6M8 2l-6 6" stroke="white" stroke-width="1.5" stroke-linecap="round"/></svg>',
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 12),
+
+        _buildSearchBar(_studentSearchController, 'Search performer...', () {
+          setState(() {
+            _studentPage = 1;
+          });
+        }),
+
         StreamBuilder<List<StudentRoster>>(
           stream: _rosterStream,
           builder: (context, snapshot) {
@@ -1598,67 +1963,229 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
               return const Padding(padding: EdgeInsets.all(20), child: Center(child: CircularProgressIndicator()));
             }
             var students = snapshot.data ?? [];
-            if (_studentSearchQuery.isNotEmpty) {
-              students = students.where((s) => 
-                s.formattedFullName.toLowerCase().contains(_studentSearchQuery) ||
-                s.email.toLowerCase().contains(_studentSearchQuery)
-              ).toList();
+            if (_studentSearchController.text.isNotEmpty) {
+              final query = _studentSearchController.text.toLowerCase();
+              students = students.where((s) => s.formattedFullName.toLowerCase().contains(query) || s.email.toLowerCase().contains(query)).toList();
             }
-            
             if (students.isEmpty) {
               return const Padding(
                 padding: EdgeInsets.symmetric(vertical: 20),
                 child: Center(child: Text('No students found.', style: TextStyle(color: Color(0xFF8A9BB0), fontSize: 13))),
               );
             }
-            return ListView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: students.length,
-              itemBuilder: (context, index) {
-                final s = students[index];
-                final isSelected = _selectedStudent?.email == s.email;
-                return Container(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  decoration: BoxDecoration(
-                    color: isSelected ? const Color(0xFF003366).withValues(alpha: 0.035) : Colors.white,
-                    border: Border.all(color: isSelected ? const Color(0xFF003366) : const Color(0xFFE2EAF4), width: 1.5),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      InkWell(
-                        onTap: () {
-                          setState(() {
-                            _selectedStudent = s;
-                          });
-                          _startSession();
-                        },
+
+            final totalPages = (students.length / _itemsPerPage).ceil();
+            final startIndex = (_studentPage - 1) * _itemsPerPage;
+            final endIndex = (startIndex + _itemsPerPage).clamp(0, students.length);
+            final pagedStudents = students.sublist(startIndex, endIndex);
+
+            return Column(
+              children: [
+                ListView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: pagedStudents.length,
+                  itemBuilder: (context, index) {
+                    final s = pagedStudents[index];
+                    final isSelected = _selectedStudent?.email == s.email;
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      decoration: BoxDecoration(
+                        color: isSelected ? const Color(0xFF003366).withValues(alpha: 0.035) : Colors.white,
+                        border: Border.all(color: isSelected ? const Color(0xFF003366) : const Color(0xFFE2EAF4), width: 1.5),
                         borderRadius: BorderRadius.circular(14),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(s.formattedFullName, style: const TextStyle(color: Color(0xFF003366), fontSize: 14, fontWeight: FontWeight.w600)),
-                                    const SizedBox(height: 1),
-                                    Text(s.email, style: const TextStyle(color: Color(0xFF8A9BB0), fontSize: 11)),
-                                  ],
-                                ),
-                              ),
-                              SvgPicture.string('<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="#C8D8E8" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
-                            ],
-                          ),
-                        ),
                       ),
-                    ],
-                  ),
-                );
-              },
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                           InkWell(
+                            onTap: () {
+                              setState(() {
+                                _selectedStudent = s;
+                                _selectedPartner = null;
+                                _step = 3;
+                                _partnerPage = 1;
+                                _partnerSearchController.clear();
+                              });
+                            },
+                            borderRadius: BorderRadius.circular(14),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(s.formattedFullName, style: const TextStyle(color: Color(0xFF003366), fontSize: 14, fontWeight: FontWeight.w600)),
+                                        const SizedBox(height: 1),
+                                        Text(s.email, style: const TextStyle(color: Color(0xFF8A9BB0), fontSize: 11)),
+                                      ],
+                                    ),
+                                  ),
+                                  SvgPicture.string('<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="#C8D8E8" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+                _buildPaginationControl(
+                  currentPage: _studentPage,
+                  totalPages: totalPages,
+                  onPrev: () => setState(() => _studentPage--),
+                  onNext: () => setState(() => _studentPage++),
+                ),
+              ],
+            );
+          },
+        ),
+        const SizedBox(height: 10),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          style: TextButton.styleFrom(
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14), side: const BorderSide(color: Color(0xFFE2EAF4), width: 1.5)),
+          ),
+          child: const Text('Cancel', style: TextStyle(color: Color(0xFF8A9BB0), fontSize: 14, fontWeight: FontWeight.w600)),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStep3() {
+    final partners = _sectionStudents.where((s) => s.email != _selectedStudent!.email).toList();
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            InkWell(
+              onTap: () => setState(() {
+                _step = 2;
+                _selectedPartner = null;
+              }),
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                width: 30, height: 30,
+                decoration: BoxDecoration(color: const Color(0xFF003366).withValues(alpha: 0.07), borderRadius: BorderRadius.circular(8)),
+                child: Center(
+                  child: SvgPicture.string('<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M10 12L5 8 10 4" stroke="#003366" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>')
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(_selectedStudent!.formattedFullName, style: const TextStyle(color: Color(0xFF003366), fontSize: 14, fontWeight: FontWeight.bold)),
+                  const Text('Step 3 of 3 · Select partner', style: TextStyle(color: Color(0xFF8A9BB0), fontSize: 11)),
+                ],
+              ),
+            ),
+            Container(
+              width: 44, height: 44,
+              decoration: BoxDecoration(color: const Color(0xFF003366).withValues(alpha: 0.07), borderRadius: BorderRadius.circular(12)),
+              child: Center(
+                child: SvgPicture.string('<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="7" cy="7" r="3.5" stroke="#003366" stroke-width="1.5"/><path d="M1 17c0-3.314 2.686-6 6-6" stroke="#003366" stroke-width="1.5" stroke-linecap="round"/><circle cx="14" cy="7" r="3.5" stroke="#003366" stroke-width="1.5"/><path d="M13 11c3.314 0 6 2.686 6 6" stroke="#003366" stroke-width="1.5" stroke-linecap="round"/></svg>')
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Text(
+          'Who is ${_selectedStudent!.formattedFullName.split(' ').first} paired with for this demonstration?',
+          style: const TextStyle(color: Color(0xFF8A9BB0), fontSize: 12),
+        ),
+        const SizedBox(height: 12),
+        
+        _buildSearchBar(_partnerSearchController, 'Search partner...', () {
+          setState(() {
+            _partnerPage = 1;
+          });
+        }),
+
+        Builder(
+          builder: (context) {
+            var filteredPartners = partners;
+            if (_partnerSearchController.text.isNotEmpty) {
+              final query = _partnerSearchController.text.toLowerCase();
+              filteredPartners = filteredPartners.where((p) => p.formattedFullName.toLowerCase().contains(query) || p.email.toLowerCase().contains(query)).toList();
+            }
+
+            if (filteredPartners.isEmpty) {
+              return const Padding(
+                padding: EdgeInsets.symmetric(vertical: 20),
+                child: Center(child: Text('No other students found.', style: TextStyle(color: Color(0xFF8A9BB0), fontSize: 13))),
+              );
+            }
+
+            final totalPages = (filteredPartners.length / _itemsPerPage).ceil();
+            final startIndex = (_partnerPage - 1) * _itemsPerPage;
+            final endIndex = (startIndex + _itemsPerPage).clamp(0, filteredPartners.length);
+            final pagedPartners = filteredPartners.sublist(startIndex, endIndex);
+
+            return Column(
+              children: [
+                ListView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: pagedPartners.length,
+                  itemBuilder: (context, index) {
+                    final p = pagedPartners[index];
+                    final isSelected = _selectedPartner?.email == p.email;
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      decoration: BoxDecoration(
+                        color: isSelected ? const Color(0xFF003366).withValues(alpha: 0.035) : Colors.white,
+                        border: Border.all(color: isSelected ? const Color(0xFF003366) : const Color(0xFFE2EAF4), width: 1.5),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                           InkWell(
+                            onTap: () {
+                              setState(() => _selectedPartner = p);
+                              _startSession();
+                            },
+                            borderRadius: BorderRadius.circular(14),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(p.formattedFullName, style: const TextStyle(color: Color(0xFF003366), fontSize: 14, fontWeight: FontWeight.w600)),
+                                        const SizedBox(height: 1),
+                                        Text(p.email, style: const TextStyle(color: Color(0xFF8A9BB0), fontSize: 11)),
+                                      ],
+                                    ),
+                                  ),
+                                  SvgPicture.string('<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l4 4-4 4" stroke="#C8D8E8" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+                _buildPaginationControl(
+                  currentPage: _partnerPage,
+                  totalPages: totalPages,
+                  onPrev: () => setState(() => _partnerPage--),
+                  onNext: () => setState(() => _partnerPage++),
+                ),
+              ],
             );
           },
         ),
@@ -1696,7 +2223,7 @@ class _LiveDemoBottomSheetState extends State<_LiveDemoBottomSheet> {
                   decoration: BoxDecoration(color: const Color(0xFFE2EAF4), borderRadius: BorderRadius.circular(2)),
                 ),
               ),
-              if (_step == 1) _buildStep1() else _buildStep2(),
+              if (_step == 1) _buildStep1() else if (_step == 2) _buildStep2() else _buildStep3(),
             ],
           ),
         ),

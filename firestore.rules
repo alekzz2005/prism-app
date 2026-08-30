@@ -3,45 +3,60 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // ── Users collection ──────────────────────────────────────────────
-    // A user can read and write only their own profile document.
-    // This is what allows register() to write to users/{uid}.
     match /users/{uid} {
       allow read, write: if request.auth != null && request.auth.uid == uid;
+      
+      // User In-App Notifications
+      match /notifications/{notifId} {
+        allow read, write: if request.auth != null && request.auth.uid == uid;
+      }
+    }
+
+    // ── Password Resets / OTPs ─────────────────────────────────────────
+    match /password_resets/{email} {
+      allow read, write: if true; // Public for forgot password OTP verification
     }
 
     // ── Sessions collection ───────────────────────────────────────────
     match /sessions/{sessionId} {
-
-      // Any authenticated user can create a session (students submitting RDs)
       allow create: if request.auth != null;
-
+      
       // Students can read their own sessions (Pending and Released)
       // Instructors can read ALL sessions
       allow read: if request.auth != null && (
-        resource.data.userId == request.auth.uid || resource.data.userId == request.auth.token.email
-        ||
+        resource.data.userId == request.auth.uid || 
+        resource.data.userId == request.auth.token.email ||
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Instructor'
       );
-
-      // Only Instructors can update sessions (releasing feedback, adding notes)
-      // aiFeedbackText is never modified here — only instructorNote, feedbackStatus, releaseTimestamp
-      allow update: if request.auth != null &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Instructor';
-
-      // Nobody deletes sessions
+      
+      // Instructors can update all sessions; Students can update their own practice sessions (e.g. background AI feedback)
+      allow update: if request.auth != null && (
+        resource.data.userId == request.auth.uid || 
+        resource.data.userId == request.auth.token.email ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Instructor'
+      );
       allow delete: if false;
     }
 
-    // ── Live Sessions (Two-Device Architecture) ───────────────────────
-    // The instructor (Remote) and their camera node read/write to this document.
-    // They access it by their own uid.
+    // ── Live Sessions (Two-Device Architecture & WebRTC Signaling) ──────
+    // The instructor (Remote) and their camera node read/write to this document
+    // and its subcollections (like ice_candidates for WebRTC P2P mirroring).
     match /live_sessions/{instructorId} {
-      allow read, write: if request.auth != null && request.auth.uid == instructorId;
+      allow read, write: if request.auth != null;
+
+      match /{allChildren=**} {
+        allow read, write: if request.auth != null;
+      }
     }
 
-    // ── Instructor Roster ─────────────────────────────────────────────
-    // Instructors manage their CSV imported student roster here.
-    match /instructor_roster/{instructorId}/students/{studentDoc} {
+    // ── Instructor Roster & Sections ──────────────────────────────────
+    // Instructors manage their Sections
+    match /instructor_roster/{instructorId}/sections/{sectionId} {
+      allow read, write: if request.auth != null && request.auth.uid == instructorId;
+    }
+    
+    // Instructors manage their CSV imported student roster inside Sections
+    match /instructor_roster/{instructorId}/sections/{sectionId}/students/{studentDoc} {
       allow read, write: if request.auth != null && request.auth.uid == instructorId;
     }
   }

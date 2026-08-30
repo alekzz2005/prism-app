@@ -4,24 +4,32 @@ import 'package:provider/provider.dart';
 import '../providers/user_role_provider.dart';
 import '../services/auth_service.dart';
 import '../screens/auth/login_screen.dart';
+import '../screens/auth/email_verification_screen.dart';
 import '../screens/student/my_sessions_screen.dart';
 import '../screens/instructor/instructor_dashboard_screen.dart';
-import 'dart:async';
 
 /// Listens to Firebase Auth state changes and routes to the correct screen:
 /// - Unauthenticated → LoginScreen
+/// - Email not verified (new signups only) → EmailVerificationScreen
 /// - Student role    → MySessionsScreen
 /// - Instructor role → InstructorDashboardScreen
-class AuthWrapper extends StatelessWidget {
+class AuthWrapper extends StatefulWidget {
   const AuthWrapper({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final authService = AuthService();
+  State<AuthWrapper> createState() => _AuthWrapperState();
+}
 
+class _AuthWrapperState extends State<AuthWrapper> {
+  final AuthService _authService = AuthService();
+  String? _fetchedUid;
+  Future<Map<String, dynamic>?>? _userDocFuture;
+
+  @override
+  Widget build(BuildContext context) {
     return StreamBuilder<User?>(
       initialData: FirebaseAuth.instance.currentUser,
-      stream: authService.authStateChanges,
+      stream: _authService.authStateChanges,
       builder: (context, snapshot) {
         // Still waiting for auth state
         if (snapshot.connectionState == ConnectionState.waiting) {
@@ -32,12 +40,33 @@ class AuthWrapper extends StatelessWidget {
 
         // Not logged in → show login
         if (user == null) {
+          _fetchedUid = null;
+          _userDocFuture = null;
           return const LoginScreen();
         }
 
-        // Logged in → fetch role from Firestore
+        // Check if role is already resolved in UserRoleProvider
+        final userRole = context.watch<UserRoleProvider>();
+        if (userRole.uid == user.uid && userRole.role != UserRole.unknown) {
+          final isPasswordUser = user.providerData.any((p) => p.providerId == 'password');
+          if (userRole.isStudent && isPasswordUser && userRole.requiresEmailVerification && !user.emailVerified) {
+            return const EmailVerificationScreen();
+          }
+          if (userRole.isInstructor) {
+            return const InstructorDashboardScreen();
+          }
+          return const MySessionsScreen();
+        }
+
+        // Memoize future so it only executes once per user UID
+        if (_fetchedUid != user.uid || _userDocFuture == null) {
+          _fetchedUid = user.uid;
+          _userDocFuture = _authService.getUserData(user.uid);
+        }
+
+        // Fetch user data from Firestore
         return FutureBuilder<Map<String, dynamic>?>(
-          future: authService.getUserData(user.uid),
+          future: _userDocFuture,
           builder: (context, snap) {
             // ── Error (e.g. Firestore PERMISSION_DENIED before rules are set) ──
             // Fall back to Student home so the app doesn't hang forever.
@@ -52,23 +81,28 @@ class AuthWrapper extends StatelessWidget {
               return const _LoadingScreen();
             }
 
-            // No user doc found (e.g. Google sign-in on first launch before doc
-            // is created) — default to Student
             final data = snap.data;
-            if (data == null) {
-              return const MySessionsScreen();
-            }
+            final role = data?['role'] as String? ?? 'Student';
+            final fullName = data?['fullName'] as String? ?? '';
+            final requiresVerification = data?['requiresEmailVerification'] == true;
 
             // Populate the UserRoleProvider
-            final role = data['role'] as String? ?? 'Student';
-            final fullName = data['fullName'] as String? ?? '';
             WidgetsBinding.instance.addPostFrameCallback((_) {
-              context.read<UserRoleProvider>().setUser(
-                    uid: user.uid,
-                    fullName: fullName,
-                    role: role,
-                  );
+              if (context.mounted) {
+                context.read<UserRoleProvider>().setUser(
+                      uid: user.uid,
+                      fullName: fullName,
+                      role: role,
+                      requiresEmailVerification: requiresVerification,
+                    );
+              }
             });
+
+            // Only gate new student signups that explicitly have requiresEmailVerification == true
+            final isPasswordUser = user.providerData.any((p) => p.providerId == 'password');
+            if (role == 'Student' && isPasswordUser && requiresVerification && !user.emailVerified) {
+              return const EmailVerificationScreen();
+            }
 
             if (role == 'Instructor') {
               return const InstructorDashboardScreen();

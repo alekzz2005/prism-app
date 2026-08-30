@@ -22,7 +22,7 @@ class DetectionOverlayPainter extends CustomPainter {
     final double scaleY = size.height / d.imageHeight;
 
     // ── Arm bounding box (green) ──
-    if (d.hasArm) {
+    if (d.hasArm && !d.isFakeArm) {
       _drawBox(canvas, d.armCx!, d.armCy!, d.armW ?? 100, d.armH ?? 60,
           scaleX, scaleY, const Color(0xFF4ADE80), 'ARM');
     }

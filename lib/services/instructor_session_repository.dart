@@ -27,7 +27,10 @@ class InstructorSessionRepository {
     }
 
     return query.snapshots().map(
-          (snap) => snap.docs.map(SessionModel.fromFirestore).toList(),
+          (snap) => snap.docs
+              .map(SessionModel.fromFirestore)
+              .where((s) => s.sectionName != 'Practice' && s.partnerName != 'Self-Practice')
+              .toList(),
         );
   }
 

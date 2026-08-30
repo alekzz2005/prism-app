@@ -8,6 +8,7 @@ class SessionModel {
   final Timestamp timestamp;
   final String injectionType; // "IM"
   final String? sectionName; // e.g. "Section 3A"
+  final String? partnerName;
 
   // Insertion
   final double insertionAngle;
@@ -36,6 +37,11 @@ class SessionModel {
   final String instructorNote;
   final bool flagged;
 
+  // Snapshots
+  final String? insertionImageBase64;
+  final String? aspirationImageBase64;
+  final String? withdrawalImageBase64;
+
   const SessionModel({
     required this.sessionId,
     required this.userId,
@@ -43,6 +49,7 @@ class SessionModel {
     required this.timestamp,
     required this.injectionType,
     this.sectionName,
+    this.partnerName,
     required this.insertionAngle,
     required this.insertionScore,
     required this.aspirationResult,
@@ -58,6 +65,9 @@ class SessionModel {
     this.releaseTimestamp,
     required this.instructorNote,
     required this.flagged,
+    this.insertionImageBase64,
+    this.aspirationImageBase64,
+    this.withdrawalImageBase64,
   });
 
   factory SessionModel.fromFirestore(DocumentSnapshot doc) {
@@ -75,6 +85,7 @@ class SessionModel {
       timestamp: data['timestamp'] as Timestamp? ?? Timestamp.now(),
       injectionType: data['injectionType'] as String? ?? 'IM',
       sectionName: rawSection,
+      partnerName: data['partnerName'] as String?,
       insertionAngle: (data['insertionAngle'] as num?)?.toDouble() ?? 0.0,
       insertionScore: data['insertionScore'] as int? ?? 1,
       aspirationResult: data['aspirationResult'] as String? ?? 'Not Detected',
@@ -90,6 +101,9 @@ class SessionModel {
       releaseTimestamp: data['releaseTimestamp'] as Timestamp?,
       instructorNote: data['instructorNote'] as String? ?? '',
       flagged: data['flagged'] as bool? ?? false,
+      insertionImageBase64: data['insertionImageBase64'] as String?,
+      aspirationImageBase64: data['aspirationImageBase64'] as String?,
+      withdrawalImageBase64: data['withdrawalImageBase64'] as String?,
     );
   }
 
@@ -98,7 +112,8 @@ class SessionModel {
         'studentName': studentName,
         'timestamp': timestamp,
         'injectionType': injectionType,
-        'sectionName': sectionName,
+        if (sectionName != null) 'sectionName': sectionName,
+        if (partnerName != null) 'partnerName': partnerName,
         'insertionAngle': insertionAngle,
         'insertionScore': insertionScore,
         'aspirationResult': aspirationResult,
@@ -111,8 +126,67 @@ class SessionModel {
         'overallScore': overallScore,
         'aiFeedbackText': aiFeedbackText,
         'feedbackStatus': feedbackStatus,
-        'releaseTimestamp': releaseTimestamp,
+        if (releaseTimestamp != null) 'releaseTimestamp': releaseTimestamp,
         'instructorNote': instructorNote,
         'flagged': flagged,
+        if (insertionImageBase64 != null) 'insertionImageBase64': insertionImageBase64,
+        if (aspirationImageBase64 != null) 'aspirationImageBase64': aspirationImageBase64,
+        if (withdrawalImageBase64 != null) 'withdrawalImageBase64': withdrawalImageBase64,
       };
+
+  SessionModel copyWith({
+    String? sessionId,
+    String? userId,
+    String? studentName,
+    Timestamp? timestamp,
+    String? injectionType,
+    String? sectionName,
+    String? partnerName,
+    double? insertionAngle,
+    int? insertionScore,
+    String? aspirationResult,
+    double? aspirationDuration,
+    String? motionSmoothness,
+    double? withdrawalAngle,
+    int? withdrawalScore,
+    String? correspondenceResult,
+    double? angularDelta,
+    int? overallScore,
+    String? aiFeedbackText,
+    String? feedbackStatus,
+    Timestamp? releaseTimestamp,
+    String? instructorNote,
+    bool? flagged,
+    String? insertionImageBase64,
+    String? aspirationImageBase64,
+    String? withdrawalImageBase64,
+  }) {
+    return SessionModel(
+      sessionId: sessionId ?? this.sessionId,
+      userId: userId ?? this.userId,
+      studentName: studentName ?? this.studentName,
+      timestamp: timestamp ?? this.timestamp,
+      injectionType: injectionType ?? this.injectionType,
+      sectionName: sectionName ?? this.sectionName,
+      partnerName: partnerName ?? this.partnerName,
+      insertionAngle: insertionAngle ?? this.insertionAngle,
+      insertionScore: insertionScore ?? this.insertionScore,
+      aspirationResult: aspirationResult ?? this.aspirationResult,
+      aspirationDuration: aspirationDuration ?? this.aspirationDuration,
+      motionSmoothness: motionSmoothness ?? this.motionSmoothness,
+      withdrawalAngle: withdrawalAngle ?? this.withdrawalAngle,
+      withdrawalScore: withdrawalScore ?? this.withdrawalScore,
+      correspondenceResult: correspondenceResult ?? this.correspondenceResult,
+      angularDelta: angularDelta ?? this.angularDelta,
+      overallScore: overallScore ?? this.overallScore,
+      aiFeedbackText: aiFeedbackText ?? this.aiFeedbackText,
+      feedbackStatus: feedbackStatus ?? this.feedbackStatus,
+      releaseTimestamp: releaseTimestamp ?? this.releaseTimestamp,
+      instructorNote: instructorNote ?? this.instructorNote,
+      flagged: flagged ?? this.flagged,
+      insertionImageBase64: insertionImageBase64 ?? this.insertionImageBase64,
+      aspirationImageBase64: aspirationImageBase64 ?? this.aspirationImageBase64,
+      withdrawalImageBase64: withdrawalImageBase64 ?? this.withdrawalImageBase64,
+    );
+  }
 }

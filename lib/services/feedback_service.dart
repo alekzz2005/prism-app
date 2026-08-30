@@ -12,19 +12,28 @@ class PayloadBuilder {
 
     // Injection-specific clinical context from CIT-U rubrics
     final clinicalContext = switch (session.injectionType) {
-      'IM' => 'CIT-U rubric: dart-like motion at 90 deg, aspirate for blood, if no blood inject slowly (~10 sec/ml), wait 10s, smoothly withdraw at same angle of insertion.',
-      _ => '',
+      'IM' => 'CIT-U Rubric: Intramuscular (IM) Injection Return-Demonstration (Chronological Procedural Evaluation)',
+      _ => 'Parenteral Injection Return-Demonstration',
     };
 
+    final aspirationNote = session.aspirationResult == 'Bleeding Detected' || session.aspirationResult == 'Failed (Bleeding)'
+        ? 'Blood return detected (Vascular puncture — clinical risk)'
+        : 'No blood return (Correct technique — muscle tissue safe)';
+
     return '$clinicalContext\n'
-        '${session.injectionType} injection RD results:\n'
-        'Target angle: ${config.targetAngle.toStringAsFixed(0)} deg (tolerance ±${config.tolerance.toStringAsFixed(0)} deg)\n'
-        'Insertion: ${session.insertionAngle.toStringAsFixed(1)} deg, rubric ${session.insertionScore}/5\n'
-        'Aspiration: ${session.aspirationResult}, ${session.aspirationDuration.toStringAsFixed(1)}s, smoothness ${session.motionSmoothness}\n'
-        'Withdrawal: ${session.withdrawalAngle.toStringAsFixed(1)} deg, rubric ${session.withdrawalScore}/5\n'
-        'Angular delta (insertion vs withdrawal): ${session.angularDelta.toStringAsFixed(1)} deg, ${session.correspondenceResult}\n'
-        'Overall rubric: ${session.overallScore}/5'
-        '${session.flagged ? '\nFLAGGED: one or more components were undetectable' : ''}';
+        'Standard: 90° insertion (±${config.tolerance.toStringAsFixed(0)}° tolerance), 5-10s aspiration check, smooth withdrawal along same vector.\n\n'
+        'Step 1 - Insertion Phase:\n'
+        '• Target Angle: ${config.targetAngle.toStringAsFixed(0)}° (Tolerance ±${config.tolerance.toStringAsFixed(0)}°)\n'
+        '• Measured Angle: ${session.insertionAngle.toStringAsFixed(1)}° (Score: ${session.insertionScore}/5)\n\n'
+        'Step 2 - Aspiration Phase:\n'
+        '• Aspiration Blood Check: ${session.aspirationResult} ($aspirationNote)\n'
+        '• Duration: ${session.aspirationDuration.toStringAsFixed(1)}s\n\n'
+        'Step 3 - Withdrawal Phase:\n'
+        '• Measured Angle: ${session.withdrawalAngle.toStringAsFixed(1)}° (Score: ${session.withdrawalScore}/5)\n'
+        '• Angular Delta: ${session.angularDelta.toStringAsFixed(1)}° (${session.correspondenceResult})\n'
+        '• Motion Smoothness: ${session.motionSmoothness}\n\n'
+        'Overall Rubric Score: ${session.overallScore}/5'
+        '${session.flagged ? '\nFLAGGED: One or more components were undetectable or bleeding was detected.' : ''}';
   }
 }
 
@@ -36,7 +45,8 @@ class FeedbackService {
   Future<SessionModel> generateFeedbackForSession(SessionModel session) async {
     final prompt = PayloadBuilder.buildPrompt(session);
     String feedbackText = '';
-    String feedbackStatus = 'Pending';
+    final isPractice = session.sectionName == 'Practice' || session.partnerName == 'Self-Practice';
+    String feedbackStatus = (session.feedbackStatus == 'Released' || isPractice) ? 'Released' : 'Pending';
 
     String instructorNote = session.instructorNote;
 

@@ -7,6 +7,7 @@ class LiveSessionModel {
   final String studentEmail;
   final String injectionType;
   final double targetAngle;
+  final String? partnerName;
   final String phase; // "waiting", "insertion", "aspiration", "withdrawal", "completed"
   final double liveAngle;
   final bool cameraNodeActive;
@@ -31,6 +32,7 @@ class LiveSessionModel {
     required this.studentEmail,
     required this.injectionType,
     required this.targetAngle,
+    this.partnerName,
     required this.phase,
     required this.liveAngle,
     required this.cameraNodeActive,
@@ -55,6 +57,7 @@ class LiveSessionModel {
       studentEmail: data['studentEmail'] ?? '',
       injectionType: data['injectionType'] ?? 'IM',
       targetAngle: (data['targetAngle'] ?? 90).toDouble(),
+      partnerName: data['partnerName'] as String?,
       phase: data['phase'] ?? 'waiting',
       liveAngle: (data['liveAngle'] ?? 0).toDouble(),
       cameraNodeActive: data['cameraNodeActive'] ?? false,
@@ -85,6 +88,7 @@ class LiveSessionService {
     required String injectionType,
     required double targetAngle,
     String? sectionName,
+    String? partnerName,
   }) async {
     await _db.collection('live_sessions').doc(instructorId).set({
       'studentName': studentName,
@@ -92,6 +96,7 @@ class LiveSessionService {
       'injectionType': injectionType,
       'targetAngle': targetAngle,
       'sectionName': sectionName,
+      'partnerName': partnerName,
       'phase': 'waiting',
       'liveAngle': 0.0,
       'liveAspirationResult': 'Not Detected',
@@ -145,6 +150,13 @@ class LiveSessionService {
   Future<void> updateLiveAngle(String instructorId, double angle) async {
     await _db.collection('live_sessions').doc(instructorId).set({
       'liveAngle': angle,
+    }, SetOptions(merge: true));
+  }
+
+  /// Pushes the raw camera frame (base64 JPEG) for remote mirroring.
+  Future<void> updateLiveFrame(String instructorId, String base64) async {
+    await _db.collection('live_sessions').doc(instructorId).set({
+      'latestFrameBase64': base64,
     }, SetOptions(merge: true));
   }
 

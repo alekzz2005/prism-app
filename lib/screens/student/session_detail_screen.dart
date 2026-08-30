@@ -1,7 +1,11 @@
+import 'dart:convert';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../models/session_model.dart';
+import '../../services/feedback_service.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import '../../widgets/image_zoom_dialog.dart';
 
 // ─── Brand Colours ────────────────────────────────────────────────────────────
 const _navy       = Color(0xFF003366);
@@ -23,26 +27,74 @@ const _red        = Color(0xFFDC2626);
 const _redBg      = Color(0x1AEF4444);
 // ─────────────────────────────────────────────────────────────────────────────
 
-class SessionDetailScreen extends StatelessWidget {
+class SessionDetailScreen extends StatefulWidget {
   final SessionModel session;
   const SessionDetailScreen({super.key, required this.session});
 
   @override
+  State<SessionDetailScreen> createState() => _SessionDetailScreenState();
+}
+
+class _SessionDetailScreenState extends State<SessionDetailScreen> {
+  bool _isRetrying = false;
+
+  Future<void> _retryAiFeedback(SessionModel session) async {
+    setState(() => _isRetrying = true);
+    try {
+      await FeedbackService().generateAndSaveFeedbackInBackground(session);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('AI feedback generation restarted. Please wait a moment...'),
+            backgroundColor: _navy,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Unable to restart AI feedback. Please check your connection.'),
+            backgroundColor: _red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isRetrying = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final session = widget.session;
     final config = _targetForType(session.injectionType);
     final target = config['target']!;
     final tolerance = config['tolerance']!;
     final insertionPass = (session.insertionAngle - target).abs() <= tolerance;
+    final withdrawalPass = (session.withdrawalAngle - target).abs() <= tolerance;
+    final aspirationPass = session.aspirationResult == 'No Bleeding' || session.aspirationResult == 'No' || session.aspirationResult == 'Correct';
     final formattedDate = DateFormat('MMMM d, yyyy · h:mm a').format(session.timestamp.toDate());
 
-    return Scaffold(
-      backgroundColor: _surface,
-      body: SafeArea(
-        bottom: false,
-        child: Column(
-          children: [
-            // ── Header (App Bar + Score Hero) ───────────────────────────────
-            _buildHeader(context, target, formattedDate),
+    return PopScope(
+      canPop: true,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop && context.mounted) {
+          if (Navigator.canPop(context)) {
+            Navigator.pop(context);
+          } else {
+            Navigator.pushNamedAndRemoveUntil(context, '/', (route) => false);
+          }
+        }
+      },
+      child: Scaffold(
+        backgroundColor: _surface,
+        body: SafeArea(
+          bottom: false,
+          child: Column(
+            children: [
+              // ── Header (App Bar + Score Hero) ───────────────────────────────
+              _buildHeader(context, target, formattedDate),
 
             // ── Scroll Body ──────────────────────────────────────────────────
             Expanded(
@@ -79,6 +131,43 @@ class SessionDetailScreen extends StatelessWidget {
                         ),
                       ),
 
+                    // ── Session Snapshots (Top of body, matching Instructor Review) ──
+                    if (session.insertionImageBase64 != null || session.aspirationImageBase64 != null || session.withdrawalImageBase64 != null) ...[
+                      _sectionLabel('SESSION SNAPSHOTS'),
+                      Builder(
+                        builder: (context) {
+                          final items = <SnapshotImageItem>[
+                            if (session.insertionImageBase64 != null)
+                              SnapshotImageItem(title: 'Insertion', base64Image: session.insertionImageBase64!),
+                            if (session.aspirationImageBase64 != null)
+                              SnapshotImageItem(title: 'Aspiration', base64Image: session.aspirationImageBase64!),
+                            if (session.withdrawalImageBase64 != null)
+                              SnapshotImageItem(title: 'Withdrawal', base64Image: session.withdrawalImageBase64!),
+                          ];
+
+                          return SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Row(
+                              children: items.asMap().entries.map((entry) {
+                                final index = entry.key;
+                                final item = entry.value;
+                                return _SnapshotCard(
+                                  title: item.title,
+                                  base64Image: item.base64Image,
+                                  onTap: () => showImageGalleryDialog(
+                                    context,
+                                    items: items,
+                                    initialIndex: index,
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 14),
+                    ],
+
                     // Section 1: Insertion
                     _SectionCard(
                       themeColor: _navy,
@@ -102,24 +191,18 @@ class SessionDetailScreen extends StatelessWidget {
 
                     // Section 2: Aspiration
                     _SectionCard(
-                      themeColor: const Color(0xFF1A4A7A),
-                      title: 'Section 2 — Aspiration',
+                      themeColor: const Color(0xFF1E5F8A),
+                      title: 'Section 2 — Needle Aspiration',
                       children: [
+                        _DataRow('Blood Return Check', session.aspirationResult, false),
+                        _DataRow('Clinical Finding', aspirationPass ? 'No Blood (Safe to Inject)' : 'Blood Observed (Vascular Puncture)', false),
+                        _DataRow('Rubric Score', "${aspirationPass ? 5 : 1} / 5", false),
                         _DataRow(
-                          'Detection Result', '', false,
+                          'Result', '', true,
                           trailing: _Chip(
-                            text: session.aspirationResult,
-                            textColor: session.aspirationResult == 'Correct' ? _green : (session.aspirationResult == 'Incorrect' ? _red : _textMid),
-                            bgColor: session.aspirationResult == 'Correct' ? _greenBg : (session.aspirationResult == 'Incorrect' ? _redBg : _surface),
-                          ),
-                        ),
-                        _DataRow('Plunger Duration', '${session.aspirationDuration.toStringAsFixed(1)} s', false),
-                        _DataRow(
-                          'Motion Smoothness', '', true,
-                          trailing: _Chip(
-                            text: session.motionSmoothness,
-                            textColor: _navy,
-                            bgColor: const Color(0x14003366),
+                            text: aspirationPass ? 'Pass' : 'Fail',
+                            textColor: aspirationPass ? _green : _red,
+                            bgColor: aspirationPass ? _greenBg : _redBg,
                           ),
                         ),
                       ],
@@ -141,74 +224,179 @@ class SessionDetailScreen extends StatelessWidget {
                             bgColor: session.correspondenceResult == 'Matches' ? _greenBg : _amberBg,
                           ),
                         ),
-                        _DataRow('Rubric Score', "${session.withdrawalScore ?? '—'} / 5", true),
+                        _DataRow('Rubric Score', "${session.withdrawalScore ?? '—'} / 5", false),
+                        _DataRow(
+                          'Result', '', true,
+                          trailing: _Chip(
+                            text: withdrawalPass ? 'Pass' : 'Fail',
+                            textColor: withdrawalPass ? _green : _red,
+                            bgColor: withdrawalPass ? _greenBg : _redBg,
+                          ),
+                        ),
                       ],
                     ),
                     const SizedBox(height: 10),
 
-                    // Section 4: Feedback
-                    _SectionCard(
-                      themeColor: _accent,
-                      titleColor: const Color(0xFF3A7CA5),
-                      title: 'Section 4 — Instructor Feedback',
-                      padding: const EdgeInsets.only(top: 14),
-                      children: [
-                        // Info Note
-                        Container(
-                          margin: const EdgeInsets.fromLTRB(16, 0, 16, 0),
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: _surface,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: _border),
-                          ),
-                          child: Row(
-                            children: [
-                              SvgPicture.string(
-                                '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" stroke="#8A9BB0" stroke-width="1.2"/><path d="M7 6v4M7 4.5v.5" stroke="#8A9BB0" stroke-width="1.3" stroke-linecap="round"/></svg>',
-                              ),
-                              const SizedBox(width: 8),
-                              const Expanded(
-                                child: Text(
-                                  'AI-Assisted and reviewed by your clinical instructor.',
-                                  style: TextStyle(color: _textLight, fontSize: 13),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        // Text body
-                        Container(
-                          constraints: const BoxConstraints(maxHeight: 300),
-                          padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-                          child: RawScrollbar(
-                            thumbColor: _border,
-                            radius: const Radius.circular(4),
-                            thickness: 4,
-                            child: SingleChildScrollView(
-                              child: Text(
-                                  session.aiFeedbackText.isEmpty
-                                      ? 'No feedback available yet.'
-                                      : session.aiFeedbackText,
-                                  style: const TextStyle(color: _textMid, fontSize: 15, height: 1.6),
-                                ),
-                            ),
-                          ),
-                        ),
-                      ],
+                    // Section 4: Feedback (with real-time stream, loading, and retry on error)
+                    Builder(
+                      builder: (context) {
+                        final isPractice = session.sectionName == 'Practice' || session.partnerName == 'Self-Practice';
+
+                        if (session.sessionId.isEmpty) {
+                          // In-memory fallback
+                          return _buildFeedbackSection(
+                            isPractice: isPractice,
+                            aiText: session.aiFeedbackText,
+                            status: session.feedbackStatus,
+                          );
+                        }
+
+                        return StreamBuilder<DocumentSnapshot>(
+                          stream: FirebaseFirestore.instance.collection('sessions').doc(session.sessionId).snapshots(),
+                          builder: (context, snap) {
+                            String streamAiText = session.aiFeedbackText;
+                            String streamStatus = session.feedbackStatus;
+
+                            if (snap.hasData && snap.data!.exists) {
+                              final data = snap.data!.data() as Map<String, dynamic>?;
+                              if (data != null) {
+                                streamAiText = data['aiFeedbackText'] as String? ?? streamAiText;
+                                streamStatus = data['feedbackStatus'] as String? ?? streamStatus;
+                              }
+                            }
+
+                            return _buildFeedbackSection(
+                              isPractice: isPractice,
+                              aiText: streamAiText,
+                              status: streamStatus,
+                            );
+                          },
+                        );
+                      }
                     ),
                   ],
                 ),
               ),
             ),
-
           ],
         ),
       ),
+    ),
+  );
+  }
+
+  Widget _buildFeedbackSection({
+    required bool isPractice,
+    required String aiText,
+    required String status,
+  }) {
+    final isFailed = status == 'Feedback Generation Failed';
+    final isLoading = aiText.isEmpty && !isFailed;
+
+    return _SectionCard(
+      themeColor: _accent,
+      titleColor: const Color(0xFF3A7CA5),
+      title: isPractice ? 'Section 4 — AI Feedback' : 'Section 4 — Instructor & AI Feedback',
+      padding: const EdgeInsets.only(top: 14),
+      children: [
+        if (!isPractice)
+          Container(
+            margin: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: _surface,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: _border),
+            ),
+            child: Row(
+              children: [
+                SvgPicture.string(
+                  '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" stroke="#8A9BB0" stroke-width="1.2"/><path d="M7 6v4M7 4.5v.5" stroke="#8A9BB0" stroke-width="1.3" stroke-linecap="round"/></svg>',
+                ),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'AI-Assisted and reviewed by your clinical instructor.',
+                    style: TextStyle(color: _textLight, fontSize: 13),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+        if (isLoading)
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+            alignment: Alignment.center,
+            child: Column(
+              children: const [
+                SizedBox(width: 22, height: 22, child: CircularProgressIndicator(color: _navy, strokeWidth: 2.2)),
+                SizedBox(height: 12),
+                Text('Generating clinical AI feedback...', style: TextStyle(color: _textDark, fontSize: 13, fontWeight: FontWeight.w600)),
+                SizedBox(height: 4),
+                Text('Evaluating insertion angle, aspiration technique, and withdrawal.', style: TextStyle(color: _textLight, fontSize: 11), textAlign: TextAlign.center),
+              ],
+            ),
+          )
+        else if (isFailed)
+          Container(
+            margin: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: _redBg,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0x33EF4444)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: const [
+                    Icon(Icons.error_outline_rounded, color: _red, size: 18),
+                    SizedBox(width: 8),
+                    Text('AI Feedback Generation Failed', style: TextStyle(color: _red, fontSize: 13, fontWeight: FontWeight.w700)),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                const Text('Network timeout or AI service busy. You can retry generating clinical feedback.', style: TextStyle(color: _textMid, fontSize: 12)),
+                const SizedBox(height: 12),
+                ElevatedButton.icon(
+                  onPressed: _isRetrying ? null : () => _retryAiFeedback(widget.session),
+                  icon: _isRetrying
+                      ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                      : const Icon(Icons.refresh_rounded, size: 16, color: Colors.white),
+                  label: Text(_isRetrying ? 'Retrying...' : 'Retry AI Feedback', style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _navy,
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                ),
+              ],
+            ),
+          )
+        else
+          Container(
+            constraints: const BoxConstraints(maxHeight: 300),
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+            child: RawScrollbar(
+              thumbColor: _border,
+              radius: const Radius.circular(4),
+              thickness: 4,
+              child: SingleChildScrollView(
+                child: Text(
+                  aiText.isEmpty ? 'No feedback text available.' : aiText,
+                  style: const TextStyle(color: _textMid, fontSize: 15, height: 1.6),
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 
   Widget _buildHeader(BuildContext context, double target, String formattedDate) {
+    final session = widget.session;
     return Container(
       color: _navy,
       child: Stack(
@@ -318,7 +506,7 @@ class SessionDetailScreen extends StatelessWidget {
 
   Map<String, double> _targetForType(String type) {
     const targets = {
-      'IM': {'target': 90.0, 'tolerance': 5.0},
+      'IM': {'target': 90.0, 'tolerance': 10.0},
     };
     return targets[type] ?? {'target': 0, 'tolerance': 5};
   }
@@ -398,18 +586,29 @@ class _DataRow extends StatelessWidget {
         border: isLast ? null : const Border(bottom: BorderSide(color: Color(0x0A000000))),
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Text(label, style: const TextStyle(color: _textMid, fontSize: 15)),
-          if (trailing != null) trailing! else Text(
-            value,
-            style: const TextStyle(
-              color: _textDark,
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-              fontFeatures: [FontFeature.tabularFigures()],
-            ),
+          Expanded(
+            flex: 4,
+            child: Text(label, style: const TextStyle(color: _textMid, fontSize: 14, fontWeight: FontWeight.w500)),
           ),
+          const SizedBox(width: 8),
+          if (trailing != null)
+            trailing!
+          else
+            Expanded(
+              flex: 5,
+              child: Text(
+                value,
+                textAlign: TextAlign.end,
+                style: const TextStyle(
+                  color: _textDark,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  fontFeatures: [FontFeature.tabularFigures()],
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -443,3 +642,90 @@ class _Chip extends StatelessWidget {
     );
   }
 }
+
+Widget _sectionLabel(String title) => Padding(
+  padding: const EdgeInsets.only(bottom: 8),
+  child: Text(
+    title,
+    style: const TextStyle(color: _navy, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.1),
+  ),
+);
+
+class _SnapshotCard extends StatelessWidget {
+  final String title;
+  final String base64Image;
+  final VoidCallback onTap;
+
+  const _SnapshotCard({
+    required this.title,
+    required this.base64Image,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.only(right: 12),
+        width: 140,
+        decoration: BoxDecoration(
+          color: _white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: _border),
+          boxShadow: [
+            BoxShadow(
+              color: _navy.withValues(alpha: 0.05),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Stack(
+              children: [
+                ClipRRect(
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(11)),
+                  child: AspectRatio(
+                    aspectRatio: 3 / 4,
+                    child: Image.memory(
+                      base64Decode(base64Image),
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) =>
+                          const Center(child: Icon(Icons.broken_image, color: _textLight)),
+                    ),
+                  ),
+                ),
+                // Zoom icon badge overlay on preview image
+                Positioned(
+                  right: 6,
+                  bottom: 6,
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.6),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Icon(Icons.zoom_in_rounded, color: Colors.white, size: 14),
+                  ),
+                ),
+              ],
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+              child: Text(
+                title,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: _textDark, fontSize: 12, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+

@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../providers/user_role_provider.dart';
 import '../../services/auth_service.dart';
 import '../../widgets/auth_wrapper.dart';
+import 'change_password_screen.dart';
 
 // ─── Brand Colours ────────────────────────────────────────────────────────────
 const _navy       = Color(0xFF003366);
@@ -357,7 +358,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     _buildSettingsTile(
                       icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" stroke="#4A5568" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
                       title: 'Push Notifications',
-                      subtitle: 'Receive updates on feedback',
+                      subtitle: 'Allow in-app notifications',
                       trailing: Switch(
                         value: _notificationsEnabled,
                         onChanged: _toggleNotifications,
@@ -367,15 +368,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                     const SizedBox(height: 10),
 
-                    // Change Password
-                    _buildSettingsTile(
-                      icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" stroke="#4A5568" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-                      title: 'Change Password',
-                      subtitle: 'Update your account security',
-                      trailing: SvgPicture.string('<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M7 4l5 5-5 5" stroke="#A8C4E0" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
-                      onTap: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Change Password functionality coming soon.')),
+                    // Change / Set Password
+                    Builder(
+                      builder: (context) {
+                        final isPasswordUser = user?.providerData.any((p) => p.providerId == 'password') ?? false;
+                        return _buildSettingsTile(
+                          icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" stroke="#4A5568" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+                          title: isPasswordUser ? 'Change Password' : 'Set Password',
+                          subtitle: isPasswordUser ? 'Update your account security' : 'Create a password for your account',
+                          trailing: SvgPicture.string('<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M7 4l5 5-5 5" stroke="#A8C4E0" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (_) => const ChangePasswordScreen()),
+                            );
+                          },
                         );
                       },
                     ),
@@ -401,6 +408,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                       ),
                     ),
+
                   ],
                 ),
               ),

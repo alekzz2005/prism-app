@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -7,6 +10,9 @@ import '../../services/instructor_session_repository.dart';
 import '../../models/session_model.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../services/feedback_service.dart';
+import '../../services/notification_service.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart';
+import '../../services/webrtc_signaling_service.dart';
 
 // ─── Brand Colours ─────────────────────────────────────────────────────────
 const _navy       = Color(0xFF003366);
@@ -37,21 +43,177 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
   final _repo = InstructorSessionRepository();
   final _feedbackService = FeedbackService();
 
-  DateTime? _aspirationStartTime;
+  // WebRTC
+  RTCPeerConnection? _peerConnection;
+  final WebRtcSignalingService _signalingService = WebRtcSignalingService();
+  StreamSubscription? _offerSub;
+  StreamSubscription? _iceSub;
+  final ValueNotifier<ui.Image?> _videoFrameNotifier = ValueNotifier<ui.Image?>(null);
+  ui.Image? _lastUiImage;
+  String? _instructorId;
+  
+  // SDP deduplication
+  String? _lastOfferSdp;
+  bool _webrtcConnected = false;
+  final Set<String> _addedCandidates = {};
+  
+  // Phase snapshots — populated by SNAP: messages from the camera node
+  String? _insertionBase64;
+  String? _aspirationBase64;
+  String? _withdrawalBase64;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _instructorId = context.read<UserRoleProvider>().uid;
+      _initWebRTC();
+    });
+  }
+
+  Future<void> _initWebRTC() async {
+    final instructorId = _instructorId;
+    if (instructorId == null) return;
+
+    // Reset state for fresh connection
+    _lastOfferSdp = null;
+    _webrtcConnected = false;
+    _addedCandidates.clear();
+    _offerSub?.cancel();
+    _iceSub?.cancel();
+    try {
+      _peerConnection?.close();
+    } catch (_) {}
+
+    try {
+      _peerConnection = await _signalingService.createConnection();
+
+      // Listen for data channel from the camera node
+      _peerConnection!.onDataChannel = (channel) {
+        debugPrint('[RemoteControl WebRTC] 📡 DataChannel received: ${channel.label}');
+        channel.onDataChannelState = (state) {
+          debugPrint('[RemoteControl WebRTC] DataChannel state: $state');
+        };
+        channel.onMessage = (RTCDataChannelMessage message) {
+          if (message.type == MessageType.text) {
+            final text = message.text;
+
+            // ─── Snapshot message: SNAP:phase:base64 ───
+            if (text.startsWith('SNAP:')) {
+              final parts = text.split(':');
+              // Format: SNAP:<phase>:<base64> — base64 itself may contain ':'s after index 2
+              if (parts.length >= 3) {
+                final phase = parts[1];
+                final snap = text.substring('SNAP:$phase:'.length);
+                if (mounted) {
+                  setState(() {
+                    if (phase == 'insertion')  _insertionBase64  = snap;
+                    if (phase == 'aspiration') _aspirationBase64 = snap;
+                    if (phase == 'withdrawal') _withdrawalBase64 = snap;
+                  });
+                  debugPrint('[RemoteControl] 📸 Snapshot stored for phase: $phase');
+                }
+              }
+              return;
+            }
+
+            // ─── Regular video frame ───
+            try {
+              final bytes = base64Decode(text);
+              ui.decodeImageFromList(bytes, (ui.Image img) {
+                if (!mounted) {
+                  img.dispose();
+                  return;
+                }
+                final old = _lastUiImage;
+                _lastUiImage = img;
+                _videoFrameNotifier.value = img;
+                old?.dispose();
+              });
+            } catch (_) {}
+          }
+        };
+      };
+
+      // Setup ICE candidate listener to send to Firestore
+      _peerConnection!.onIceCandidate = (candidate) {
+        _signalingService.sendIceCandidate(instructorId, 'remote', candidate);
+      };
+
+      _peerConnection!.onIceConnectionState = (state) {
+        debugPrint('[RemoteControl WebRTC] ICE state: $state');
+        if (state == RTCIceConnectionState.RTCIceConnectionStateConnected ||
+            state == RTCIceConnectionState.RTCIceConnectionStateCompleted) {
+          _webrtcConnected = true;
+        }
+      };
+
+      // Listen for Offer — deduplicate and lock synchronously
+      bool isProcessingOffer = false;
+      _offerSub = _signalingService.watchOffer(instructorId).listen((offer) async {
+        if (offer == null) return;
+        if (_lastOfferSdp == offer.sdp) return;
+        if (isProcessingOffer) return;
+        if (_peerConnection == null) return;
+
+        isProcessingOffer = true;
+        _lastOfferSdp = offer.sdp; // Lock immediately to prevent duplicate runs
+
+        try {
+          final state = await _peerConnection!.getSignalingState();
+          if (state == RTCSignalingState.RTCSignalingStateStable) {
+            await _peerConnection!.setRemoteDescription(offer);
+            final answer = await _peerConnection!.createAnswer({});
+            await _peerConnection!.setLocalDescription(answer);
+            await _signalingService.sendAnswer(instructorId, answer);
+            debugPrint('[RemoteControl WebRTC] ✅ Offer processed, answer sent');
+          }
+        } catch (e) {
+          debugPrint('[RemoteControl WebRTC] Error handling offer: $e');
+        } finally {
+          isProcessingOffer = false;
+        }
+      });
+
+      // Listen for Remote ICE candidates — deduplicate
+      _iceSub = _signalingService.watchIceCandidates(instructorId, 'camera').listen(
+        (candidates) {
+          for (var candidate in candidates) {
+            final key = candidate.candidate ?? '';
+            if (key.isNotEmpty && _addedCandidates.add(key)) {
+              _peerConnection!.addCandidate(candidate);
+            }
+          }
+        },
+        onError: (e) {
+          debugPrint('[RemoteControl WebRTC] ICE candidates stream error: $e');
+        },
+      );
+
+      // Explicitly request fresh offer from camera node
+      await _signalingService.requestOffer(instructorId);
+
+      debugPrint('[RemoteControl WebRTC] ✅ Initialization complete, offer requested');
+    } catch (e) {
+      debugPrint('[RemoteControl WebRTC] ❌ Init failed: $e');
+    }
+  }
+
+  @override
+  void dispose() {
+    _offerSub?.cancel();
+    _iceSub?.cancel();
+    _peerConnection?.close();
+    _videoFrameNotifier.dispose();
+    _lastUiImage?.dispose();
+    super.dispose();
+  }
+
 
   void _updatePhase(String instructorId, String newPhase) {
-    if (newPhase == 'aspiration') {
-      _aspirationStartTime = DateTime.now();
-      _liveService.updatePhase(instructorId, newPhase);
-    } else if (newPhase == 'aspiration_locked') {
-      _liveService.updatePhase(instructorId, newPhase);
-      if (_aspirationStartTime != null) {
-        final duration = DateTime.now().difference(_aspirationStartTime!).inMilliseconds / 1000.0;
-        _liveService.saveAspirationMetrics(instructorId, 'Correct', duration, 'N/A');
-      }
-    } else {
-      _liveService.updatePhase(instructorId, newPhase);
-    }
+    _liveService.updatePhase(instructorId, newPhase);
+    // Snapshots are sent by the camera node via SNAP: DataChannel messages.
+    // No manual snapshot capture needed here.
   }
 
   void _completeSession(String instructorId, LiveSessionModel session) async {
@@ -66,15 +228,11 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
     String finalUserId = session.studentEmail.toLowerCase();
 
     // Build final session model
-    // For ID injections, aspiration is N/A per the rubric
-    final isID = session.injectionType == 'ID';
-    final aspirationResult = isID ? 'N/A' : (session.aspirationResult ?? 'Not Detected');
-    final aspirationScore = isID ? 0 : ((aspirationResult == 'Correct') ? 5 : 1);
+    final aspirationResult = session.aspirationResult ?? 'No Bleeding';
+    final aspirationScore = (aspirationResult == 'No Bleeding' || aspirationResult == 'No') ? 5 : 1;
 
-    // ID averages 2 components (insertion + withdrawal), others average 3 (+ aspiration)
-    final overallScore = isID
-        ? (((session.insertionScore ?? 1) + (session.withdrawalScore ?? 1)) / 2).round()
-        : (((session.insertionScore ?? 1) + (session.withdrawalScore ?? 1) + aspirationScore) / 3).round();
+    // Overall score: average of 3 components (insertion + aspiration + withdrawal)
+    final overallScore = (((session.insertionScore ?? 1) + aspirationScore + (session.withdrawalScore ?? 1)) / 3).round();
 
     // Build final session model with empty feedback
     SessionModel initialSession = SessionModel(
@@ -84,11 +242,12 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
       timestamp: Timestamp.now(), 
       injectionType: session.injectionType,
       sectionName: session.sectionName,
+      partnerName: session.partnerName,
       insertionAngle: session.finalInsertionAngle ?? 0,
       insertionScore: session.insertionScore ?? 1,
       aspirationResult: aspirationResult,
-      aspirationDuration: isID ? 0 : (session.aspirationDuration ?? 0),
-      motionSmoothness: isID ? 'N/A' : (session.motionSmoothness ?? 'Low'),
+      aspirationDuration: 0,
+      motionSmoothness: 'N/A',
       withdrawalAngle: session.finalWithdrawalAngle ?? 0,
       withdrawalScore: session.withdrawalScore ?? 1,
       correspondenceResult: session.correspondenceResult ?? 'Deviates',
@@ -98,6 +257,9 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
       feedbackStatus: 'Pending',
       instructorNote: '',
       flagged: false,
+      insertionImageBase64: _insertionBase64,
+      aspirationImageBase64: _aspirationBase64,
+      withdrawalImageBase64: _withdrawalBase64,
     );
 
     // Save immediately and get ID
@@ -111,11 +273,12 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
       timestamp: initialSession.timestamp, 
       injectionType: session.injectionType,
       sectionName: session.sectionName,
+      partnerName: session.partnerName,
       insertionAngle: session.finalInsertionAngle ?? 0,
       insertionScore: session.insertionScore ?? 1,
       aspirationResult: aspirationResult,
-      aspirationDuration: isID ? 0 : (session.aspirationDuration ?? 0),
-      motionSmoothness: isID ? 'N/A' : (session.motionSmoothness ?? 'Low'),
+      aspirationDuration: 0,
+      motionSmoothness: 'N/A',
       withdrawalAngle: session.finalWithdrawalAngle ?? 0,
       withdrawalScore: session.withdrawalScore ?? 1,
       correspondenceResult: session.correspondenceResult ?? 'Deviates',
@@ -125,19 +288,83 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
       feedbackStatus: 'Pending',
       instructorNote: '',
       flagged: false,
+      insertionImageBase64: _insertionBase64,
+      aspirationImageBase64: _aspirationBase64,
+      withdrawalImageBase64: _withdrawalBase64,
     );
 
     // Fire and forget background generation
     _feedbackService.generateAndSaveFeedbackInBackground(sessionWithId);
 
-    if (!mounted) return;
-    Navigator.pop(context); // Pop the loading dialog
-    Navigator.pop(context); // Go back to dashboard instantly
-    
-    // Clear live session AFTER popping animation finishes to avoid jitter
-    Future.delayed(const Duration(milliseconds: 400), () {
+    // Notify instructor of new pending return-demonstration
+    NotificationService().sendNotification(
+      uid: instructorId,
+      title: 'RD Pending Review: ${session.studentName}',
+      body: '${session.studentName} (${session.sectionName}) completed IM injection RD with overall score $overallScore/5. Ready for review.',
+      type: 'session_pending',
+      relatedSessionId: generatedSessionId,
+    );
+
+    if (mounted) {
+      Navigator.pop(context); // Close loading dialog
       _liveService.clearSession(instructorId);
-    });
+      Navigator.pop(context); // Close screen
+    }
+  }
+
+  void _cancelSessionWithBleeding(String instructorId, LiveSessionModel session) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(
+        child: CircularProgressIndicator(color: Colors.white),
+      ),
+    );
+
+    String finalUserId = session.studentEmail;
+
+    SessionModel failedSession = SessionModel(
+      sessionId: '', // Auto-generated
+      userId: finalUserId, 
+      studentName: session.studentName,
+      timestamp: Timestamp.now(), 
+      injectionType: session.injectionType,
+      sectionName: session.sectionName,
+      partnerName: session.partnerName,
+      insertionAngle: session.finalInsertionAngle ?? 0,
+      insertionScore: session.insertionScore ?? 1,
+      aspirationResult: 'Bleeding Detected',
+      aspirationDuration: 0,
+      motionSmoothness: 'N/A',
+      withdrawalAngle: 0,
+      withdrawalScore: 1,
+      correspondenceResult: 'Deviates',
+      angularDelta: 0,
+      overallScore: 1, // Automatic fail
+      aiFeedbackText: 'Session automatically flagged: Blood return was observed during aspiration. In clinical practice, the injection must be aborted immediately without injecting medication, the needle safely withdrawn, and the procedure restarted with new equipment.',
+      feedbackStatus: 'Pending',
+      instructorNote: 'Instructor cancelled session: Patient bleeding detected during aspiration.',
+      flagged: true,
+      insertionImageBase64: _insertionBase64,
+      aspirationImageBase64: _aspirationBase64,
+    );
+
+    final failedDocId = await _repo.saveSession(failedSession);
+
+    // Notify instructor of vascular puncture alert
+    NotificationService().sendNotification(
+      uid: instructorId,
+      title: 'Vascular Puncture Alert: ${session.studentName}',
+      body: '${session.studentName} (${session.sectionName}) encountered blood return during aspiration. Procedure aborted & flagged.',
+      type: 'session_flagged',
+      relatedSessionId: failedDocId,
+    );
+    
+    if (mounted) {
+      Navigator.pop(context); // Close dialog
+      _liveService.clearSession(instructorId);
+      Navigator.pop(context); // Close screen
+    }
   }
 
   @override
@@ -169,132 +396,116 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
               );
             }
 
-            return Column(
+            return Stack(
               children: [
-                // ── Navy header with student info ──────────────────────────
-                _buildSessionHeader(instructorId, session),
-
-                // ── Phase bar ─────────────────────────────────────────────
-                _buildPhaseBar(session),
-
-                // ── Live angle + gauge + metrics ───────────────────────────
-                Expanded(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(20, 24, 20, 16),
-                    child: Column(
-                      children: [
-                        const Text('LIVE INSERTION ANGLE',
-                          style: TextStyle(color: _textMid, fontSize: 11,
-                              fontWeight: FontWeight.w700, letterSpacing: 0.15 * 10)),
-
-                        const SizedBox(height: 18),
-
-                        // Angle ring
-                        SizedBox(
-                          width: 180, height: 180,
-                          child: Stack(
-                            fit: StackFit.expand,
-                            children: [
-                              CircularProgressIndicator(
-                                value: (session.liveAngle.clamp(0, 180) / 180).clamp(0.0, 1.0),
-                                backgroundColor: _navy.withValues(alpha: 0.08),
-                                color: _navy,
-                                strokeWidth: 8,
-                                strokeCap: StrokeCap.round,
-                              ),
-                              Center(
-                                child: Container(
-                                  width: 150, height: 150,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    border: Border.all(color: _navy.withValues(alpha: 0.04)),
-                                    color: _cardBg,
-                                  ),
-                                  alignment: Alignment.center,
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    crossAxisAlignment: CrossAxisAlignment.baseline,
-                                    textBaseline: TextBaseline.alphabetic,
-                                    children: [
-                                      Text(
-                                        session.liveAngle.toStringAsFixed(0),
-                                        style: const TextStyle(color: _navy, fontSize: 58,
-                                            fontWeight: FontWeight.w700, fontFamily: 'DM Mono', height: 1),
-                                      ),
-                                      const Text('\u00b0',
-                                        style: TextStyle(color: _textMid, fontSize: 22,
-                                            fontWeight: FontWeight.w500)),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-
-                        const SizedBox(height: 24),
-
-                        // Pills
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            _pill(
-                              'Target: ${session.targetAngle.toStringAsFixed(0)}\u00b0',
-                              bg: _navy.withValues(alpha: 0.07),
-                              border: _cardBorder,
-                              text: _navy,
-                            ),
-                            const SizedBox(width: 8),
-                            if (session.phase == 'insertion' ||
-                                session.phase == 'withdrawal' ||
-                                session.phase == 'waiting')
-                              _pill(
-                                '\u0394 ${(session.liveAngle - session.targetAngle).abs().toStringAsFixed(0)}\u00b0 \u2014 Good',
-                                bg: _greenBg,
-                                border: _greenBorder,
-                                text: _green,
-                              ),
-                          ],
-                        ),
-
-                        const SizedBox(height: 24),
-
-                        // Metrics preview
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                          decoration: BoxDecoration(
-                            color: _bg,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: _cardBorder),
-                          ),
+                // Camera Mirror Feed — GPU direct rendering via ValueNotifier (zero widget rebuilds)
+                Positioned.fill(
+                  child: ValueListenableBuilder<ui.Image?>(
+                    valueListenable: _videoFrameNotifier,
+                    builder: (context, frame, _) {
+                      if (frame == null) {
+                        return Center(
                           child: Column(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              _MetricRow(
-                                label: 'Insertion Locked',
-                                value: session.finalInsertionAngle != null
-                                    ? '${session.finalInsertionAngle!.toStringAsFixed(1)}\u00b0 \u00b7 ${session.insertionScore ?? "-"}/5'
-                                    : '--',
-                                valueColor: session.finalInsertionAngle != null ? _green : _textMid,
-                              ),
-                              const SizedBox(height: 6),
-                              _MetricRow(
-                                label: 'Aspiration Phase',
-                                value: session.phase == 'aspiration'
-                                    ? 'Active\u2026'
-                                    : (session.aspirationResult ?? '--'),
-                                valueColor: session.phase == 'aspiration' ? _amber : _textMid,
+                              const CircularProgressIndicator(color: _accentBlue),
+                              const SizedBox(height: 16),
+                              const Text('Waiting for camera feed...', style: TextStyle(color: _accentBlue)),
+                              const SizedBox(height: 24),
+                              ElevatedButton.icon(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.white.withValues(alpha: 0.1),
+                                  foregroundColor: Colors.white,
+                                  elevation: 0,
+                                ),
+                                icon: const Icon(Icons.refresh, size: 16),
+                                label: const Text('Retry Connection'),
+                                onPressed: () {
+                                  _initWebRTC();
+                                },
                               ),
                             ],
                           ),
+                        );
+                      }
+
+                      return SizedBox.expand(
+                        child: FittedBox(
+                          fit: BoxFit.cover,
+                          child: SizedBox(
+                            width: frame.width.toDouble(),
+                            height: frame.height.toDouble(),
+                            child: RawImage(
+                              image: frame,
+                              fit: BoxFit.fill,
+                            ),
+                          ),
                         ),
-                      ],
-                    ),
+                      );
+                    },
                   ),
                 ),
 
+                // Floating UI Layer
+                Column(
+                  children: [
+                    // Header (semi-transparent)
+                    Opacity(
+                      opacity: 0.85,
+                      child: _buildSessionHeader(instructorId, session),
+                    ),
+                    
+                    Opacity(
+                      opacity: 0.85,
+                      child: _buildPhaseBar(session),
+                    ),
+
+                    // Floating Angle Data
+                    Expanded(
+                      child: SafeArea(
+                        child: Align(
+                          alignment: Alignment.topRight,
+                          child: Padding(
+                            padding: const EdgeInsets.all(16.0),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withValues(alpha: 0.6),
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
+                                  child: Text(
+                                    'Live Angle: ${session.liveAngle.toStringAsFixed(0)}\u00b0',
+                                    style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withValues(alpha: 0.6),
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
+                                  child: Text(
+                                    'Target: ${session.targetAngle.toStringAsFixed(0)}\u00b0',
+                                    style: const TextStyle(color: Colors.white, fontSize: 14),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+
+
                 // ── Controls panel ─────────────────────────────────────────
-                _buildControls(instructorId, session),
+                    _buildControls(instructorId, session),
+                  ],
+                ),
               ],
             );
           },
@@ -495,35 +706,46 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
         label: 'Confirm Needle Insertion',
         hint: 'Tap when the needle is fully inserted',
         color: const Color(0xFF92400E),
-        onPressed: guardrailBlocked ? () {} : () => _updatePhase(instructorId, 'insertion_locked'),
+        onPressed: guardrailBlocked ? () {} : () {
+          _updatePhase(instructorId, 'insertion_locked');
+        },
       );
     } else if (session.phase == 'insertion_locked') {
       button = _ControlButton(
         label: 'Proceed to Aspiration',
-        hint: 'Tap to begin aspiration hold',
+        hint: 'Tap to continue to aspiration phase',
         color: _navy,
-        onPressed: guardrailBlocked ? () {} : () => _updatePhase(instructorId, 'aspiration'),
+        onPressed: () => _updatePhase(instructorId, 'aspiration'),
       );
     } else if (session.phase == 'aspiration') {
-      button = _ControlButton(
-        label: 'Done Aspirating',
-        hint: 'Tap to stop timer',
-        color: const Color(0xFF92400E),
-        onPressed: guardrailBlocked ? () {} : () => _updatePhase(instructorId, 'aspiration_locked'),
-      );
-    } else if (session.phase == 'aspiration_locked') {
-      button = _ControlButton(
-        label: 'Proceed to Withdrawal',
-        hint: 'Tap to advance phase',
-        color: _navy,
-        onPressed: guardrailBlocked ? () {} : () => _updatePhase(instructorId, 'withdrawal'),
+      button = Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _ControlButton(
+            label: 'No Bleeding (Proceed to Withdrawal)',
+            hint: guardrailBlocked ? 'Detection lost — Reposition hand' : 'Aspiration clear',
+            color: guardrailBlocked ? Colors.grey : const Color(0xFF16A34A),
+            onPressed: guardrailBlocked ? () {} : () {
+              _updatePhase(instructorId, 'withdrawal');
+            },
+          ),
+          const SizedBox(height: 12),
+          _ControlButton(
+            label: 'Cancel (Patient Bleeding)',
+            hint: 'Fails session immediately',
+            color: Colors.redAccent,
+            onPressed: () => _cancelSessionWithBleeding(instructorId, session),
+          ),
+        ],
       );
     } else if (session.phase == 'withdrawal') {
       button = _ControlButton(
         label: 'Confirm Needle Withdrawal',
         hint: 'Tap when the needle is fully withdrawn',
         color: const Color(0xFF92400E),
-        onPressed: guardrailBlocked ? () {} : () => _updatePhase(instructorId, 'withdrawal_locked'),
+        onPressed: guardrailBlocked ? () {} : () {
+          _updatePhase(instructorId, 'withdrawal_locked');
+        },
       );
     } else {
       button = const SizedBox.shrink();
@@ -558,11 +780,13 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
       if (currentPhase == 'waiting' || currentPhase == 'insertion') return 1;
       return 2;
     } else if (step == 2) {
+      if (currentPhase == 'waiting' || currentPhase == 'insertion') return 0;
       if (currentPhase == 'insertion_locked' || currentPhase == 'aspiration') return 1;
-      if (currentPhase == 'aspiration_locked' || currentPhase == 'withdrawal' || currentPhase == 'withdrawal_locked') return 2;
-      return 0;
+      return 2;
     } else {
-      if (currentPhase == 'aspiration_locked' || currentPhase == 'withdrawal' || currentPhase == 'withdrawal_locked') return 1;
+      // Step 3 = Withdrawal
+      if (currentPhase == 'withdrawal') return 1;
+      if (currentPhase == 'withdrawal_locked') return 2;
       return 0;
     }
   }

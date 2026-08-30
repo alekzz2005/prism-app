@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import '../../services/auth_service.dart';
 import 'register_screen.dart';
+import 'forgot_password_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -17,6 +18,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _authService = AuthService();
 
   bool _isLoading = false;
+  bool _obscurePassword = true;
   String? _error;
 
   @override
@@ -45,16 +47,8 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() { _isLoading = true; _error = null; });
     try {
       await _authService.signInWithGoogle();
-    } on AuthException catch (e) {
-      setState(() => _error = e.toString());
     } catch (e) {
-      // Catch Google Play Services unavailability (Huawei, etc.)
-      final msg = e.toString().toLowerCase();
-      if (msg.contains('play services') || msg.contains('unavailable') || msg.contains('api_not_available')) {
-        setState(() => _error = 'Google Sign-In is not available on this device. Please use email and password instead.');
-      } else {
-        setState(() => _error = 'Google Sign-In failed. Please try again or use email login.');
-      }
+      setState(() => _error = e.toString());
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -184,21 +178,59 @@ class _LoginScreenState extends State<LoginScreen> {
                             const SizedBox(height: 20),
 
                             // Password
-                            const Text(
-                              'Password',
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                                color: Color(0xFF4A5568),
-                              ),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text(
+                                  'Password',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    color: Color(0xFF4A5568),
+                                  ),
+                                ),
+                                GestureDetector(
+                                  onTap: () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) => ForgotPasswordScreen(
+                                          initialEmail: _emailController.text.trim(),
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                  child: const Text(
+                                    'Forgot Password?',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                      color: Color(0xFF003366),
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                             const SizedBox(height: 8),
                             TextFormField(
                               key: const Key('login_password'),
                               controller: _passwordController,
-                              obscureText: true,
+                              obscureText: _obscurePassword,
                               style: const TextStyle(color: Color(0xFF1A2B3C)),
-                              decoration: _inputDecoration('Enter your password', Icons.lock_outline),
+                              decoration: _inputDecoration(
+                                'Enter your password',
+                                Icons.lock_outline,
+                                suffixIcon: IconButton(
+                                  icon: Icon(
+                                    _obscurePassword
+                                        ? Icons.visibility_off_outlined
+                                        : Icons.visibility_outlined,
+                                    color: const Color(0xFF8A9BB0),
+                                    size: 20,
+                                  ),
+                                  onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                                ),
+                              ),
                               validator: (v) =>
                                   (v == null || v.isEmpty) ? 'Enter your password' : null,
                             ),
@@ -206,10 +238,28 @@ class _LoginScreenState extends State<LoginScreen> {
 
                             // Error
                             if (_error != null) ...[
-                              Text(_error!,
-                                  style: const TextStyle(color: Colors.redAccent, fontSize: 14),
-                                  textAlign: TextAlign.center),
-                              const SizedBox(height: 12),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                decoration: BoxDecoration(
+                                  color: const Color(0x1AEF4444),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(color: const Color(0x33EF4444)),
+                                ),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Icon(Icons.info_outline_rounded, color: Color(0xFFDC2626), size: 18),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        _error!,
+                                        style: const TextStyle(color: Color(0xFFDC2626), fontSize: 13, height: 1.4),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 16),
                             ],
 
                             // Login button
@@ -235,7 +285,6 @@ class _LoginScreenState extends State<LoginScreen> {
                                       style: TextStyle(
                                           fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
                             ),
-                            
                             const SizedBox(height: 20),
                             Row(
                               children: [
@@ -309,14 +358,15 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  InputDecoration _inputDecoration(String hint, IconData icon) =>
+  InputDecoration _inputDecoration(String hint, IconData icon, {Widget? suffixIcon}) =>
       InputDecoration(
         hintText: hint,
         hintStyle: const TextStyle(color: Color(0xFFB0BEC5)),
         prefixIcon: Icon(icon, color: const Color(0xFF8A9BB0)),
+        suffixIcon: suffixIcon,
         filled: true,
         fillColor: const Color(0xFFF8FAFC),
-        contentPadding: const EdgeInsets.symmetric(vertical: 16),
+        contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: const BorderSide(color: Color(0xFFE2EAF4)),

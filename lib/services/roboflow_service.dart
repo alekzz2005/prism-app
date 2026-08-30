@@ -6,8 +6,7 @@ import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:image/image.dart' as img;
-
-import 'tflite_detection_service.dart' show TfliteFrameData;
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 // ─── Roboflow Detection Result ──────────────────────────────────────────────
 /// Holds the bounding-box centres and dimensions of detected objects.
@@ -15,6 +14,11 @@ class RoboflowDetection {
   final double? syringeCx, syringeCy, syringeW, syringeH;
   final double? armCx, armCy, armW, armH;
   final double? needleCx, needleCy, needleW, needleH;
+  
+  // RF-DETR Arm Keypoints
+  final double? armTopCx, armTopCy, armBottomCx, armBottomCy;
+  
+  final bool isFakeArm;
   final int imageWidth;
   final int imageHeight;
 
@@ -22,6 +26,8 @@ class RoboflowDetection {
     this.syringeCx, this.syringeCy, this.syringeW, this.syringeH,
     this.armCx,     this.armCy,     this.armW,     this.armH,
     this.needleCx,  this.needleCy,  this.needleW,  this.needleH,
+    this.armTopCx,  this.armTopCy,  this.armBottomCx, this.armBottomCy,
+    this.isFakeArm   = false,
     this.imageWidth  = 640,
     this.imageHeight = 480,
   });
@@ -37,19 +43,21 @@ class AngleResult {
   final int    score;             // CIT-U 1–5 IM rubric
   final bool   detectionLost;
   final RoboflowDetection? detection; // nullable – carries bbox data for overlay
+  final String? frameBase64;      // low-res jpeg base64 for mirroring
 
   const AngleResult({
     required this.angle,
     required this.score,
     required this.detectionLost,
     this.detection,
+    this.frameBase64,
   });
 
   static const lost = AngleResult(angle: -1, score: 0, detectionLost: true);
 }
 
 // ─── Plain data object to pass into compute isolate ─────────────────────────
-class _FrameData {
+class RawFrameData {
   final int width;
   final int height;
   final Uint8List yBytes;
@@ -60,8 +68,10 @@ class _FrameData {
   final bool isIOS;
   final int uvPixelStride;
   final int sensorOrientation;
+  final int targetWidth;
+  final int targetQuality;
 
-  _FrameData({
+  RawFrameData({
     required this.width,
     required this.height,
     required this.yBytes,
@@ -72,16 +82,16 @@ class _FrameData {
     required this.uvPixelStride,
     required this.sensorOrientation,
     required this.isIOS,
+    this.targetWidth = 640,
+    this.targetQuality = 70,
   });
 }
 
 // ─── Service ────────────────────────────────────────────────────────────────
 class RoboflowDetectionService {
-  // ---- Configuration ----
-  static const String _workflowUrl =
-      'https://detect.roboflow.com/infer/workflows/veincarmell-pangilinan-cit-edu/find-syringe-arm-and-needle';
-
-  static const String _apiKey = 'J9jW40Es9tFmhUzmXpMe';
+  // ---- Configuration from .env ----
+  static String get _workflowUrl => dotenv.env['ROBOFLOW_WORKFLOW_URL'] ?? '';
+  static String get _apiKey => dotenv.env['ROBOFLOW_API_KEY'] ?? '';
 
   /// When true, bypasses the API and generates simulated detections.
   static bool mockMode = false;
@@ -103,6 +113,52 @@ class RoboflowDetectionService {
   //  PUBLIC API  —  called by CameraNodeScreen every 500 ms
   // ═══════════════════════════════════════════════════════════════════════════
 
+  /// Quickly convert frame data to a 480p base64 JPEG for live WebRTC mirroring.
+  /// Optimized for 480p video mirroring at smooth 25 FPS without lag.
+  static Future<String?> getFrameBase64(RawFrameData frameData) async {
+    final mirrorFrame = RawFrameData(
+      width: frameData.width,
+      height: frameData.height,
+      yBytes: frameData.yBytes,
+      uBytes: frameData.uBytes,
+      vBytes: frameData.vBytes,
+      yRowStride: frameData.yRowStride,
+      uRowStride: frameData.uRowStride,
+      uvPixelStride: frameData.uvPixelStride,
+      sensorOrientation: frameData.sensorOrientation,
+      isIOS: frameData.isIOS,
+      targetWidth: 360,  // 360p resolution for clean video mirroring
+      targetQuality: 35, // Lightweight payload for fast WebRTC DataChannel transfer
+    );
+
+    final jpegBytes = await compute(_convertFrameDataToJpeg, mirrorFrame);
+    if (jpegBytes == null || jpegBytes.isEmpty) return null;
+    return base64Encode(jpegBytes);
+  }
+
+  /// Convert frame data to a HIGH-QUALITY 720p base64 JPEG for feedback-module snapshots.
+  /// Called once per phase transition — high resolution for pinch-to-zoom in feedback review.
+  static Future<String?> getSnapshotBase64(RawFrameData frameData) async {
+    final snapFrame = RawFrameData(
+      width: frameData.width,
+      height: frameData.height,
+      yBytes: frameData.yBytes,
+      uBytes: frameData.uBytes,
+      vBytes: frameData.vBytes,
+      yRowStride: frameData.yRowStride,
+      uRowStride: frameData.uRowStride,
+      uvPixelStride: frameData.uvPixelStride,
+      sensorOrientation: frameData.sensorOrientation,
+      isIOS: frameData.isIOS,
+      targetWidth: 720,  // 720p crisp resolution for detailed pinch-to-zoom
+      targetQuality: 85, // High quality — saved to Firestore permanently
+    );
+
+    final jpegBytes = await compute(_convertFrameDataToJpeg, snapFrame);
+    if (jpegBytes == null || jpegBytes.isEmpty) return null;
+    return base64Encode(jpegBytes);
+  }
+
   /// Converts a [CameraImage] (YUV420) to JPEG, sends it to Roboflow,
   /// calculates the relative injection angle, and returns an [AngleResult].
   static Future<AngleResult> detectAngle(CameraImage cameraImage, {int sensorOrientation = 90}) async {
@@ -112,7 +168,7 @@ class RoboflowDetectionService {
 
       // 2. Extract raw plane data (serializable) from CameraImage
       final isIOS = cameraImage.planes.length == 2;
-      final frameData = _FrameData(
+      final frameData = RawFrameData(
         width:  cameraImage.width,
         height: cameraImage.height,
         yBytes: Uint8List.fromList(cameraImage.planes[0].bytes),
@@ -148,7 +204,7 @@ class RoboflowDetectionService {
       final detection = await _callApi(base64Image, sentW, sentH);
       if (detection == null || !detection.hasSyringe || !detection.hasArm) {
         debugPrint('[RoboflowService] Detection missing: syringe=${detection?.hasSyringe}, arm=${detection?.hasArm}');
-        return AngleResult.lost;
+        return AngleResult(angle: -1, score: 0, detectionLost: true, frameBase64: base64Image);
       }
 
       debugPrint('[RoboflowService] Detected! syringe=(${detection.syringeCx?.toStringAsFixed(0)},${detection.syringeCy?.toStringAsFixed(0)}) arm=(${detection.armCx?.toStringAsFixed(0)},${detection.armCy?.toStringAsFixed(0)}) needle=${detection.hasNeedle}');
@@ -160,7 +216,13 @@ class RoboflowDetectionService {
       // 7. Score using CIT-U IM rubric
       final score = scoreIMAngle(smoothed);
 
-      return AngleResult(angle: smoothed, score: score, detectionLost: false, detection: detection);
+      return AngleResult(
+        angle: smoothed, 
+        score: score, 
+        detectionLost: false, 
+        detection: detection,
+        frameBase64: base64Image,
+      );
     } catch (e, st) {
       debugPrint('[RoboflowService] Error: $e\n$st');
       return AngleResult.lost;
@@ -170,11 +232,11 @@ class RoboflowDetectionService {
   /// Accepts pre-extracted [TfliteFrameData] (raw YUV bytes already copied
   /// synchronously from CameraImage). This avoids holding a native camera
   /// buffer reference which causes buffer starvation.
-  static Future<AngleResult> detectAngleFromFrameData(TfliteFrameData frameData) async {
+  static Future<AngleResult> detectAngleFromFrameData(RawFrameData frameData) async {
     try {
       if (mockMode) return _mockDetect();
 
-      final internalFrame = _FrameData(
+      final internalFrame = RawFrameData(
         width: frameData.width,
         height: frameData.height,
         yBytes: frameData.yBytes,
@@ -185,6 +247,8 @@ class RoboflowDetectionService {
         uvPixelStride: frameData.uvPixelStride,
         sensorOrientation: frameData.sensorOrientation,
         isIOS: frameData.isIOS,
+        targetWidth: 480, // Lowered so base64 stays < 64KB for WebRTC!
+        targetQuality: 50,
       );
 
       final jpegBytes = await compute(_convertFrameDataToJpeg, internalFrame);
@@ -200,13 +264,13 @@ class RoboflowDetectionService {
       final bool isRotated = frameData.sensorOrientation == 90 || frameData.sensorOrientation == 270;
       final int uprightW = isRotated ? frameData.height : frameData.width;
       final int uprightH = isRotated ? frameData.width : frameData.height;
-      final int sentW = 640;
-      final int sentH = (uprightH * (640.0 / uprightW)).round();
+      final int sentW = 480;
+      final int sentH = (uprightH * (480.0 / uprightW)).round();
 
       final detection = await _callApi(base64Image, sentW, sentH);
       if (detection == null) {
         debugPrint('[RoboflowService] Detection: null (parser returned nothing)');
-        return AngleResult.lost;
+        return AngleResult(angle: -1, score: 0, detectionLost: true, frameBase64: base64Image); // Send mirror even on fail!
       }
 
       debugPrint('[RoboflowService] Detected! syringe=(${detection.syringeCx?.toStringAsFixed(0)},${detection.syringeCy?.toStringAsFixed(0)}) arm=(${detection.armCx?.toStringAsFixed(0)},${detection.armCy?.toStringAsFixed(0)}) needle=${detection.hasNeedle}');
@@ -214,14 +278,14 @@ class RoboflowDetectionService {
       // Need BOTH syringe and arm to compute angle
       if (!detection.hasSyringe || !detection.hasArm) {
         debugPrint('[RoboflowService] Partial detection — returning detection for overlay but no angle');
-        return AngleResult(angle: -1, score: 0, detectionLost: true, detection: detection);
+        return AngleResult(angle: -1, score: 0, detectionLost: true, detection: detection, frameBase64: base64Image);
       }
 
       final rawAngle = _computeAngle(detection);
       final smoothed = _smooth(rawAngle);
       final score = scoreIMAngle(smoothed);
 
-      return AngleResult(angle: smoothed, score: score, detectionLost: false, detection: detection);
+      return AngleResult(angle: smoothed, score: score, detectionLost: false, detection: detection, frameBase64: base64Image);
     } catch (e, st) {
       debugPrint('[RoboflowService] Error (fromFrameData): $e\n$st');
       return AngleResult.lost;
@@ -232,53 +296,74 @@ class RoboflowDetectionService {
   //  IMAGE CONVERSION  (runs inside compute isolate)
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /// Converts extracted frame data to compressed JPEG bytes.
-  /// This runs in a separate isolate via [compute] so the UI stays smooth.
-  static Uint8List? _convertFrameDataToJpeg(_FrameData frame) {
+  /// Converts extracted frame data to compressed JPEG bytes in a single fast pass.
+  /// Subsamples and applies rotation on-the-fly to avoid expensive intermediate allocations.
+  static Uint8List? _convertFrameDataToJpeg(RawFrameData frame) {
     try {
-      final int width  = frame.width;
-      final int height = frame.height;
-      final image = img.Image(width: width, height: height);
+      final int srcW = frame.width;
+      final int srcH = frame.height;
+      final int orientation = frame.sensorOrientation;
+      final bool isRotated = orientation == 90 || orientation == 270;
 
-      for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
-          final int yIndex  = y * frame.yRowStride + x;
-          final int uvIndex = (y ~/ 2) * frame.uRowStride + (x ~/ 2) * frame.uvPixelStride;
+      final int naturalW = isRotated ? srcH : srcW;
+      final int naturalH = isRotated ? srcW : srcH;
 
-          if (yIndex >= frame.yBytes.length || uvIndex >= frame.uBytes.length) continue;
-          
-          final int vIndex = frame.isIOS ? uvIndex + 1 : uvIndex;
-          if (vIndex >= frame.vBytes.length) continue;
+      final int targetW = math.min(frame.targetWidth, naturalW);
+      final double scale = targetW / naturalW;
+      final int targetH = (naturalH * scale).round();
 
-          final int yVal = frame.yBytes[yIndex];
-          // Subtract 128 to center around 0
-          final int uVal = frame.uBytes[uvIndex] - 128;
-          final int vVal = frame.vBytes[vIndex] - 128;
+      final outImg = img.Image(width: targetW, height: targetH);
 
-          // Standard YUV to RGB conversion
+      final yBytes = frame.yBytes;
+      final uBytes = frame.uBytes;
+      final vBytes = frame.vBytes;
+      final yStride = frame.yRowStride;
+      final uStride = frame.uRowStride;
+      final uvPixStride = frame.uvPixelStride;
+      final isIOS = frame.isIOS;
+      final yLen = yBytes.length;
+      final uLen = uBytes.length;
+      final vLen = vBytes.length;
+
+      for (int outY = 0; outY < targetH; outY++) {
+        for (int outX = 0; outX < targetW; outX++) {
+          int srcX, srcY;
+
+          if (orientation == 90) {
+            srcX = (outY / scale).floor().clamp(0, srcW - 1);
+            srcY = (srcH - 1 - (outX / scale).floor()).clamp(0, srcH - 1);
+          } else if (orientation == 270) {
+            srcX = (srcW - 1 - (outY / scale).floor()).clamp(0, srcW - 1);
+            srcY = (outX / scale).floor().clamp(0, srcH - 1);
+          } else if (orientation == 180) {
+            srcX = (srcW - 1 - (outX / scale).floor()).clamp(0, srcW - 1);
+            srcY = (srcH - 1 - (outY / scale).floor()).clamp(0, srcH - 1);
+          } else {
+            srcX = (outX / scale).floor().clamp(0, srcW - 1);
+            srcY = (outY / scale).floor().clamp(0, srcH - 1);
+          }
+
+          final int yIndex = srcY * yStride + srcX;
+          final int uvIndex = (srcY >> 1) * uStride + (srcX >> 1) * uvPixStride;
+
+          if (yIndex >= yLen || uvIndex >= uLen) continue;
+
+          final int vIndex = isIOS ? uvIndex + 1 : uvIndex;
+          if (vIndex >= vLen) continue;
+
+          final int yVal = yBytes[yIndex];
+          final int uVal = uBytes[uvIndex] - 128;
+          final int vVal = vBytes[vIndex] - 128;
+
           int r = (yVal + 1.402 * vVal).round().clamp(0, 255);
           int g = (yVal - 0.344136 * uVal - 0.714136 * vVal).round().clamp(0, 255);
           int b = (yVal + 1.772 * uVal).round().clamp(0, 255);
 
-          image.setPixelRgba(x, y, r, g, b, 255);
+          outImg.setPixelRgb(outX, outY, r, g, b);
         }
       }
 
-      // Rotate image based on sensor orientation (usually 90 on Android phones)
-      img.Image uprightImage = image;
-      if (frame.sensorOrientation == 90) {
-        uprightImage = img.copyRotate(image, angle: 90);
-      } else if (frame.sensorOrientation == 270) {
-        uprightImage = img.copyRotate(image, angle: 270);
-      } else if (frame.sensorOrientation == 180) {
-        uprightImage = img.copyRotate(image, angle: 180);
-      }
-
-      // Resize to 640px max width/height for fast upload
-      final resized = img.copyResize(uprightImage, width: 640);
-
-      // JPEG at quality 70
-      return Uint8List.fromList(img.encodeJpg(resized, quality: 70));
+      return Uint8List.fromList(img.encodeJpg(outImg, quality: frame.targetQuality));
     } catch (e) {
       return null;
     }
@@ -290,18 +375,50 @@ class RoboflowDetectionService {
 
   static Future<RoboflowDetection?> _callApi(String base64Image, int sentW, int sentH) async {
     try {
-      // Use direct Infer API for version 33 to force a low confidence threshold (15%)
-      // This allows detecting the syringe even when perfectly horizontal.
-      final String inferUrl = 'https://detect.roboflow.com/find-syringe-arm-and-needle/33?api_key=$_apiKey&confidence=15';
+      final String inferUrl = _workflowUrl;
+      final String apiKey = _apiKey;
 
-      final response = await http.post(
-        Uri.parse(inferUrl),
-        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-        body: base64Image,
-      ).timeout(const Duration(seconds: 10));
+      http.Response response;
+
+      if (inferUrl.contains('detect.roboflow.com')) {
+        // ── Direct Roboflow Object Detection Endpoint (e.g. model v33) ──
+        response = await http.post(
+          Uri.parse(inferUrl),
+          headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+          body: base64Image,
+        ).timeout(const Duration(seconds: 10));
+      } else {
+        // ── Roboflow Serverless Workflow Endpoint ──
+        response = await http.post(
+          Uri.parse(inferUrl),
+          headers: {
+            'Content-Type': 'application/json',
+            if (apiKey.isNotEmpty) 'Authorization': 'Bearer $apiKey',
+          },
+          body: jsonEncode({
+            'inputs': {
+              'image': {
+                'type': 'base64',
+                'value': base64Image
+              }
+            }
+          }),
+        ).timeout(const Duration(seconds: 10));
+
+        // If workflow returns 404, fallback to direct v33 detection model endpoint
+        if (response.statusCode == 404 && apiKey.isNotEmpty) {
+          debugPrint('[RoboflowService] Workflow 404, falling back to direct v33 detection endpoint...');
+          final fallbackUrl = 'https://detect.roboflow.com/find-syringe-arm-and-needle/33?api_key=$apiKey&confidence=15';
+          response = await http.post(
+            Uri.parse(fallbackUrl),
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: base64Image,
+          ).timeout(const Duration(seconds: 10));
+        }
+      }
 
       if (response.statusCode != 200) {
-        debugPrint('[RoboflowService] API error: ${response.statusCode}');
+        debugPrint('[RoboflowService] API error: ${response.statusCode} - ${response.body}');
         return null;
       }
 
@@ -396,6 +513,8 @@ class RoboflowDetectionService {
       double? sCx, sCy, sW, sH;
       double? aCx, aCy, aW, aH;
       double? nCx, nCy, nW, nH;
+      
+      double? aTopX, aTopY, aBotX, aBotY;
 
       for (final pred in predictions) {
         if (pred is! Map<String, dynamic>) continue;
@@ -412,8 +531,44 @@ class RoboflowDetectionService {
 
         if (className.contains('syringe')) {
           sCx = cx; sCy = cy; sW = w; sH = h;
+          
+          // Check for keypoints (RF-DETR Preview)
+          if (pred.containsKey('keypoints') && pred['keypoints'] is List) {
+            final kps = pred['keypoints'] as List;
+            for (final kp in kps) {
+              if (kp is! Map) continue;
+              final kpClass = (kp['class'] ?? '').toString().toLowerCase();
+              final kpX = kp['x']?.toDouble();
+              final kpY = kp['y']?.toDouble();
+              if (kpX == null || kpY == null) continue;
+              
+              if (kpClass == 'plunger_top' || kpClass == 'barrel_base') {
+                sCx = kpX; sCy = kpY; // Use one of these as the syringe base
+              } else if (kpClass == 'needle_tip') {
+                nCx = kpX; nCy = kpY;
+              }
+            }
+          }
         } else if (className.contains('arm')) {
           aCx = cx; aCy = cy; aW = w; aH = h;
+          
+          // Check for arm keypoints (RF-DETR Preview)
+          if (pred.containsKey('keypoints') && pred['keypoints'] is List) {
+            final kps = pred['keypoints'] as List;
+            for (final kp in kps) {
+              if (kp is! Map) continue;
+              final kpClass = (kp['class'] ?? '').toString().toLowerCase();
+              final kpX = kp['x']?.toDouble();
+              final kpY = kp['y']?.toDouble();
+              if (kpX == null || kpY == null) continue;
+              
+              if (kpClass == 'arm_top') {
+                aTopX = kpX; aTopY = kpY;
+              } else if (kpClass == 'arm_bottom') {
+                aBotX = kpX; aBotY = kpY;
+              }
+            }
+          }
         } else if (className.contains('needle')) {
           nCx = cx; nCy = cy; nW = w; nH = h;
         }
@@ -423,6 +578,7 @@ class RoboflowDetectionService {
         syringeCx: sCx, syringeCy: sCy, syringeW: sW, syringeH: sH,
         armCx: aCx, armCy: aCy, armW: aW, armH: aH,
         needleCx: nCx, needleCy: nCy, needleW: nW, needleH: nH,
+        armTopCx: aTopX, armTopCy: aTopY, armBottomCx: aBotX, armBottomCy: aBotY,
         imageWidth: imgW,
         imageHeight: imgH,
       );
@@ -442,7 +598,11 @@ class RoboflowDetectionService {
 
     // Arm surface direction vector
     double armDx, armDy;
-    if ((d.armW ?? 0) > (d.armH ?? 0)) {
+    if (d.armTopCx != null && d.armTopCy != null && d.armBottomCx != null && d.armBottomCy != null) {
+      // Exact vector from arm_top to arm_bottom (the skin surface)
+      armDx = d.armBottomCx! - d.armTopCx!;
+      armDy = d.armBottomCy! - d.armTopCy!;
+    } else if ((d.armW ?? 0) > (d.armH ?? 0)) {
       armDx = 1; armDy = 0; // horizontal arm
     } else {
       armDx = 0; armDy = 1; // vertical arm
@@ -450,15 +610,30 @@ class RoboflowDetectionService {
 
     // Syringe direction vector
     double syringeDx, syringeDy;
-    // (Needle logic removed to improve performance/clean UI per user request)
-    // Estimate angle using the syringe bounding box aspect ratio.
-    // tan(theta) ≈ height / width.
-    // We point the vector towards the arm horizontally (sign of dx).
-    double directionX = (d.armCx! - d.syringeCx!).sign;
-    if (directionX == 0) directionX = 1.0;
     
-    syringeDx = (d.syringeW ?? 1.0) * directionX;
-    syringeDy = (d.syringeH ?? 0.0); // Bounding box height gives the vertical tilt
+    // If we extracted the needle_tip keypoint, compute exact vector!
+    if (d.hasNeedle && d.syringeCx != null && d.syringeCy != null) {
+      syringeDx = d.needleCx! - d.syringeCx!;
+      syringeDy = d.needleCy! - d.syringeCy!;
+      // Ensure the vector points downwards towards the arm
+      if (syringeDy < 0) {
+        syringeDx = -syringeDx;
+        syringeDy = -syringeDy;
+      }
+    } else {
+      // Fallback: Estimate angle using the syringe bounding box aspect ratio.
+      double directionX = (d.armCx! - d.syringeCx!).sign;
+      if (directionX == 0) directionX = 1.0;
+      
+      syringeDx = (d.syringeW ?? 1.0) * directionX;
+      syringeDy = (d.syringeH ?? 0.0); // Bounding box height gives the vertical tilt
+    }
+
+    // Normalise arm vector
+    final armMag = math.sqrt(armDx * armDx + armDy * armDy);
+    if (armMag < 1e-6) return 0;
+    armDx /= armMag;
+    armDy /= armMag;
 
     // Normalise syringe vector
     final mag = math.sqrt(syringeDx * syringeDx + syringeDy * syringeDy);
@@ -481,10 +656,10 @@ class RoboflowDetectionService {
 
   static int scoreIMAngle(double measuredAngle) {
     final delta = (measuredAngle - 90.0).abs();
-    if (delta <= 1) return 5;
-    if (delta <= 2) return 4;
-    if (delta <= 3) return 3;
-    if (delta <= 5) return 2;
+    if (delta <= 0.5) return 5; // Near perfect 90.0 degrees
+    if (delta <= 5) return 4;
+    if (delta <= 10) return 3; // 80-100 degrees passes
+    if (delta <= 15) return 2;
     return 1;
   }
 
