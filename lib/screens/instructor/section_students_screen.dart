@@ -3,6 +3,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:provider/provider.dart';
 import '../../providers/user_role_provider.dart';
 import '../../services/roster_service.dart';
+import 'package:file_picker/file_picker.dart';
 
 // --- Brand Colours ------------------------------------------------------------
 const _navy = Color(0xFF003366);
@@ -59,6 +60,7 @@ class _SectionStudentsScreenState extends State<SectionStudentsScreen> {
   }
 
   void _showAddStudentModal(String instructorId) {
+    _toggleFab();
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,

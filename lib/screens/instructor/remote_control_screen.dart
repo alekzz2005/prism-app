@@ -225,7 +225,7 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
       ),
     );
 
-    String finalUserId = session.studentEmail;
+    String finalUserId = session.studentEmail.toLowerCase();
 
     // Build final session model
     final aspirationResult = session.aspirationResult ?? 'No Bleeding';
@@ -816,62 +816,6 @@ class _PhaseStep extends StatelessWidget {
   }
 }
 
-// ── Gauge ─────────────────────────────────────────────────────────────────────
-class _Gauge extends StatelessWidget {
-  final double angle;
-  const _Gauge({required this.angle});
-
-  @override
-  Widget build(BuildContext context) {
-    final fill = (angle.clamp(0, 180) / 180).clamp(0.0, 1.0);
-    return Column(
-      children: [
-        Stack(
-          clipBehavior: Clip.none,
-          children: [
-            Container(
-              height: 7,
-              decoration: BoxDecoration(color: _cardBorder, borderRadius: BorderRadius.circular(4)),
-              child: FractionallySizedBox(
-                widthFactor: fill,
-                alignment: Alignment.centerLeft,
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: _navy,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                ),
-              ),
-            ),
-            Positioned(
-              left: (MediaQuery.of(context).size.width - 40 - 32) * fill - 7,
-              top: -3.5,
-              child: Container(
-                width: 14, height: 14,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle, color: _cardBg,
-                  border: Border.all(color: _navy, width: 2.5),
-                  boxShadow: [BoxShadow(color: _navy.withValues(alpha: 0.18), blurRadius: 4, offset: const Offset(0, 1))],
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 6),
-        const Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text('0\u00b0',   style: TextStyle(color: _textMid, fontSize: 10, fontWeight: FontWeight.w500)),
-            Text('45\u00b0',  style: TextStyle(color: _textMid, fontSize: 10, fontWeight: FontWeight.w500)),
-            Text('90\u00b0',  style: TextStyle(color: _textMid, fontSize: 10, fontWeight: FontWeight.w500)),
-            Text('135\u00b0', style: TextStyle(color: _textMid, fontSize: 10, fontWeight: FontWeight.w500)),
-            Text('180\u00b0', style: TextStyle(color: _textMid, fontSize: 10, fontWeight: FontWeight.w500)),
-          ],
-        ),
-      ],
-    );
-  }
-}
 
 // ── Metric Row ────────────────────────────────────────────────────────────────
 class _MetricRow extends StatelessWidget {
