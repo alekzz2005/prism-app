@@ -21,6 +21,12 @@ class AuthService {
 
   // ── Email / Password ────────────────────────────────────────────────
 
+  /// Domain lock: Strictly Gmail accounts only (@gmail.com)
+  static bool isGmail(String email) {
+    final clean = email.trim().toLowerCase();
+    return clean.endsWith('@gmail.com');
+  }
+
   /// Registers a new Student account and writes their profile to `users/{uid}`.
   /// Role is always "Student" — Instructor accounts are provisioned by admin.
   Future<UserCredential> register({
@@ -28,19 +34,36 @@ class AuthService {
     required String password,
     required String fullName,
   }) async {
+    final cleanEmail = email.trim().toLowerCase();
+
+    // Enforce Gmail Requirement (@gmail.com only)
+    if (!isGmail(cleanEmail)) {
+      throw AuthException('Only Google / Gmail (@gmail.com) email addresses are allowed.');
+    }
+
     try {
       final cred = await _auth.createUserWithEmailAndPassword(
-        email: email,
+        email: cleanEmail,
         password: password,
       );
+
+      // Write Firestore user profile document first
       await _writeUserDoc(
         uid: cred.user!.uid,
-        email: email,
+        email: cleanEmail,
         fullName: fullName,
         role: 'Student',
+        requiresEmailVerification: true,
       );
+
+      // Send Firebase verification email if supported
+      try {
+        await cred.user?.sendEmailVerification();
+      } catch (_) {}
+
       return cred;
     } catch (e) {
+      if (e is AuthException) rethrow;
       throw AuthException(_handleAuthError(e));
     }
   }
@@ -50,9 +73,11 @@ class AuthService {
     required String email,
     required String password,
   }) async {
+    final cleanEmail = email.trim().toLowerCase();
     try {
-      return await _auth.signInWithEmailAndPassword(email: email, password: password);
+      return await _auth.signInWithEmailAndPassword(email: cleanEmail, password: password);
     } catch (e) {
+      if (e is AuthException) rethrow;
       throw AuthException(_handleAuthError(e));
     }
   }
@@ -74,16 +99,39 @@ class AuthService {
 
       final cred = await _auth.signInWithCredential(credential);
       final uid = cred.user!.uid;
+      final email = (cred.user!.email ?? '').toLowerCase().trim();
+
+      // Enforce Gmail
+      if (!isGmail(email)) {
+        await _auth.signOut();
+        try {
+          await _googleSignIn.signOut();
+        } catch (_) {}
+        throw AuthException('Only @gmail.com Google accounts are allowed.');
+      }
 
       // Only create the user doc if it doesn't exist yet (first-time Google login)
-      final existing = await _db.collection('users').doc(uid).get();
+      final userRef = _db.collection('users').doc(uid);
+      final existing = await userRef.get();
       if (!existing.exists) {
         await _writeUserDoc(
           uid: uid,
-          email: cred.user!.email ?? '',
+          email: email,
           fullName: cred.user!.displayName ?? 'Student',
           role: 'Student',
+          authProvider: 'google',
+          hasPassword: false,
         );
+      } else {
+        final data = existing.data() ?? {};
+        final hasConfirmedPassword = data['hasPassword'] == true;
+        // Google OAuth confirms account ownership; mark verified in Firestore
+        await userRef.set({
+          'emailVerified': true,
+          'requiresEmailVerification': false,
+          if (!hasConfirmedPassword) 'authProvider': 'google',
+          if (!hasConfirmedPassword) 'hasPassword': false,
+        }, SetOptions(merge: true));
       }
 
       return cred;
@@ -121,6 +169,9 @@ class AuthService {
     required String email,
     required String fullName,
     required String role,
+    bool requiresEmailVerification = false,
+    String authProvider = 'password',
+    bool hasPassword = true,
   }) =>
       _db.collection('users').doc(uid).set({
         'uid': uid,
@@ -129,7 +180,10 @@ class AuthService {
         'role': role,
         'createdAt': FieldValue.serverTimestamp(),
         'emailVerified': false,
-      });
+        'authProvider': authProvider,
+        'hasPassword': hasPassword,
+        if (requiresEmailVerification) 'requiresEmailVerification': true,
+      }, SetOptions(merge: true));
 
   String _handleAuthError(dynamic e) {
     if (e is FirebaseAuthException) {
@@ -139,13 +193,19 @@ class AuthService {
         case 'wrong-password':
           return 'Incorrect email or password. Please try again.';
         case 'email-already-in-use':
-          return 'An account already exists for this email.';
+          return 'An account already exists for this email address.';
         case 'weak-password':
-          return 'The password is too weak. Please use at least 6 characters.';
+          return 'Password is too weak. Please use at least 8 characters with uppercase, lowercase, and a number or symbol.';
         case 'invalid-email':
-          return 'The email address is badly formatted.';
+          return 'Incorrect email format. Please enter a valid email address.';
+        case 'user-disabled':
+          return 'This account has been disabled. Please contact your instructor or administrator.';
+        case 'too-many-requests':
+          return 'Too many failed login attempts. Please try again in a few moments.';
         case 'network-request-failed':
-          return 'Network error. Please check your internet connection.';
+          return 'Network error. Please check your internet connection and try again.';
+        case 'requires-recent-login':
+          return 'For security, please sign in again before performing this action.';
         default:
           return e.message ?? 'An unknown authentication error occurred.';
       }

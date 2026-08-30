@@ -1,7 +1,7 @@
 import 'dart:async';
-
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:camera/camera.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -57,6 +57,13 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
   StreamSubscription? _iceSub;
   StreamSubscription? _offerReqSub;
   dynamic _lastOfferRequestId;
+
+  // Guide overlay
+  bool _showGuide = false;
+
+  // Withdrawal snapshot tracking
+  Timer? _withdrawalTimer;
+  bool _withdrawalSnapSent = false;
 
   @override
   void initState() {
@@ -190,6 +197,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
     _peerConnection?.close();
     
     _syncTimer?.cancel();
+    _withdrawalTimer?.cancel();
     _camera?.stopImageStream();
     _camera?.dispose();
     if (_instructorId != null) {
@@ -231,6 +239,10 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
   int _lastInferenceTime = 0;
   bool _isInferenceRunning = false;
 
+  // Cache of the most recent raw frame — used for on-demand snapshot capture
+  RawFrameData? _latestFrameData;
+
+
   void _onFrame(CameraImage image) {
     if (_currentPhase == 'completed') return;
 
@@ -242,12 +254,12 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
     }
 
     final now = DateTime.now().millisecondsSinceEpoch;
-    final needMirror = (now - _lastMirrorTime >= 55) &&
+    final needMirror = (now - _lastMirrorTime >= 33) &&
         !_isMirroring &&
         (_dataChannel != null && _dataChannel!.state == RTCDataChannelState.RTCDataChannelOpen);
     final needInference = (now - _lastInferenceTime >= 500) &&
         !_isInferenceRunning &&
-        (_currentPhase == 'insertion' || _currentPhase == 'withdrawal');
+        (_currentPhase != 'waiting' && _currentPhase != 'completed');
 
     if (!needMirror && !needInference) return;
 
@@ -268,7 +280,10 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
       isIOS: isIOS,
     );
 
-    // 1. FAST MIRRORING PIPELINE (Immediate, 10 FPS, non-blocking)
+    // Always cache latest frame for on-demand snapshot capture
+    _latestFrameData = frameData;
+
+    // 1. FAST MIRRORING PIPELINE (Immediate, 30 FPS, non-blocking pure video stream)
     if (needMirror) {
       _lastMirrorTime = now;
       _isMirroring = true;
@@ -286,7 +301,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
   Future<void> _processMirrorFrame(RawFrameData frameData) async {
     try {
       if (_dataChannel == null || _dataChannel!.state != RTCDataChannelState.RTCDataChannelOpen) return;
-      if ((_dataChannel!.bufferedAmount ?? 0) > 65536) return; // Drop frame if SCTP buffer is busy
+      if ((_dataChannel!.bufferedAmount ?? 0) > 32768) return; // Drop frame if SCTP buffer is busy
 
       final base64Frame = await RoboflowDetectionService.getFrameBase64(frameData);
       if (base64Frame != null && _dataChannel != null && _dataChannel!.state == RTCDataChannelState.RTCDataChannelOpen) {
@@ -296,6 +311,25 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
       debugPrint('[CameraNode WebRTC] Error sending mirror frame: $e');
     } finally {
       _isMirroring = false;
+    }
+  }
+
+  /// Captures a high-quality JPEG from the latest cached frame and sends it over
+  /// the WebRTC DataChannel tagged as `SNAP:phase:base64`. The Remote Control
+  /// screen stores this as the permanent feedback-module snapshot for that phase.
+  Future<void> _sendSnapshot(String phase) async {
+    final frameData = _latestFrameData;
+    if (frameData == null) return;
+    if (_dataChannel == null || _dataChannel!.state != RTCDataChannelState.RTCDataChannelOpen) return;
+
+    try {
+      final base64Snap = await RoboflowDetectionService.getSnapshotBase64(frameData);
+      if (base64Snap != null && _dataChannel != null && _dataChannel!.state == RTCDataChannelState.RTCDataChannelOpen) {
+        _dataChannel!.send(RTCDataChannelMessage('SNAP:$phase:$base64Snap'));
+        debugPrint('[CameraNode] 📸 Snapshot sent for phase: $phase');
+      }
+    } catch (e) {
+      debugPrint('[CameraNode] Error sending snapshot: $e');
     }
   }
 
@@ -346,19 +380,41 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
     _currentPhase = session.phase;
 
     if (session.phase == 'waiting' || session.phase == 'completed') {
+      _withdrawalTimer?.cancel();
+      _withdrawalSnapSent = false;
       setState(() {
         _lastInsertionAngle = null;
         _detectionLost = false;
+        _latestDetection = null;
       });
       RoboflowDetectionService.resetSmoothing();
     } else if (session.phase == 'insertion_locked' && oldPhase == 'insertion') {
       final score = _scoreAngle(_liveAngle, session.targetAngle);
       _lastInsertionAngle = _liveAngle;
       _liveService.saveInsertionMetrics(instructorId, _liveAngle, score);
-    } else if (session.phase == 'withdrawal' && oldPhase == 'insertion_locked') {
-      // Aspiration skipped — go directly from insertion_locked to withdrawal
+      // 📸 Capture insertion snapshot
+      _sendSnapshot('insertion');
+    } else if (session.phase == 'aspiration' && oldPhase == 'insertion_locked') {
+      // 📸 Capture aspiration snapshot (beginning of aspiration phase)
+      _sendSnapshot('aspiration');
+    } else if (session.phase == 'withdrawal' && oldPhase != 'withdrawal') {
       RoboflowDetectionService.resetSmoothing();
+      _withdrawalSnapSent = false;
+      _withdrawalTimer?.cancel();
+      // 📸 2-second delay snapshot after start of withdrawal phase
+      _withdrawalTimer = Timer(const Duration(seconds: 2), () {
+        if (_currentPhase == 'withdrawal' && !_withdrawalSnapSent) {
+          _withdrawalSnapSent = true;
+          _sendSnapshot('withdrawal');
+        }
+      });
     } else if (session.phase == 'withdrawal_locked' && oldPhase == 'withdrawal') {
+      // If prematurely pressed confirm withdrawal before 2 seconds, auto capture immediately
+      if (!_withdrawalSnapSent) {
+        _withdrawalSnapSent = true;
+        _withdrawalTimer?.cancel();
+        _sendSnapshot('withdrawal');
+      }
       final score = _scoreAngle(_liveAngle, session.targetAngle);
       final delta = (_liveAngle - (_lastInsertionAngle ?? 0)).abs();
       final corr  = delta <= 5.0 ? 'Matches' : 'Deviates';
@@ -509,6 +565,30 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                               style: TextStyle(color: Colors.white.withValues(alpha: 0.7),
                                   fontSize: 12, height: 1.4),
                             ),
+                            const SizedBox(height: 14),
+                            GestureDetector(
+                              onTap: () {
+                                HapticFeedback.lightImpact();
+                                setState(() => _showGuide = true);
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: _accentBlue.withValues(alpha: 0.15),
+                                  border: Border.all(color: _accentBlue.withValues(alpha: 0.5)),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.help_outline_rounded, color: _accentBlue, size: 15),
+                                    SizedBox(width: 6),
+                                    Text('Show Placement Guide',
+                                        style: TextStyle(color: _accentBlue, fontSize: 12, fontWeight: FontWeight.w600)),
+                                  ],
+                                ),
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -543,7 +623,24 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                           'Frame the patient. Waiting for remote start...',
                           style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 13),
                         ),
-                        const SizedBox(height: 48),
+                        const SizedBox(height: 24),
+                        // Guide button
+                        GestureDetector(
+                          onTap: () { HapticFeedback.lightImpact(); setState(() => _showGuide = true); },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: _accentBlue.withValues(alpha: 0.12),
+                              border: Border.all(color: _accentBlue.withValues(alpha: 0.4)),
+                              borderRadius: BorderRadius.circular(12)),
+                            child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                              Icon(Icons.help_outline_rounded, color: _accentBlue, size: 16),
+                              SizedBox(width: 7),
+                              Text('Placement Guide', style: TextStyle(color: _accentBlue, fontSize: 13, fontWeight: FontWeight.w600)),
+                            ]),
+                          ),
+                        ),
+                        const SizedBox(height: 24),
                         GestureDetector(
                           onTap: () => Navigator.pop(context),
                           child: Container(
@@ -569,8 +666,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                     color: Colors.black.withValues(alpha: 0.88),
                     padding: const EdgeInsets.fromLTRB(18, 48, 18, 14),
                     child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                      crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
                         Expanded(
                           child: Column(
@@ -603,6 +699,28 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                                 ],
                               ),
                             ],
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        GestureDetector(
+                          onTap: () {
+                            HapticFeedback.lightImpact();
+                            setState(() => _showGuide = !_showGuide);
+                          },
+                          child: Container(
+                            width: 36, height: 36,
+                            decoration: BoxDecoration(
+                              color: _showGuide
+                                  ? _accentBlue.withValues(alpha: 0.25)
+                                  : Colors.white.withValues(alpha: 0.10),
+                              borderRadius: BorderRadius.circular(10),
+                              border: _showGuide
+                                  ? Border.all(color: _accentBlue.withValues(alpha: 0.6))
+                                  : null,
+                            ),
+                            alignment: Alignment.center,
+                            child: const Icon(Icons.help_outline_rounded,
+                                color: _accentBlue, size: 20),
                           ),
                         ),
                       ],
@@ -661,7 +779,6 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                             _buildMetricCard('Phase',
                               session.phase.split('_')[0],
                               const Color(0xFFFCD34D)),
-                            /*
                             const SizedBox(width: 8),
                             _buildMetricCard('Angle',
                               _detectionLost ? '---' : '${_liveAngle.toStringAsFixed(1)}°',
@@ -670,7 +787,6 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                             _buildMetricCard('Score',
                               _detectionLost ? '-' : '$_liveScore/5',
                               _liveScore >= 4 ? _green : _liveScore >= 2 ? const Color(0xFFFCD34D) : _red),
-                            */
                           ],
                         ),
                         const SizedBox(height: 10),
@@ -705,10 +821,57 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                     ),
                   ),
                 ),
+              if (_showGuide) _buildGuideOverlay(),
             ],
           );
         },
       ),
+    );
+  }
+
+  Widget _buildGuideOverlay() {
+    return GestureDetector(
+      onTap: () => setState(() => _showGuide = false),
+      child: Container(color: Colors.black.withValues(alpha: 0.92),
+        child: SafeArea(child: Column(children: [
+          Padding(padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+            child: Row(children: [
+              Container(width: 36, height: 36,
+                decoration: BoxDecoration(color: _accentBlue.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(10), border: Border.all(color: _accentBlue.withValues(alpha: 0.4))),
+                child: const Icon(Icons.camera_alt_outlined, color: _accentBlue, size: 18)),
+              const SizedBox(width: 12),
+              const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('Placement Guide', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800)),
+                Text('How to frame for best detection', style: TextStyle(color: _accentBlue, fontSize: 11)),
+              ]),
+              const Spacer(),
+              GestureDetector(onTap: () => setState(() => _showGuide = false),
+                child: Container(width: 32, height: 32,
+                  decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.10), borderRadius: BorderRadius.circular(8)),
+                  child: const Icon(Icons.close_rounded, color: Colors.white, size: 18))),
+            ])),
+          Expanded(child: Padding(padding: const EdgeInsets.all(20),
+            child: ClipRRect(borderRadius: BorderRadius.circular(16),
+              child: Image.asset('assets/injection_placement_guide.jpg', fit: BoxFit.contain)))),
+          Padding(padding: const EdgeInsets.fromLTRB(20, 0, 20, 12), child: Column(children: [
+            _InstructorGuideTip(icon: Icons.crop_free_rounded, color: _green, label: 'ARM',
+              text: 'Keep the bare upper-arm / deltoid area centered — the GREEN box tracks this.'),
+            const SizedBox(height: 10),
+            _InstructorGuideTip(icon: Icons.vaccines_rounded, color: const Color(0xFF22D3EE), label: 'SYRINGE',
+              text: 'The entire syringe barrel must be visible from the side — the CYAN box tracks this.'),
+            const SizedBox(height: 10),
+            _InstructorGuideTip(icon: Icons.straighten_rounded, color: const Color(0xFFFCD34D), label: 'TRIPOD POSITION',
+              text: 'Place the tripod level with the injection site, 30–50 cm away, facing the side of the arm.'),
+          ])),
+          Padding(padding: const EdgeInsets.fromLTRB(20, 0, 20, 30),
+            child: GestureDetector(onTap: () => setState(() => _showGuide = false),
+              child: Container(height: 46, alignment: Alignment.center,
+                decoration: BoxDecoration(color: _accentBlue.withValues(alpha: 0.15),
+                  border: Border.all(color: _accentBlue.withValues(alpha: 0.4)),
+                  borderRadius: BorderRadius.circular(14)),
+                child: const Text('Got it — Back to Camera', style: TextStyle(color: _accentBlue, fontSize: 14, fontWeight: FontWeight.w700))))),
+        ]))),
     );
   }
 
@@ -729,9 +892,13 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                   fontSize: 9, fontWeight: FontWeight.w700, letterSpacing: 1),
               maxLines: 1, overflow: TextOverflow.ellipsis),
             const SizedBox(height: 2),
-            Text(value,
-              style: TextStyle(color: valueColor, fontSize: 15,
-                  fontWeight: FontWeight.w700, fontFamily: 'DM Mono')),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(value,
+                style: TextStyle(color: valueColor, fontSize: 15,
+                    fontWeight: FontWeight.w700, fontFamily: 'DM Mono')),
+            ),
           ],
         ),
       ),
@@ -762,3 +929,50 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
     ];
   }
 }
+
+class _InstructorGuideTip extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String label;
+  final String text;
+  const _InstructorGuideTip({
+    required this.icon,
+    required this.color,
+    required this.label,
+    required this.text,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 32, height: 32,
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: color.withValues(alpha: 0.4)),
+          ),
+          child: Icon(icon, color: color, size: 16),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label,
+                  style: TextStyle(color: color, fontSize: 11,
+                      fontWeight: FontWeight.w800, letterSpacing: 1)),
+              const SizedBox(height: 2),
+              Text(text,
+                  style: TextStyle(color: Colors.white.withValues(alpha: 0.7),
+                      fontSize: 12, height: 1.4)),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+

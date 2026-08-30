@@ -134,12 +134,16 @@ class RosterService {
         .collection('students');
         
     final e = email.trim().toLowerCase();
+    if (e.isNotEmpty && !e.endsWith('@gmail.com')) {
+      throw 'Email address must end with @gmail.com';
+    }
     
-    // Check for duplicate email
+    // Check for duplicate email among active students
     final snap = await studentsRef.get();
     for (var doc in snap.docs) {
       final docE = (doc.data()['email'] as String?)?.trim().toLowerCase() ?? '';
-      if (e.isNotEmpty && e == docE) {
+      final isArchived = doc.data()['isArchived'] as bool? ?? false;
+      if (!isArchived && e.isNotEmpty && e == docE) {
         throw 'A student with this email already exists in this section.';
       }
     }
@@ -156,7 +160,49 @@ class RosterService {
       'firstName': firstName.trim(),
       'lastName': lastName.trim(),
       'middleInitial': middleInitial.trim(),
-      'email': email.trim().toLowerCase(),
+      'email': e,
+      'isArchived': false,
+    });
+  }
+
+  /// Updates an existing student's details in the given section's roster.
+  Future<void> updateStudent(
+    String instructorId,
+    String sectionName,
+    String studentId, {
+    required String firstName,
+    required String lastName,
+    required String middleInitial,
+    required String email,
+  }) async {
+    final studentsRef = _db
+        .collection('instructor_roster')
+        .doc(instructorId)
+        .collection('sections')
+        .doc(sectionName)
+        .collection('students');
+
+    final e = email.trim().toLowerCase();
+    if (e.isNotEmpty && !e.endsWith('@gmail.com')) {
+      throw 'Email address must end with @gmail.com';
+    }
+
+    // Check for duplicate email among other active students
+    final snap = await studentsRef.get();
+    for (var doc in snap.docs) {
+      if (doc.id == studentId) continue;
+      final docE = (doc.data()['email'] as String?)?.trim().toLowerCase() ?? '';
+      final isArchived = doc.data()['isArchived'] as bool? ?? false;
+      if (!isArchived && e.isNotEmpty && e == docE) {
+        throw 'Another active student in this section already has the email "$e".';
+      }
+    }
+
+    await studentsRef.doc(studentId).update({
+      'firstName': firstName.trim(),
+      'lastName': lastName.trim(),
+      'middleInitial': middleInitial.trim(),
+      'email': e,
     });
   }
 
@@ -307,13 +353,49 @@ class RosterService {
 
   /// Restores an archived student in the section's roster.
   Future<void> unarchiveStudent(String instructorId, String sectionName, String studentId) async {
-    await _db
+    final studentsRef = _db
         .collection('instructor_roster')
         .doc(instructorId)
         .collection('sections')
         .doc(sectionName)
-        .collection('students')
-        .doc(studentId)
-        .update({'isArchived': false});
+        .collection('students');
+
+    final studentDoc = await studentsRef.doc(studentId).get();
+    if (!studentDoc.exists) return;
+    final targetEmail = (studentDoc.data()?['email'] as String?)?.trim().toLowerCase() ?? '';
+
+    // Check for email conflicts among active students
+    if (targetEmail.isNotEmpty) {
+      final activeSnap = await studentsRef.where('isArchived', isEqualTo: false).get();
+      for (var doc in activeSnap.docs) {
+        if (doc.id == studentId) continue;
+        final docE = (doc.data()['email'] as String?)?.trim().toLowerCase() ?? '';
+        if (docE == targetEmail) {
+          throw 'Cannot restore: An active student with email "$targetEmail" already exists in this section.';
+        }
+      }
+    }
+
+    await studentsRef.doc(studentId).update({'isArchived': false});
+  }
+
+  /// Permanently deletes all archived students in the section.
+  Future<int> deleteAllArchivedStudents(String instructorId, String sectionName) async {
+    final studentsRef = _db
+        .collection('instructor_roster')
+        .doc(instructorId)
+        .collection('sections')
+        .doc(sectionName)
+        .collection('students');
+
+    final snap = await studentsRef.where('isArchived', isEqualTo: true).get();
+    if (snap.docs.isEmpty) return 0;
+
+    final batch = _db.batch();
+    for (var doc in snap.docs) {
+      batch.delete(doc.reference);
+    }
+    await batch.commit();
+    return snap.docs.length;
   }
 }

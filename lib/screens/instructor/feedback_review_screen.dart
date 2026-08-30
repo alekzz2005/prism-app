@@ -165,6 +165,12 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
                             score: s.insertionScore,
                           ),
                           _ResultRow(
+                            label: 'Aspiration',
+                            value: s.aspirationResult,
+                            isValueGreen: s.aspirationResult == 'No Bleeding' || s.aspirationResult == 'No' || s.aspirationResult == 'Correct',
+                            score: (s.aspirationResult == 'No Bleeding' || s.aspirationResult == 'No' || s.aspirationResult == 'Correct') ? 5 : 1,
+                          ),
+                          _ResultRow(
                             label: 'Withdrawal',
                             value: '${s.withdrawalAngle.toStringAsFixed(1)}\u00b0',
                             score: s.withdrawalScore,

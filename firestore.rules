@@ -5,6 +5,16 @@ service cloud.firestore {
     // ── Users collection ──────────────────────────────────────────────
     match /users/{uid} {
       allow read, write: if request.auth != null && request.auth.uid == uid;
+      
+      // User In-App Notifications
+      match /notifications/{notifId} {
+        allow read, write: if request.auth != null && request.auth.uid == uid;
+      }
+    }
+
+    // ── Password Resets / OTPs ─────────────────────────────────────────
+    match /password_resets/{email} {
+      allow read, write: if true; // Public for forgot password OTP verification
     }
 
     // ── Sessions collection ───────────────────────────────────────────
@@ -19,8 +29,12 @@ service cloud.firestore {
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Instructor'
       );
       
-      allow update: if request.auth != null &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Instructor';
+      // Instructors can update all sessions; Students can update their own practice sessions (e.g. background AI feedback)
+      allow update: if request.auth != null && (
+        resource.data.userId == request.auth.uid || 
+        resource.data.userId == request.auth.token.email ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Instructor'
+      );
       allow delete: if false;
     }
 
@@ -47,4 +61,3 @@ service cloud.firestore {
     }
   }
 }
-

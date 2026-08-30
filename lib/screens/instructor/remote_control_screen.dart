@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -11,6 +10,7 @@ import '../../services/instructor_session_repository.dart';
 import '../../models/session_model.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../services/feedback_service.dart';
+import '../../services/notification_service.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import '../../services/webrtc_signaling_service.dart';
 
@@ -48,7 +48,6 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
   final WebRtcSignalingService _signalingService = WebRtcSignalingService();
   StreamSubscription? _offerSub;
   StreamSubscription? _iceSub;
-  String? _webrtcFrameBase64;
   final ValueNotifier<ui.Image?> _videoFrameNotifier = ValueNotifier<ui.Image?>(null);
   ui.Image? _lastUiImage;
   String? _instructorId;
@@ -58,6 +57,7 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
   bool _webrtcConnected = false;
   final Set<String> _addedCandidates = {};
   
+  // Phase snapshots — populated by SNAP: messages from the camera node
   String? _insertionBase64;
   String? _aspirationBase64;
   String? _withdrawalBase64;
@@ -97,7 +97,27 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
         channel.onMessage = (RTCDataChannelMessage message) {
           if (message.type == MessageType.text) {
             final text = message.text;
-            _webrtcFrameBase64 = text; // Keep for phase capture
+
+            // ─── Snapshot message: SNAP:phase:base64 ───
+            if (text.startsWith('SNAP:')) {
+              final parts = text.split(':');
+              // Format: SNAP:<phase>:<base64> — base64 itself may contain ':'s after index 2
+              if (parts.length >= 3) {
+                final phase = parts[1];
+                final snap = text.substring('SNAP:$phase:'.length);
+                if (mounted) {
+                  setState(() {
+                    if (phase == 'insertion')  _insertionBase64  = snap;
+                    if (phase == 'aspiration') _aspirationBase64 = snap;
+                    if (phase == 'withdrawal') _withdrawalBase64 = snap;
+                  });
+                  debugPrint('[RemoteControl] 📸 Snapshot stored for phase: $phase');
+                }
+              }
+              return;
+            }
+
+            // ─── Regular video frame ───
             try {
               final bytes = base64Decode(text);
               ui.decodeImageFromList(bytes, (ui.Image img) {
@@ -192,16 +212,8 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
 
   void _updatePhase(String instructorId, String newPhase) {
     _liveService.updatePhase(instructorId, newPhase);
-    
-    if (newPhase == 'withdrawal') {
-      Future.delayed(const Duration(seconds: 2), () {
-        if (mounted) {
-          setState(() {
-            _withdrawalBase64 = _webrtcFrameBase64;
-          });
-        }
-      });
-    }
+    // Snapshots are sent by the camera node via SNAP: DataChannel messages.
+    // No manual snapshot capture needed here.
   }
 
   void _completeSession(String instructorId, LiveSessionModel session) async {
@@ -216,11 +228,11 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
     String finalUserId = session.studentEmail;
 
     // Build final session model
-    // Aspiration is skipped — hardcode values
-    const aspirationResult = 'Skipped';
+    final aspirationResult = session.aspirationResult ?? 'No Bleeding';
+    final aspirationScore = (aspirationResult == 'No Bleeding' || aspirationResult == 'No') ? 5 : 1;
 
-    // Overall score: average of insertion + withdrawal only
-    final overallScore = (((session.insertionScore ?? 1) + (session.withdrawalScore ?? 1)) / 2).round();
+    // Overall score: average of 3 components (insertion + aspiration + withdrawal)
+    final overallScore = (((session.insertionScore ?? 1) + aspirationScore + (session.withdrawalScore ?? 1)) / 3).round();
 
     // Build final session model with empty feedback
     SessionModel initialSession = SessionModel(
@@ -284,6 +296,15 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
     // Fire and forget background generation
     _feedbackService.generateAndSaveFeedbackInBackground(sessionWithId);
 
+    // Notify instructor of new pending return-demonstration
+    NotificationService().sendNotification(
+      uid: instructorId,
+      title: 'RD Pending Review: ${session.studentName}',
+      body: '${session.studentName} (${session.sectionName}) completed IM injection RD with overall score $overallScore/5. Ready for review.',
+      type: 'session_pending',
+      relatedSessionId: generatedSessionId,
+    );
+
     if (mounted) {
       Navigator.pop(context); // Close loading dialog
       _liveService.clearSession(instructorId);
@@ -311,8 +332,8 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
       sectionName: session.sectionName,
       partnerName: session.partnerName,
       insertionAngle: session.finalInsertionAngle ?? 0,
-      insertionScore: 1, // failed
-      aspirationResult: 'Failed (Bleeding)',
+      insertionScore: session.insertionScore ?? 1,
+      aspirationResult: 'Bleeding Detected',
       aspirationDuration: 0,
       motionSmoothness: 'N/A',
       withdrawalAngle: 0,
@@ -320,15 +341,24 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
       correspondenceResult: 'Deviates',
       angularDelta: 0,
       overallScore: 1, // Automatic fail
-      aiFeedbackText: 'Session automatically failed due to bleeding during aspiration.',
-      feedbackStatus: 'Failed',
-      instructorNote: 'Instructor triggered cancellation due to bleeding.',
+      aiFeedbackText: 'Session automatically flagged: Blood return was observed during aspiration. In clinical practice, the injection must be aborted immediately without injecting medication, the needle safely withdrawn, and the procedure restarted with new equipment.',
+      feedbackStatus: 'Pending',
+      instructorNote: 'Instructor cancelled session: Patient bleeding detected during aspiration.',
       flagged: true,
       insertionImageBase64: _insertionBase64,
       aspirationImageBase64: _aspirationBase64,
     );
 
-    await _repo.saveSession(failedSession);
+    final failedDocId = await _repo.saveSession(failedSession);
+
+    // Notify instructor of vascular puncture alert
+    NotificationService().sendNotification(
+      uid: instructorId,
+      title: 'Vascular Puncture Alert: ${session.studentName}',
+      body: '${session.studentName} (${session.sectionName}) encountered blood return during aspiration. Procedure aborted & flagged.',
+      type: 'session_flagged',
+      relatedSessionId: failedDocId,
+    );
     
     if (mounted) {
       Navigator.pop(context); // Close dialog
@@ -615,7 +645,10 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
           _PhaseStep(label: 'Insertion',  state: _getPhaseState(session.phase, 1)),
           const Padding(padding: EdgeInsets.symmetric(horizontal: 8),
             child: Text('\u203a', style: TextStyle(color: _cardBorder, fontSize: 14))),
-          _PhaseStep(label: 'Withdrawal', state: _getPhaseState(session.phase, 2)),
+          _PhaseStep(label: 'Aspiration', state: _getPhaseState(session.phase, 2)),
+          const Padding(padding: EdgeInsets.symmetric(horizontal: 8),
+            child: Text('\u203a', style: TextStyle(color: _cardBorder, fontSize: 14))),
+          _PhaseStep(label: 'Withdrawal', state: _getPhaseState(session.phase, 3)),
         ],
       ),
     );
@@ -674,7 +707,6 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
         hint: 'Tap when the needle is fully inserted',
         color: const Color(0xFF92400E),
         onPressed: guardrailBlocked ? () {} : () {
-          _insertionBase64 = _webrtcFrameBase64;
           _updatePhase(instructorId, 'insertion_locked');
         },
       );
@@ -691,10 +723,9 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
         children: [
           _ControlButton(
             label: 'No Bleeding (Proceed to Withdrawal)',
-            hint: 'Aspiration clear',
-            color: const Color(0xFF16A34A),
-            onPressed: () {
-              _aspirationBase64 = _webrtcFrameBase64;
+            hint: guardrailBlocked ? 'Detection lost — Reposition hand' : 'Aspiration clear',
+            color: guardrailBlocked ? Colors.grey : const Color(0xFF16A34A),
+            onPressed: guardrailBlocked ? () {} : () {
               _updatePhase(instructorId, 'withdrawal');
             },
           ),
@@ -705,7 +736,7 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
             color: Colors.redAccent,
             onPressed: () => _cancelSessionWithBleeding(instructorId, session),
           ),
-        ]
+        ],
       );
     } else if (session.phase == 'withdrawal') {
       button = _ControlButton(
@@ -713,9 +744,6 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
         hint: 'Tap when the needle is fully withdrawn',
         color: const Color(0xFF92400E),
         onPressed: guardrailBlocked ? () {} : () {
-          if (_withdrawalBase64 == null) {
-            _withdrawalBase64 = _webrtcFrameBase64;
-          }
           _updatePhase(instructorId, 'withdrawal_locked');
         },
       );
@@ -751,9 +779,13 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
     if (step == 1) {
       if (currentPhase == 'waiting' || currentPhase == 'insertion') return 1;
       return 2;
+    } else if (step == 2) {
+      if (currentPhase == 'waiting' || currentPhase == 'insertion') return 0;
+      if (currentPhase == 'insertion_locked' || currentPhase == 'aspiration') return 1;
+      return 2;
     } else {
-      // Step 2 = Withdrawal
-      if (currentPhase == 'insertion_locked' || currentPhase == 'aspiration' || currentPhase == 'withdrawal') return 1;
+      // Step 3 = Withdrawal
+      if (currentPhase == 'withdrawal') return 1;
       if (currentPhase == 'withdrawal_locked') return 2;
       return 0;
     }

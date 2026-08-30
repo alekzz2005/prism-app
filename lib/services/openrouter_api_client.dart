@@ -16,16 +16,10 @@ const bool kUseMockFeedback = bool.fromEnvironment(
 
 /// Mock feedback returned when [kUseMockFeedback] is true.
 const String _mockFeedbackText =
-    'Your insertion angle of 88.2° was well within the ±5° tolerance for an IM injection, '
-    'earning a 4/5 on the CIT-U rubric. The dart-like motion was executed with good precision '
-    'and confidence.\n\n'
-    'Your withdrawal angle deviated 8.2° from your insertion path, which falls outside the '
-    'acceptable range and suggests lateral wrist movement during needle removal. Focus on '
-    'keeping your elbow stationary and withdrawing along the same vector as insertion to '
-    'minimise tissue trauma.\n\n'
-    'Before your next RD, practise the full sequence on a phantom model 5 times, using a '
-    'wrist-pivot technique: lock your elbow against your body and rotate only at the wrist '
-    'for both insertion and withdrawal. This builds the muscle memory needed for consistent angles.';
+    'During the insertion phase, your syringe angle of 88.2° was well within the ±5° tolerance for an IM injection, earning a 4/5 on the CIT-U rubric with good control and confidence.\n\n'
+    'During aspiration, the technique was executed properly over the full duration with no blood return detected, safely confirming needle placement within muscle tissue.\n\n'
+    'During withdrawal, your angle deviated by 8.2° from the initial insertion trajectory (scoring 3/5). This indicates wrist pivot upon needle removal, which increases patient discomfort and risk of tissue trauma.\n\n'
+    'For your next return-demonstration, practice locking your wrist against your forearm to pull straight back along the exact same 90° vector used during insertion.';
 
 /// HTTP client for the OpenRouter Llama 3.3 70B (free tier) API.
 ///
@@ -42,70 +36,68 @@ class OpenRouterApiClient {
   static const String _baseUrl =
       'https://openrouter.ai/api/v1/chat/completions';
 
-  static const String _model =
-      'meta-llama/llama-3.3-70b-instruct';
+  static const List<String> _models = [
+    'meta-llama/llama-3.3-70b-instruct:free',
+    'meta-llama/llama-3.3-70b-instruct',
+    'google/gemini-2.0-flash-lite-preview-02-05:free',
+    'deepseek/deepseek-r1:free',
+  ];
 
   static const _systemPrompt =
-      'You are PRISM, an AI clinical nursing evaluator. '
-      'You are given ONLY numerical metrics from a parenteral injection return-demonstration (RD). '
-      'You did NOT observe the procedure — you are analyzing data values only. '
-      'Be strictly objective: if a score is low (1-2/5), state it needs significant improvement — do NOT say it was done well. '
-      'If a score is high (4-5/5), acknowledge the strong performance with the specific numbers. '
-      'Reply in EXACTLY 3 short paragraphs, no headers, no bullet points: '
-      '(1) Objectively summarize which metrics met or exceeded the target, citing the exact angles and scores, '
-      '(2) Objectively identify which metrics fell short of the target, citing the deviation and what it indicates clinically, '
-      '(3) Provide one specific, actionable practice recommendation based on the weakest metric. '
-      'Tone: professional, direct, constructive, factual. Never fabricate observations. '
-      'Do NOT mention aspiration — it is assessed separately and not included in this data. Max 150 words total.';
+      'You are PRISM, an AI clinical nursing evaluator for Intramuscular (IM) injection return-demonstrations (RDs) at CIT-U. '
+      'Evaluate the injection performance strictly in CHRONOLOGICAL, SEQUENTIAL order across all three procedural phases.\n\n'
+      'Structure your response in EXACTLY 4 short, distinct paragraphs (no headers, no markdown bullet points):\n'
+      'Paragraph 1 (Insertion Phase): Evaluate the insertion angle against the 90° target (±5° tolerance), dart-like motion, and score.\n'
+      'Paragraph 2 (Aspiration Phase): Evaluate the aspiration technique, duration, and blood check (confirming absence or presence of blood return/vascular puncture before injection).\n'
+      'Paragraph 3 (Withdrawal Phase): Evaluate the withdrawal angle and angular delta compared to insertion, explaining the clinical implications for tissue trauma and needle tract alignment.\n'
+      'Paragraph 4 (Actionable Recommendation): Provide one specific, actionable practice recommendation targeting the procedural step that most needs improvement to ensure safe clinical nursing practice.\n\n'
+      'Tone: Professional, direct, constructive, and clinically precise. Max 175 words total.';
 
-  /// Sends [prompt] to Llama 3.3 70B free and returns the response text.
-  ///
-  /// If [kUseMockFeedback] is true, returns [_mockFeedbackText] immediately.
+  /// Sends [prompt] to Llama 3.3 70B and returns the response text.
   /// Throws [FeedbackTimeoutException] on timeout, [FeedbackApiException] on non-200.
   Future<String> generateFeedback(String prompt) async {
-    // ── Mock mode for testing without API key ──
     if (kUseMockFeedback) {
-      await Future.delayed(const Duration(seconds: 2)); // simulate latency
+      await Future.delayed(const Duration(seconds: 1));
       return _mockFeedbackText;
     }
 
     if (_apiKey.isEmpty) {
-      throw FeedbackApiException(
-          0,
-          'OPENROUTER_API_KEY is not set. Please add OPENROUTER_API_KEY to your .env file.\n'
-          'Or for mock mode:\n'
-          '  flutter run --dart-define=USE_MOCK_FEEDBACK=true');
+      throw FeedbackApiException(0, 'OPENROUTER_API_KEY is not configured in .env');
     }
 
     Exception? lastError;
-    for (int attempt = 0; attempt < 2; attempt++) {
+    for (final model in _models) {
       try {
-        final response = await _post(prompt).timeout(
-          const Duration(seconds: 30),
+        final response = await _postWithModel(prompt, model).timeout(
+          const Duration(seconds: 20),
           onTimeout: () => throw const FeedbackTimeoutException(),
         );
 
         if (response.statusCode == 200) {
           final body = jsonDecode(response.body) as Map<String, dynamic>;
-          final content =
-              (body['choices'] as List).first['message']['content'];
-          return content as String;
+          if (body.containsKey('choices') && (body['choices'] as List).isNotEmpty) {
+            final content = (body['choices'] as List).first['message']['content'];
+            if (content is String && content.trim().isNotEmpty) {
+              return content.trim();
+            }
+          }
+        } else {
+          lastError = FeedbackApiException(response.statusCode, response.body);
         }
-
-        throw FeedbackApiException(response.statusCode, response.body);
       } on FeedbackTimeoutException catch (e) {
         lastError = e;
-        if (attempt == 0) {
-          await Future.delayed(const Duration(seconds: 2));
-        }
-      } on FeedbackApiException {
-        rethrow; // don't retry API errors — they won't self-heal
+      } catch (e) {
+        lastError = FeedbackApiException(0, e.toString());
       }
     }
-    throw lastError!;
+
+    if (lastError != null) {
+      throw lastError;
+    }
+    throw const FeedbackApiException(500, 'Unable to generate AI feedback across available models.');
   }
 
-  Future<http.Response> _post(String userPrompt) => http.post(
+  Future<http.Response> _postWithModel(String userPrompt, String model) => http.post(
         Uri.parse(_baseUrl),
         headers: {
           'Authorization': 'Bearer $_apiKey',
@@ -114,7 +106,7 @@ class OpenRouterApiClient {
           'X-Title': 'PRISM',
         },
         body: jsonEncode({
-          'model': _model,
+          'model': model,
           'messages': [
             {'role': 'system', 'content': _systemPrompt},
             {'role': 'user', 'content': userPrompt},

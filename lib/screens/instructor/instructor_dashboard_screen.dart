@@ -17,6 +17,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../services/live_session_service.dart';
 import '../../services/feedback_release_service.dart';
 import 'remote_control_screen.dart';
+import '../../models/notification_model.dart';
+import '../../services/notification_service.dart';
+import '../../widgets/notification_center_sheet.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 // ─── Brand Colours ────────────────────────────────────────────────────────────
 const _navy     = Color(0xFF003366);
@@ -62,6 +66,9 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
   String _typeFilter   = 'All';
   String _sectionFilter = 'All';
   String _schoolYearFilter = 'All';
+  String _sectionsSearchQuery = '';
+  int _sectionsPage = 1;
+  static const int _sectionsPageSize = 10;
 
   static const _statusOptions = ['All', 'Pending', 'Released', 'Failed'];
   static const _typeOptions   = ['All', 'IM'];
@@ -334,14 +341,13 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
             ),
           ),
 
-          // FAB Backdrop
+          // FAB Backdrop (pure transparent)
           if (_fabOpen)
             Positioned.fill(
               child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
                 onTap: _toggleFab,
-                child: Container(
-                  color: Colors.black.withValues(alpha: 0.18),
-                ),
+                child: const SizedBox.expand(),
               ),
             ),
             
@@ -405,7 +411,13 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
                       decoration: BoxDecoration(
                         color: _fabOpen ? const Color(0xFF4A6080) : _navy,
                         shape: BoxShape.circle,
-                        boxShadow: [BoxShadow(color: _navy.withValues(alpha: 0.38), blurRadius: 24, offset: const Offset(0, 6))],
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.15),
+                            blurRadius: 6,
+                            offset: const Offset(0, 3),
+                          ),
+                        ],
                       ),
                       child: Stack(
                         alignment: Alignment.center,
@@ -449,7 +461,13 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
             decoration: BoxDecoration(
               color: _navy,
               borderRadius: BorderRadius.circular(20),
-              boxShadow: [BoxShadow(color: _navy.withValues(alpha: 0.28), blurRadius: 14, offset: const Offset(0, 4))],
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.12),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
+                ),
+              ],
             ),
             child: Text(label, style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
           ),
@@ -459,8 +477,13 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
             decoration: BoxDecoration(
               color: Colors.white,
               shape: BoxShape.circle,
-              border: Border.all(color: _cardBorder, width: 2),
-              boxShadow: [BoxShadow(color: _navy.withValues(alpha: 0.18), blurRadius: 14, offset: const Offset(0, 4))],
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.10),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
+                ),
+              ],
             ),
             child: Center(child: SvgPicture.string(svg)),
           ),
@@ -721,6 +744,58 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
           ),
         ),
 
+        // Search Sections
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+          child: Container(
+            height: 44,
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: _cardBorder, width: 1.5),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            child: Row(
+              children: [
+                SvgPicture.string(
+                  '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="4.5" stroke="#8A9BB0" stroke-width="1.4"/><path d="M10.5 10.5l3 3" stroke="#8A9BB0" stroke-width="1.4" stroke-linecap="round"/></svg>',
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextField(
+                    onChanged: (val) => setState(() => _sectionsSearchQuery = val),
+                    decoration: const InputDecoration(
+                      hintText: 'Search sections...',
+                      hintStyle: TextStyle(color: _textMid, fontSize: 13),
+                      border: InputBorder.none,
+                      isDense: true,
+                    ),
+                    style: const TextStyle(color: _textDark, fontSize: 13),
+                  ),
+                ),
+                if (_sectionsSearchQuery.isNotEmpty)
+                  GestureDetector(
+                    onTap: () {
+                      setState(() => _sectionsSearchQuery = '');
+                      FocusScope.of(context).unfocus();
+                    },
+                    child: Container(
+                      width: 18, height: 18,
+                      decoration: const BoxDecoration(
+                        color: _textMid,
+                        shape: BoxShape.circle,
+                      ),
+                      alignment: Alignment.center,
+                      child: SvgPicture.string(
+                        '<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 2l6 6M8 2l-6 6" stroke="white" stroke-width="1.5" stroke-linecap="round"/></svg>',
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
           child: StreamBuilder<List<InstructorSection>>(
@@ -762,68 +837,89 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
                     sections = sections.where((s) => s.schoolYear == _schoolYearFilter).toList();
                   }
 
+                  if (_sectionsSearchQuery.isNotEmpty) {
+                    final q = _sectionsSearchQuery.toLowerCase();
+                    sections = sections.where((s) =>
+                      s.name.toLowerCase().contains(q) ||
+                      s.schoolYear.toLowerCase().contains(q)
+                    ).toList();
+                  }
+
                   if (sections.isEmpty) {
                     return const Center(child: Text('No sections found.', style: TextStyle(color: _textMid)));
                   }
 
-                  return ListView.separated(
+                  final totalPages = (sections.length / _sectionsPageSize).ceil();
+                  if (_sectionsPage > totalPages && totalPages > 0) {
+                    _sectionsPage = totalPages;
+                  }
+
+                  final pagedSections = sections.skip((_sectionsPage - 1) * _sectionsPageSize).take(_sectionsPageSize).toList();
+
+                  return ListView(
                     padding: const EdgeInsets.fromLTRB(16, 8, 16, 90),
-                    itemCount: sections.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 10),
-                    itemBuilder: (context, index) {
-                      final section = sections[index];
-                      return GestureDetector(
-                        onTap: () {
-                          Navigator.push(context, MaterialPageRoute(builder: (_) => SectionStudentsScreen(section: section)));
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: _cardBorder),
-                            boxShadow: [BoxShadow(color: _navy.withValues(alpha: 0.07), blurRadius: 12, offset: const Offset(0, 2))],
-                          ),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 48, height: 48,
-                                decoration: BoxDecoration(color: _navy.withValues(alpha: 0.07), borderRadius: BorderRadius.circular(13)),
-                                alignment: Alignment.center,
-                                child: SvgPicture.string('<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" stroke="#003366" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><circle cx="9" cy="7" r="4" stroke="#003366" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" stroke="#003366" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
-                              ),
-                              const SizedBox(width: 14),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(section.name, style: const TextStyle(color: _textDark, fontSize: 15, fontWeight: FontWeight.bold)),
-                                    const SizedBox(height: 3),
-                                    Text('Academic Year ${section.schoolYear}', style: const TextStyle(color: _textMid, fontSize: 12)),
-                                  ],
+                    children: [
+                      ...pagedSections.map((section) => Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: GestureDetector(
+                          onTap: () {
+                            Navigator.push(context, MaterialPageRoute(builder: (_) => SectionStudentsScreen(section: section)));
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: _cardBorder),
+                              boxShadow: [BoxShadow(color: _navy.withValues(alpha: 0.07), blurRadius: 12, offset: const Offset(0, 2))],
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 48, height: 48,
+                                  decoration: BoxDecoration(color: _navy.withValues(alpha: 0.07), borderRadius: BorderRadius.circular(13)),
+                                  alignment: Alignment.center,
+                                  child: SvgPicture.string('<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" stroke="#003366" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><circle cx="9" cy="7" r="4" stroke="#003366" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" stroke="#003366" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
                                 ),
-                              ),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                decoration: BoxDecoration(color: _navy.withValues(alpha: 0.07), borderRadius: BorderRadius.circular(20)),
-                                child: StreamBuilder<List<StudentRoster>>(
-                                  stream: _getRosterStream(instructorId, section.id),
-                                  builder: (context, snap) {
-                                    if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
-                                      return const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2, color: _navy));
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(section.name, style: const TextStyle(color: _textDark, fontSize: 15, fontWeight: FontWeight.bold)),
+                                      const SizedBox(height: 3),
+                                      Text('Academic Year ${section.schoolYear}', style: const TextStyle(color: _textMid, fontSize: 12)),
+                                    ],
+                                  ),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                  decoration: BoxDecoration(color: _navy.withValues(alpha: 0.07), borderRadius: BorderRadius.circular(20)),
+                                  child: StreamBuilder<List<StudentRoster>>(
+                                    stream: _getRosterStream(instructorId, section.id),
+                                    builder: (context, snap) {
+                                      if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+                                        return const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2, color: _navy));
+                                      }
+                                      final count = snap.data?.length ?? 0;
+                                      return Text('$count students', style: const TextStyle(color: _navy, fontSize: 12, fontWeight: FontWeight.bold));
                                     }
-                                    final count = snap.data?.length ?? 0;
-                                    return Text('$count students', style: const TextStyle(color: _navy, fontSize: 12, fontWeight: FontWeight.bold));
-                                  }
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(width: 8),
-                              SvgPicture.string('<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="#C8D8E8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
-                            ],
+                                const SizedBox(width: 8),
+                                SvgPicture.string('<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="#C8D8E8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
+                              ],
+                            ),
                           ),
                         ),
-                      );
-                    },
+                      )),
+                      _buildPaginationControl(
+                        currentPage: _sectionsPage,
+                        totalPages: totalPages,
+                        onPrev: () => setState(() => _sectionsPage--),
+                        onNext: () => setState(() => _sectionsPage++),
+                      ),
+                    ],
                   );
                 },
               );
@@ -831,6 +927,50 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildPaginationControl({
+    required int currentPage,
+    required int totalPages,
+    required VoidCallback onPrev,
+    required VoidCallback onNext,
+  }) {
+    if (totalPages <= 1) return const SizedBox();
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 14),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          InkWell(
+            onTap: currentPage > 1 ? onPrev : null,
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                border: Border.all(color: currentPage > 1 ? _cardBorder : Colors.transparent, width: 1.5),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(Icons.chevron_left, color: currentPage > 1 ? _textMid : Colors.transparent, size: 20),
+            ),
+          ),
+          const SizedBox(width: 16),
+          Text('$currentPage of $totalPages', style: const TextStyle(color: _textMid, fontSize: 13, fontWeight: FontWeight.w600)),
+          const SizedBox(width: 16),
+          InkWell(
+            onTap: currentPage < totalPages ? onNext : null,
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                border: Border.all(color: currentPage < totalPages ? _cardBorder : Colors.transparent, width: 1.5),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(Icons.chevron_right, color: currentPage < totalPages ? _textMid : Colors.transparent, size: 20),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -865,7 +1005,7 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 14),
             child: Column(
               children: [
-                // Top row: brand + sign-out
+                // Top row: brand + actions
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -875,10 +1015,85 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
                         const Text('PRISM', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w800, letterSpacing: 3, height: 1.0)),
                         const SizedBox(height: 3),
                         Text(subtitle.toUpperCase(), style: const TextStyle(color: _accentBlue, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.5)),
-                    ],
-                  ),
-                ],
-              ),
+                      ],
+                    ),
+                    const Spacer(),
+                    // Notification Bell with unread badge
+                    Builder(
+                      builder: (context) {
+                        final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+                        return StreamBuilder<List<NotificationModel>>(
+                          stream: NotificationService().watchNotifications(uid),
+                          builder: (context, snap) {
+                            final unread = snap.data?.where((n) => !n.isRead).length ?? 0;
+                            return GestureDetector(
+                              onTap: () => NotificationCenterSheet.show(context),
+                              child: Container(
+                                width: 40, height: 40,
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.10),
+                                  border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
+                                  borderRadius: BorderRadius.circular(24),
+                                ),
+                                alignment: Alignment.center,
+                                child: Stack(
+                                  clipBehavior: Clip.none,
+                                  children: [
+                                    const Icon(Icons.notifications_none_rounded, color: Colors.white, size: 20),
+                                    if (unread > 0)
+                                      Positioned(
+                                        right: -2, top: -2,
+                                        child: Container(
+                                          padding: const EdgeInsets.all(3),
+                                          decoration: const BoxDecoration(
+                                            color: Color(0xFFEF4444),
+                                            shape: BoxShape.circle,
+                                          ),
+                                          constraints: const BoxConstraints(minWidth: 14, minHeight: 14),
+                                          child: Text(
+                                            unread > 9 ? '9+' : '$unread',
+                                            style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold),
+                                            textAlign: TextAlign.center,
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          }
+                        );
+                      }
+                    ),
+                    const SizedBox(width: 8),
+                    // Profile avatar
+                    GestureDetector(
+                      key: const Key('instructor_signout'),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => const ProfileScreen()),
+                        );
+                      },
+                      child: Container(
+                        width: 40, height: 40,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.10),
+                          border: Border.all(color: _accentBlue, width: 2),
+                          borderRadius: BorderRadius.circular(24),
+                        ),
+                        alignment: Alignment.center,
+                        child: Builder(
+                          builder: (context) {
+                            final name = context.watch<UserRoleProvider>().fullName ?? 'I';
+                            final initial = name.isNotEmpty ? name[0].toUpperCase() : 'I';
+                            return Text(initial, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold));
+                          },
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               if (_currentIndex == 0) ...[
                 const SizedBox(height: 14),
                 // Stats card

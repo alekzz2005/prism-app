@@ -113,10 +113,9 @@ class RoboflowDetectionService {
   //  PUBLIC API  —  called by CameraNodeScreen every 500 ms
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /// Quickly convert frame data to base64 JPEG without calling the Roboflow API.
-  /// Used for WebRTC mirroring during the 'waiting' phase.
+  /// Quickly convert frame data to a 480p base64 JPEG for live WebRTC mirroring.
+  /// Optimized for 480p video mirroring at smooth 25 FPS without lag.
   static Future<String?> getFrameBase64(RawFrameData frameData) async {
-    // For mirroring, shrink aggressively to stay under WebRTC limits (approx <60KB base64)
     final mirrorFrame = RawFrameData(
       width: frameData.width,
       height: frameData.height,
@@ -128,11 +127,34 @@ class RoboflowDetectionService {
       uvPixelStride: frameData.uvPixelStride,
       sensorOrientation: frameData.sensorOrientation,
       isIOS: frameData.isIOS,
-      targetWidth: 320, // Reduced resolution
-      targetQuality: 40, // Reduced quality
+      targetWidth: 360,  // 360p resolution for clean video mirroring
+      targetQuality: 35, // Lightweight payload for fast WebRTC DataChannel transfer
     );
 
     final jpegBytes = await compute(_convertFrameDataToJpeg, mirrorFrame);
+    if (jpegBytes == null || jpegBytes.isEmpty) return null;
+    return base64Encode(jpegBytes);
+  }
+
+  /// Convert frame data to a HIGH-QUALITY 720p base64 JPEG for feedback-module snapshots.
+  /// Called once per phase transition — high resolution for pinch-to-zoom in feedback review.
+  static Future<String?> getSnapshotBase64(RawFrameData frameData) async {
+    final snapFrame = RawFrameData(
+      width: frameData.width,
+      height: frameData.height,
+      yBytes: frameData.yBytes,
+      uBytes: frameData.uBytes,
+      vBytes: frameData.vBytes,
+      yRowStride: frameData.yRowStride,
+      uRowStride: frameData.uRowStride,
+      uvPixelStride: frameData.uvPixelStride,
+      sensorOrientation: frameData.sensorOrientation,
+      isIOS: frameData.isIOS,
+      targetWidth: 720,  // 720p crisp resolution for detailed pinch-to-zoom
+      targetQuality: 85, // High quality — saved to Firestore permanently
+    );
+
+    final jpegBytes = await compute(_convertFrameDataToJpeg, snapFrame);
     if (jpegBytes == null || jpegBytes.isEmpty) return null;
     return base64Encode(jpegBytes);
   }
@@ -356,24 +378,47 @@ class RoboflowDetectionService {
       final String inferUrl = _workflowUrl;
       final String apiKey = _apiKey;
 
-      final response = await http.post(
-        Uri.parse(inferUrl),
-        headers: {
-          'Content-Type': 'application/json',
-          if (apiKey.isNotEmpty) 'Authorization': 'Bearer $apiKey',
-        },
-        body: jsonEncode({
-          'inputs': {
-            'image': {
-              'type': 'base64',
-              'value': base64Image
+      http.Response response;
+
+      if (inferUrl.contains('detect.roboflow.com')) {
+        // ── Direct Roboflow Object Detection Endpoint (e.g. model v33) ──
+        response = await http.post(
+          Uri.parse(inferUrl),
+          headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+          body: base64Image,
+        ).timeout(const Duration(seconds: 10));
+      } else {
+        // ── Roboflow Serverless Workflow Endpoint ──
+        response = await http.post(
+          Uri.parse(inferUrl),
+          headers: {
+            'Content-Type': 'application/json',
+            if (apiKey.isNotEmpty) 'Authorization': 'Bearer $apiKey',
+          },
+          body: jsonEncode({
+            'inputs': {
+              'image': {
+                'type': 'base64',
+                'value': base64Image
+              }
             }
-          }
-        }),
-      ).timeout(const Duration(seconds: 10));
+          }),
+        ).timeout(const Duration(seconds: 10));
+
+        // If workflow returns 404, fallback to direct v33 detection model endpoint
+        if (response.statusCode == 404 && apiKey.isNotEmpty) {
+          debugPrint('[RoboflowService] Workflow 404, falling back to direct v33 detection endpoint...');
+          final fallbackUrl = 'https://detect.roboflow.com/find-syringe-arm-and-needle/33?api_key=$apiKey&confidence=15';
+          response = await http.post(
+            Uri.parse(fallbackUrl),
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: base64Image,
+          ).timeout(const Duration(seconds: 10));
+        }
+      }
 
       if (response.statusCode != 200) {
-        debugPrint('[RoboflowService] API error: ${response.statusCode}');
+        debugPrint('[RoboflowService] API error: ${response.statusCode} - ${response.body}');
         return null;
       }
 
