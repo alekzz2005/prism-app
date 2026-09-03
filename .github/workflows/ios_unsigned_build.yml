@@ -40,9 +40,9 @@ jobs:
 
       - name: Build iOS App without Codesign
         run: |
-          flutter build ios --release --config-only
+          flutter build ios --release --no-codesign --config-only
           cd ios
-          xcodebuild -workspace Runner.xcworkspace -scheme Runner -configuration Release -sdk iphoneos -destination generic/platform=iOS CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" DEVELOPMENT_TEAM="" SYMROOT="$(pwd)/../build/ios" clean build
+          xcodebuild -workspace Runner.xcworkspace -scheme Runner -configuration Release -sdk iphoneos -destination generic/platform=iOS CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" DEVELOPMENT_TEAM="" ENTITLEMENTS_REQUIRED=NO SYMROOT="$(pwd)/../build/ios" clean build
 
       - name: Package to IPA
         run: |
