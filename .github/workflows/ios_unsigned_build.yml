@@ -2,9 +2,9 @@ name: iOS Unsigned Build
 
 on:
   push:
-    branches: [ "feature/instructor-camera-practice-mode" ]
+    branches: [ "main" ]
   pull_request:
-    branches: [ "feature/instructor-camera-practice-mode" ]
+    branches: [ "main" ]
   workflow_dispatch:
 
 jobs:
