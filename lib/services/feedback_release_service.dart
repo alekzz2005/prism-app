@@ -120,4 +120,19 @@ class FeedbackReleaseService {
     await batch.commit();
     return pendingSessions.docs.length;
   }
+
+  Future<int> batchReleaseByIds(List<String> sessionIds) async {
+    if (sessionIds.isEmpty) return 0;
+    
+    final batch = _db.batch();
+    for (var id in sessionIds) {
+      batch.update(_db.collection('sessions').doc(id), {
+        'feedbackStatus': 'Released',
+        'releaseTimestamp': FieldValue.serverTimestamp(),
+      });
+    }
+    
+    await batch.commit();
+    return sessionIds.length;
+  }
 }

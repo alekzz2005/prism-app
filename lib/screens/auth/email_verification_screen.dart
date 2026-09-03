@@ -78,7 +78,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('Email verified successfully! Welcome to PRISM.'),
-              backgroundColor: _green,
+              backgroundColor: _navy,
               duration: Duration(seconds: 2),
             ),
           );
@@ -160,16 +160,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
                   Padding(
                     padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
                     child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: const [
-                            Text('PRISM', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w800, letterSpacing: 3, height: 1.0)),
-                            SizedBox(height: 3),
-                            Text('ACCOUNT ACTIVATION', style: TextStyle(color: _accent, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.5)),
-                          ],
-                        ),
                         GestureDetector(
                           onTap: () async {
                             _autoCheckTimer?.cancel();
@@ -185,13 +176,26 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
                             }
                           },
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            width: 36, height: 36,
                             decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.10),
-                              border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
-                              borderRadius: BorderRadius.circular(16),
+                              color: Colors.white.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(10),
                             ),
-                            child: const Text('Sign Out', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
+                            alignment: Alignment.center,
+                            child: SvgPicture.string(
+                              '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="rgba(255,255,255,0.7)" stroke-width="1.6" stroke-linecap="round"/></svg>',
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: const [
+                              Text('PRISM', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w800, letterSpacing: 3, height: 1.0)),
+                              SizedBox(height: 3),
+                              Text('ACCOUNT ACTIVATION', style: TextStyle(color: _accent, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.5)),
+                            ],
                           ),
                         ),
                       ],

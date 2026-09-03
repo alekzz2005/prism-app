@@ -30,7 +30,7 @@ Future<void> showImageGalleryDialog(
     context: context,
     barrierDismissible: true,
     barrierLabel: 'Dismiss Image Gallery',
-    barrierColor: Colors.black.withValues(alpha: 0.90),
+    barrierColor: const Color(0xFFF8FAFC).withValues(alpha: 0.95),
     transitionDuration: const Duration(milliseconds: 220),
     pageBuilder: (context, anim1, anim2) {
       return ImageGalleryDialog(
@@ -157,9 +157,10 @@ class _ImageGalleryDialogState extends State<ImageGalleryDialog> {
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                         decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.65),
+                          color: Colors.white,
                           borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
+                          border: Border.all(color: const Color(0xFFE2EAF4)),
+                          boxShadow: [BoxShadow(color: _navy.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, 2))],
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
@@ -169,7 +170,7 @@ class _ImageGalleryDialogState extends State<ImageGalleryDialog> {
                               height: 8,
                               decoration: const BoxDecoration(
                                 shape: BoxShape.circle,
-                                color: Color(0xFF4ADE80),
+                                color: Color(0xFF1A7A4A),
                               ),
                             ),
                             const SizedBox(width: 8),
@@ -177,7 +178,7 @@ class _ImageGalleryDialogState extends State<ImageGalleryDialog> {
                               child: Text(
                                 currentItem.title,
                                 style: const TextStyle(
-                                  color: Colors.white,
+                                  color: _navy,
                                   fontSize: 13,
                                   fontWeight: FontWeight.w700,
                                 ),
@@ -190,7 +191,7 @@ class _ImageGalleryDialogState extends State<ImageGalleryDialog> {
                               Text(
                                 '(${_currentIndex + 1}/$totalCount)',
                                 style: const TextStyle(
-                                  color: _accentBlue,
+                                  color: _textLight,
                                   fontSize: 12,
                                   fontWeight: FontWeight.w500,
                                 ),
@@ -213,12 +214,13 @@ class _ImageGalleryDialogState extends State<ImageGalleryDialog> {
                         width: 38,
                         height: 38,
                         decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.65),
+                          color: Colors.white,
                           shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+                          border: Border.all(color: const Color(0xFFE2EAF4)),
+                          boxShadow: [BoxShadow(color: _navy.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, 2))],
                         ),
                         alignment: Alignment.center,
-                        child: const Icon(Icons.close_rounded, color: Colors.white, size: 20),
+                        child: const Icon(Icons.close_rounded, color: _navy, size: 20),
                       ),
                     ),
                   ],
@@ -246,12 +248,13 @@ class _ImageGalleryDialogState extends State<ImageGalleryDialog> {
                       width: 40,
                       height: 40,
                       decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.5),
+                        color: Colors.white,
                         shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
+                        border: Border.all(color: const Color(0xFFE2EAF4)),
+                        boxShadow: [BoxShadow(color: _navy.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, 2))],
                       ),
                       alignment: Alignment.center,
-                      child: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 18),
+                      child: const Icon(Icons.arrow_back_ios_new_rounded, color: _navy, size: 18),
                     ),
                   ),
                 ),
@@ -273,12 +276,13 @@ class _ImageGalleryDialogState extends State<ImageGalleryDialog> {
                       width: 40,
                       height: 40,
                       decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.5),
+                        color: Colors.white,
                         shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
+                        border: Border.all(color: const Color(0xFFE2EAF4)),
+                        boxShadow: [BoxShadow(color: _navy.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, 2))],
                       ),
                       alignment: Alignment.center,
-                      child: const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white, size: 18),
+                      child: const Icon(Icons.arrow_forward_ios_rounded, color: _navy, size: 18),
                     ),
                   ),
                 ),
@@ -295,9 +299,10 @@ class _ImageGalleryDialogState extends State<ImageGalleryDialog> {
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.65),
+                      color: Colors.white,
                       borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+                      border: Border.all(color: const Color(0xFFE2EAF4)),
+                      boxShadow: [BoxShadow(color: _navy.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, 2))],
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
@@ -309,7 +314,7 @@ class _ImageGalleryDialogState extends State<ImageGalleryDialog> {
                           width: isSelected ? 16 : 6,
                           height: 6,
                           decoration: BoxDecoration(
-                            color: isSelected ? Colors.white : Colors.white38,
+                            color: isSelected ? _navy : _textLight.withValues(alpha: 0.4),
                             borderRadius: BorderRadius.circular(3),
                           ),
                         );
@@ -438,28 +443,32 @@ class _ZoomableImagePageState extends State<_ZoomableImagePage>
               borderRadius: BorderRadius.circular(16),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.6),
-                  blurRadius: 30,
-                  offset: const Offset(0, 10),
+                  color: _navy.withValues(alpha: 0.15),
+                  blurRadius: 24,
+                  offset: const Offset(0, 8),
                 ),
               ],
+              border: Border.all(color: const Color(0xFFE2EAF4), width: 1.5),
             ),
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(16),
-              child: Image.memory(
-                imageBytes,
-                fit: BoxFit.contain,
-                errorBuilder: (context, error, stackTrace) => Container(
-                  height: 240,
-                  color: Colors.grey.shade900,
-                  alignment: Alignment.center,
-                  child: const Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.broken_image_rounded, color: Colors.white54, size: 48),
-                      SizedBox(height: 12),
-                      Text('Unable to display image', style: TextStyle(color: Colors.white70)),
-                    ],
+              borderRadius: BorderRadius.circular(15),
+              child: Container(
+                color: Colors.white,
+                child: Image.memory(
+                  imageBytes,
+                  fit: BoxFit.contain,
+                  errorBuilder: (context, error, stackTrace) => Container(
+                    height: 240,
+                    color: const Color(0xFFF8FAFC),
+                    alignment: Alignment.center,
+                    child: const Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.broken_image_rounded, color: _textLight, size: 48),
+                        SizedBox(height: 12),
+                        Text('Unable to display image', style: TextStyle(color: _textLight)),
+                      ],
+                    ),
                   ),
                 ),
               ),

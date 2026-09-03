@@ -14,12 +14,25 @@ import '../../services/notification_service.dart';
 import '../../widgets/detection_overlay_painter.dart';
 import 'session_detail_screen.dart';
 
-// --- Brand colours
+// ─── Brand Colours ─────────────────────────────────────────────────────────
+const _navy       = Color(0xFF003366);
+const _navyMid    = Color(0xFF004080);
+const _navyDark   = Color(0xFF002244);
 const _accentBlue = Color(0xFFA8C4E0);
-const _green      = Color(0xFF4ADE80);
+const _bg         = Color(0xFFF8FAFC);
+const _cardBg     = Color(0xFFFFFFFF);
+const _cardBorder = Color(0xFFE2EAF4);
+const _textDark   = Color(0xFF1A2B3C);
+const _textMid    = Color(0xFF4A5568);
+const _textLight  = Color(0xFF8A9BB0);
+const _green      = Color(0xFF1A7A4A);
 const _greenDark  = Color(0xFF22C55E);
-const _red        = Color(0xFFF87171);
-const _amber      = Color(0xFFFCD34D);
+const _greenBg    = Color(0xFFEEF9F3);
+const _red        = Color(0xFF991B1B);
+const _redBg      = Color(0xFFFEF2F2);
+const _redBorder  = Color(0xFFFECACA);
+const _amber      = Color(0xFFB45309);
+// ──────────────────────────────────────────────────────────────────────────────
 
 class PracticeModeScreen extends StatefulWidget {
   const PracticeModeScreen({super.key});
@@ -30,6 +43,7 @@ class PracticeModeScreen extends StatefulWidget {
 class _PracticeModeScreenState extends State<PracticeModeScreen> {
   CameraController? _camera;
   bool _cameraReady = false;
+  bool _isFlipping = false;
   List<CameraDescription> _availableCameras = [];
   int _currentCameraIndex = 0;
 
@@ -111,15 +125,25 @@ class _PracticeModeScreenState extends State<PracticeModeScreen> {
   }
 
   Future<void> _toggleCamera() async {
-    if (_availableCameras.length < 2) return;
+    if (_availableCameras.length < 2 || _isFlipping) return;
     HapticFeedback.lightImpact();
-    setState(() => _cameraReady = false);
+    setState(() => _isFlipping = true);
 
-    _currentCameraIndex = (_currentCameraIndex + 1) % _availableCameras.length;
+    final currentDirection = _availableCameras[_currentCameraIndex].lensDirection;
+    final nextIndex = _availableCameras.indexWhere((c) => c.lensDirection != currentDirection);
+    
+    if (nextIndex != -1) {
+      _currentCameraIndex = nextIndex;
+    } else {
+      _currentCameraIndex = (_currentCameraIndex + 1) % _availableCameras.length;
+    }
+
     try {
       await _startCameraController(_availableCameras[_currentCameraIndex]);
     } catch (_) {
       if (mounted) setState(() => _cameraReady = false);
+    } finally {
+      if (mounted) setState(() => _isFlipping = false);
     }
   }
 
@@ -434,14 +458,160 @@ class _PracticeModeScreenState extends State<PracticeModeScreen> {
             corner(Alignment.bottomLeft), corner(Alignment.bottomRight)];
   }
 
+  Widget _buildSessionHeader() {
+    return Container(
+      color: _navy,
+      child: Stack(
+        clipBehavior: Clip.hardEdge,
+        children: [
+          Positioned(
+            right: -30, top: -71,
+            child: Container(
+              width: 209, height: 207,
+              decoration: BoxDecoration(color: _navyMid.withValues(alpha: 0.4), shape: BoxShape.circle),
+            ),
+          ),
+          Positioned(
+            left: -20, top: 28,
+            child: Container(
+              width: 153, height: 151,
+              decoration: BoxDecoration(color: _navyDark.withValues(alpha: 0.3), shape: BoxShape.circle),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 48, 20, 20),
+            child: Column(
+              children: [
+                // Close + title row
+                Row(
+                  children: [
+                    GestureDetector(
+                      onTap: () => Navigator.pop(context),
+                      child: Container(
+                        width: 36, height: 36,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        alignment: Alignment.center,
+                        child: SvgPicture.string(
+                          '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="rgba(255,255,255,0.7)" stroke-width="1.6" stroke-linecap="round"/></svg>',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: const [
+                          Text('PRISM', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w800, letterSpacing: 3, height: 1.0)),
+                          SizedBox(height: 3),
+                          Text('STUDENT PRACTICE MODE', style: TextStyle(color: Color(0xFFA8C4E0), fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.5)),
+                        ],
+                      ),
+                    ),
+                    // Action Buttons
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        GestureDetector(
+                          onTap: () {
+                            HapticFeedback.lightImpact();
+                            setState(() => _showGuide = !_showGuide);
+                          },
+                          child: Container(
+                            width: 36, height: 36,
+                            decoration: BoxDecoration(
+                              color: _showGuide ? _accentBlue.withValues(alpha: 0.25) : Colors.white.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: _showGuide ? _accentBlue.withValues(alpha: 0.6) : Colors.transparent),
+                            ),
+                            alignment: Alignment.center,
+                            child: const Icon(Icons.help_outline_rounded, color: Colors.white, size: 20),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                // Injection type
+                const Row(
+                  children: [
+                    Text(
+                      'Intramuscular (IM) Injection',
+                      style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                const Row(
+                  children: [
+                    Text(
+                      'Target: 90\u00b0',
+                      style: TextStyle(color: _accentBlue, fontSize: 13, fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPhaseBar() {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 20),
+      decoration: const BoxDecoration(
+        color: _cardBg,
+        border: Border(bottom: BorderSide(color: _cardBorder)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          _PhaseStep(label: 'Insertion',  state: _getPhaseState('insertion')),
+          const Padding(padding: EdgeInsets.symmetric(horizontal: 8),
+            child: Text('\u203a', style: TextStyle(color: _cardBorder, fontSize: 14))),
+          _PhaseStep(label: 'Aspiration', state: _getPhaseState('aspiration')),
+          const Padding(padding: EdgeInsets.symmetric(horizontal: 8),
+            child: Text('\u203a', style: TextStyle(color: _cardBorder, fontSize: 14))),
+          _PhaseStep(label: 'Withdrawal', state: _getPhaseState('withdrawal')),
+        ],
+      ),
+    );
+  }
+
+  int _getPhaseState(String phaseName) {
+    List<String> order = ['insertion', 'aspiration', 'withdrawal'];
+    int targetIdx = order.indexOf(phaseName);
+    int currentIdx = order.indexOf(_practicePhase);
+    if (currentIdx > targetIdx) return 2; // completed
+    if (currentIdx == targetIdx) return 1; // active
+    return 0; // pending
+  }
+
+  Widget _buildFloatingMetricCard(String label, String value, {Color? color}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        '$label: $value',
+        style: TextStyle(color: color ?? Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: _bg,
       body: Stack(fit: StackFit.expand, children: [
-        Container(decoration: const BoxDecoration(gradient: LinearGradient(
-          begin: Alignment.topLeft, end: Alignment.bottomRight,
-          colors: [Color(0xFF001428), Color(0xFF001C38), Color(0xFF000E1E)]))),
+        Container(color: _bg),
 
         if (!_cameraReady)
           Container(color: const Color(0xFF003366), child: const Center(child: Column(
@@ -461,8 +631,11 @@ class _PracticeModeScreenState extends State<PracticeModeScreen> {
               width: _camera!.value.previewSize!.height,
               height: _camera!.value.previewSize!.width,
               child: Stack(children: [
-                CameraPreview(_camera!),
-                if (_latestDetection != null && !_detectionLost)
+                if (_isFlipping)
+                  Container(color: Colors.black)
+                else
+                  CameraPreview(_camera!),
+                if (_latestDetection != null && !_detectionLost && !_isFlipping)
                   Positioned.fill(child: CustomPaint(painter: DetectionOverlayPainter(
                     detection: _latestDetection,
                     previewSize: Size(_camera!.value.previewSize!.height, _camera!.value.previewSize!.width),
@@ -507,226 +680,218 @@ class _PracticeModeScreenState extends State<PracticeModeScreen> {
             )),
           )),
 
-        // Top HUD Bar (Uniform with Instructor Node)
+        // Floating UI Layer
         if (_cameraReady)
-          Positioned(
-            top: 0, left: 0, right: 0,
-            child: Container(
-              color: Colors.black.withValues(alpha: 0.88),
-              padding: const EdgeInsets.fromLTRB(18, 48, 18, 14),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  GestureDetector(
-                    onTap: () => Navigator.pop(context),
-                    child: Container(
-                      width: 36, height: 36,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.10),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      alignment: Alignment.center,
-                      child: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 16),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Practice Mode — IM Injection',
-                          style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700, height: 1.2),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+          Column(
+            children: [
+              // Header
+              Opacity(
+                opacity: 0.95,
+                child: _buildSessionHeader(),
+              ),
+              
+              Opacity(
+                opacity: 0.95,
+                child: _buildPhaseBar(),
+              ),
+
+              // Floating Angle Data and Flip Camera
+              Expanded(
+                child: SafeArea(
+                  child: Stack(
+                    children: [
+                      Align(
+                        alignment: Alignment.topRight,
+                        child: Padding(
+                          padding: const EdgeInsets.all(16.0),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              if (_practicePhase == 'insertion') ...[
+                                _buildFloatingMetricCard('Live Angle', _detectionLost ? '---' : '${_liveAngle.toStringAsFixed(1)}\u00b0'),
+                                const SizedBox(height: 8),
+                                _buildFloatingMetricCard('Target', '90.0\u00b0'),
+                              ] else if (_practicePhase == 'aspiration') ...[
+                                _buildFloatingMetricCard('Inserted Angle', '${_insertionAngle?.toStringAsFixed(1) ?? "90.0"}\u00b0', color: _accentBlue),
+                                const SizedBox(height: 8),
+                                _buildFloatingMetricCard('Blood Check', 'NO BLEEDING', color: _green),
+                              ] else ...[
+                                _buildFloatingMetricCard('Live Angle', _detectionLost ? '---' : '${_liveAngle.toStringAsFixed(1)}\u00b0',
+                                  color: _angleColor(_liveAngle)),
+                                const SizedBox(height: 8),
+                                _buildFloatingMetricCard('Delta', _detectionLost ? '---' : '${(_liveAngle - (_insertionAngle ?? 90)).abs().toStringAsFixed(1)}\u00b0',
+                                  color: (_liveAngle - (_insertionAngle ?? 90)).abs() <= 5.0 ? _green : _amber),
+                              ],
+                            ],
+                          ),
                         ),
-                        const SizedBox(height: 4),
+                      ),
+                      if (_availableCameras.length > 1)
+                        Align(
+                          alignment: Alignment.bottomRight,
+                          child: Padding(
+                            padding: const EdgeInsets.only(right: 16.0, bottom: 16.0),
+                            child: GestureDetector(
+                              onTap: _toggleCamera,
+                              child: Container(
+                                width: 44, height: 44,
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withValues(alpha: 0.6),
+                                  shape: BoxShape.circle,
+                                ),
+                                alignment: Alignment.center,
+                                child: const Icon(Icons.flip_camera_ios_rounded, color: Colors.white, size: 22),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+
+              // Controls Panel
+              Container(
+                decoration: const BoxDecoration(
+                  color: _cardBg,
+                  border: Border(top: BorderSide(color: _cardBorder)),
+                  boxShadow: [BoxShadow(color: Color(0x12003366), blurRadius: 12, offset: Offset(0, -2))],
+                ),
+                padding: const EdgeInsets.fromLTRB(20, 18, 20, 32),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
                         Row(
                           children: [
                             Container(
                               width: 7, height: 7,
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
-                                color: _accentBlue,
-                                boxShadow: [BoxShadow(color: _accentBlue.withValues(alpha: 0.25), blurRadius: 0, spreadRadius: 3)],
+                                color: _detectionLost ? _red : _greenDark,
+                                boxShadow: [BoxShadow(
+                                  color: (_detectionLost ? _red : _greenDark).withValues(alpha: 0.25),
+                                  blurRadius: 0, spreadRadius: 3)],
                               ),
                             ),
                             const SizedBox(width: 8),
                             Text(
-                              '${_practicePhase.toUpperCase()} PHASE ACTIVE',
-                              style: const TextStyle(color: _accentBlue, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.5),
+                              _detectionLost ? 'DETECTION LOST' : 'TRACKING ACTIVE',
+                              style: TextStyle(
+                                color: _detectionLost ? _red : _green,
+                                fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.8),
                             ),
                           ],
                         ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (_availableCameras.length > 1) ...[
-                        GestureDetector(
-                          onTap: _toggleCamera,
-                          child: Container(
-                            width: 36, height: 36,
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.10),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            alignment: Alignment.center,
-                            child: const Icon(Icons.flip_camera_ios_rounded, color: Colors.white, size: 18),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                      ],
-                      GestureDetector(
-                        onTap: () {
-                          HapticFeedback.lightImpact();
-                          setState(() => _showGuide = !_showGuide);
-                        },
-                        child: Container(
-                          width: 36, height: 36,
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
                           decoration: BoxDecoration(
-                            color: _showGuide ? _accentBlue.withValues(alpha: 0.25) : Colors.white.withValues(alpha: 0.10),
-                            borderRadius: BorderRadius.circular(10),
-                            border: _showGuide ? Border.all(color: _accentBlue.withValues(alpha: 0.6)) : null,
+                            color: _greenBg,
+                            border: Border.all(color: _green.withValues(alpha: 0.3)),
+                            borderRadius: BorderRadius.circular(6),
                           ),
-                          alignment: Alignment.center,
-                          child: const Icon(Icons.help_outline_rounded, color: _accentBlue, size: 20),
+                          child: const Text('PRACTICE',
+                              style: TextStyle(color: _green, fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 0.8)),
                         ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
 
-        // Bottom Panel (Uniform with Instructor Node + Phase Progression)
-        if (_cameraReady)
-          Positioned(
-            bottom: 0, left: 0, right: 0,
-            child: Container(
-              color: Colors.black.withValues(alpha: 0.90),
-              padding: const EdgeInsets.fromLTRB(20, 14, 20, 30),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Row(
-                        children: [
-                          Container(
-                            width: 7, height: 7,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: _detectionLost ? _red : _greenDark,
-                              boxShadow: [BoxShadow(
-                                color: (_detectionLost ? _red : _greenDark).withValues(alpha: 0.25),
-                                blurRadius: 0, spreadRadius: 3)],
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            _detectionLost ? 'DETECTION LOST' : 'TRACKING ACTIVE',
-                            style: TextStyle(
-                              color: _detectionLost ? _red : _green,
-                              fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.8),
-                          ),
-                        ],
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                    _buildPhaseContent(),
+                    const SizedBox(height: 12),
+
+                    _buildPhaseActionButton(),
+                    const SizedBox(height: 10),
+
+                    GestureDetector(
+                      onTap: () => Navigator.pop(context),
+                      child: Container(
+                        width: double.infinity, height: 44,
                         decoration: BoxDecoration(
-                          color: const Color(0xFF1A7A4A).withValues(alpha: 0.25),
-                          border: Border.all(color: const Color(0xFF1A7A4A).withValues(alpha: 0.5)),
-                          borderRadius: BorderRadius.circular(6),
+                          color: _bg,
+                          border: Border.all(color: _cardBorder),
+                          borderRadius: BorderRadius.circular(14),
                         ),
-                        child: const Text('PRACTICE',
-                            style: TextStyle(color: _green, fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 0.8)),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-
-                  _buildPhaseContent(),
-                  const SizedBox(height: 12),
-
-                  _buildPhaseActionButton(),
-                  const SizedBox(height: 10),
-
-                  GestureDetector(
-                    onTap: () => Navigator.pop(context),
-                    child: Container(
-                      width: double.infinity, height: 44,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF003366).withValues(alpha: 0.35),
-                        border: Border.all(color: _accentBlue.withValues(alpha: 0.2)),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      alignment: Alignment.center,
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          SvgPicture.string(
-                            '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M10 7.5H3M6 4.5L3 7.5L6 10.5" stroke="rgba(255,255,255,0.55)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 3h4v9H8" stroke="rgba(255,255,255,0.55)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-                          ),
-                          const SizedBox(width: 7),
-                          Text('Exit Practice Mode',
-                            style: TextStyle(color: Colors.white.withValues(alpha: 0.55), fontSize: 13, fontWeight: FontWeight.w600)),
-                        ],
+                        alignment: Alignment.center,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            SvgPicture.string(
+                              '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M10 7.5H3M6 4.5L3 7.5L6 10.5" stroke="#8A9BB0" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 3h4v9H8" stroke="#8A9BB0" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+                            ),
+                            const SizedBox(width: 7),
+                            const Text('Exit Practice Mode',
+                              style: TextStyle(color: _textMid, fontSize: 13, fontWeight: FontWeight.w600)),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
+            ],
           ),
 
         // Placement guide overlay
         if (_showGuide)
           GestureDetector(onTap: () => setState(() => _showGuide = false),
-            child: Container(color: Colors.black.withValues(alpha: 0.92),
+            child: Container(color: Colors.black.withValues(alpha: 0.65),
               child: SafeArea(child: Column(children: [
-                Padding(padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-                  child: Row(children: [
-                    Container(width: 36, height: 36,
-                      decoration: BoxDecoration(color: _accentBlue.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(10), border: Border.all(color: _accentBlue.withValues(alpha: 0.4))),
-                      child: const Icon(Icons.camera_alt_outlined, color: _accentBlue, size: 18)),
-                    const SizedBox(width: 12),
-                    const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text('Placement Guide', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800)),
-                      Text('How to frame for best detection', style: TextStyle(color: _accentBlue, fontSize: 11)),
-                    ]),
-                    const Spacer(),
-                    GestureDetector(onTap: () => setState(() => _showGuide = false),
-                      child: Container(width: 32, height: 32,
-                        decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.10), borderRadius: BorderRadius.circular(8)),
-                        child: const Icon(Icons.close_rounded, color: Colors.white, size: 18))),
-                  ])),
-                Expanded(child: Padding(padding: const EdgeInsets.all(20),
-                  child: ClipRRect(borderRadius: BorderRadius.circular(16),
-                    child: Image.asset('assets/injection_placement_guide.jpg', fit: BoxFit.contain)))),
-                Padding(padding: const EdgeInsets.fromLTRB(20, 0, 20, 12), child: Column(children: [
-                  _GuideTip(icon: Icons.crop_free_rounded, color: _green, label: 'ARM',
-                    text: 'Keep the bare upper-arm / deltoid area centered — the GREEN box tracks this.'),
-                  const SizedBox(height: 10),
-                  _GuideTip(icon: Icons.vaccines_rounded, color: const Color(0xFF22D3EE), label: 'SYRINGE',
-                    text: 'The entire syringe barrel must be visible from the side — the CYAN box tracks this.'),
-                  const SizedBox(height: 10),
-                  _GuideTip(icon: Icons.straighten_rounded, color: _amber, label: 'CAMERA POSITION',
-                    text: 'Level with the injection site, 30–50 cm away, looking straight at the side of the arm.'),
-                ])),
-                Padding(padding: const EdgeInsets.fromLTRB(20, 0, 20, 30),
-                  child: GestureDetector(onTap: () => setState(() => _showGuide = false),
-                    child: Container(height: 46, alignment: Alignment.center,
-                      decoration: BoxDecoration(color: _accentBlue.withValues(alpha: 0.15),
-                        border: Border.all(color: _accentBlue.withValues(alpha: 0.4)),
-                        borderRadius: BorderRadius.circular(14)),
-                      child: const Text('Got it — Back to Camera', style: TextStyle(color: _accentBlue, fontSize: 14, fontWeight: FontWeight.w700))))),
+                Expanded(child: Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+                  decoration: BoxDecoration(
+                    color: _cardBg,
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [BoxShadow(color: _navy.withValues(alpha: 0.1), blurRadius: 20, offset: const Offset(0, 10))],
+                  ),
+                  child: Column(
+                    children: [
+                      Padding(padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+                        child: Row(children: [
+                          Container(width: 36, height: 36,
+                            decoration: BoxDecoration(color: _bg,
+                              borderRadius: BorderRadius.circular(10), border: Border.all(color: _cardBorder)),
+                            child: const Icon(Icons.camera_alt_outlined, color: _navy, size: 18)),
+                          const SizedBox(width: 12),
+                          const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            Text('Placement Guide', style: TextStyle(color: _textDark, fontSize: 16, fontWeight: FontWeight.w800)),
+                            Text('How to frame for best detection', style: TextStyle(color: _textMid, fontSize: 11)),
+                          ]),
+                          const Spacer(),
+                          GestureDetector(onTap: () => setState(() => _showGuide = false),
+                            child: Container(width: 32, height: 32,
+                              decoration: BoxDecoration(color: _bg, border: Border.all(color: _cardBorder), borderRadius: BorderRadius.circular(8)),
+                              child: const Icon(Icons.close_rounded, color: _navy, size: 18))),
+                        ])),
+                      Expanded(child: Padding(padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: ClipRRect(borderRadius: BorderRadius.circular(12),
+                          child: Container(
+                            color: _bg,
+                            child: Image.asset('assets/injection_placement_guide.jpg', fit: BoxFit.contain),
+                          )))),
+                      Padding(padding: const EdgeInsets.fromLTRB(20, 16, 20, 12), child: Column(children: [
+                        _GuideTip(icon: Icons.crop_free_rounded, color: _green, label: 'ARM',
+                          text: 'Keep the bare upper-arm / deltoid area centered — the GREEN box tracks this.'),
+                        const SizedBox(height: 10),
+                        _GuideTip(icon: Icons.vaccines_rounded, color: const Color(0xFF0284C7), label: 'SYRINGE',
+                          text: 'The entire syringe barrel must be visible from the side — the BLUE box tracks this.'),
+                        const SizedBox(height: 10),
+                        _GuideTip(icon: Icons.straighten_rounded, color: _amber, label: 'CAMERA POSITION',
+                          text: 'Level with the injection site, 30–50 cm away, looking straight at the side of the arm.'),
+                      ])),
+                      Padding(padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                        child: GestureDetector(onTap: () => setState(() => _showGuide = false),
+                          child: Container(height: 46, alignment: Alignment.center,
+                            decoration: BoxDecoration(color: _bg,
+                              border: Border.all(color: _cardBorder),
+                              borderRadius: BorderRadius.circular(14)),
+                            child: const Text('Got it!', style: TextStyle(color: _navy, fontSize: 14, fontWeight: FontWeight.w700))))),
+                    ],
+                  ),
+                )),
               ])))),
       ]),
     );
@@ -734,144 +899,22 @@ class _PracticeModeScreenState extends State<PracticeModeScreen> {
 
   Widget _buildPhaseContent() {
     // 3-Phase Angle Tracker Row (Angles only during live practice)
-    Widget phaseTrackerRow() {
-      final insText = _insertionAngle != null
-          ? '${_insertionAngle!.toStringAsFixed(1)}°'
-          : (_practicePhase == 'insertion' ? '${_liveAngle.toStringAsFixed(1)}°' : '—');
-      final aspText = _practicePhase == 'insertion'
-          ? '—'
-          : (_practicePhase == 'aspiration' ? 'Checking' : 'No Blood');
-      final wthText = _withdrawalAngle != null
-          ? '${_withdrawalAngle!.toStringAsFixed(1)}°'
-          : (_practicePhase == 'withdrawal' ? '${_liveAngle.toStringAsFixed(1)}°' : '—');
-
-      return Container(
-        margin: const EdgeInsets.only(bottom: 10),
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.04),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: _accentBlue.withValues(alpha: 0.15)),
-        ),
-        child: Row(
-          children: [
-            Expanded(child: _buildPhaseLegendPill('1. Insertion', insText, _practicePhase == 'insertion')),
-            Container(width: 1, height: 16, color: Colors.white.withValues(alpha: 0.12)),
-            Expanded(child: _buildPhaseLegendPill('2. Aspiration', aspText, _practicePhase == 'aspiration')),
-            Container(width: 1, height: 16, color: Colors.white.withValues(alpha: 0.12)),
-            Expanded(child: _buildPhaseLegendPill('3. Withdrawal', wthText, _practicePhase == 'withdrawal')),
-          ],
-        ),
-      );
-    }
-
     if (_practicePhase == 'insertion') {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          phaseTrackerRow(),
-          Row(
-            children: [
-              _buildMetricCard('Phase', 'INSERTION', const Color(0xFFFCD34D)),
-              const SizedBox(width: 8),
-              _buildMetricCard('Live Angle',
-                _detectionLost ? '---' : '${_liveAngle.toStringAsFixed(1)}°',
-                _angleColor(_liveAngle)),
-              const SizedBox(width: 8),
-              _buildMetricCard('Target', '90.0° (±5°)', _accentBlue),
-            ],
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            '💡 Align syringe perpendicular at 90° into the deltoid site.',
-            style: TextStyle(color: _accentBlue, fontSize: 11, fontWeight: FontWeight.w500),
-          ),
-        ],
+      return const Text(
+        'Align syringe perpendicular at 90° into the deltoid site.',
+        style: TextStyle(color: _textMid, fontSize: 11, fontWeight: FontWeight.w500),
       );
     } else if (_practicePhase == 'aspiration') {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          phaseTrackerRow(),
-          Row(
-            children: [
-              _buildMetricCard('Phase', 'ASPIRATION', const Color(0xFFFCD34D)),
-              const SizedBox(width: 8),
-              _buildMetricCard('Inserted Angle', '${_insertionAngle?.toStringAsFixed(1) ?? "90.0"}°', _accentBlue),
-              const SizedBox(width: 8),
-              _buildMetricCard('Blood Check', 'NO BLEEDING', _green),
-            ],
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            '💡 Hold syringe steady at 90°. Aspirate gently for 5–10s to confirm no blood return.',
-            style: TextStyle(color: _accentBlue, fontSize: 11, fontWeight: FontWeight.w500),
-          ),
-        ],
+      return const Text(
+        'Hold syringe steady at 90°. Aspirate gently for 5–10s to confirm no blood return.',
+        style: TextStyle(color: _textMid, fontSize: 11, fontWeight: FontWeight.w500),
       );
     } else {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          phaseTrackerRow(),
-          Row(
-            children: [
-              _buildMetricCard('Phase', 'WITHDRAWAL', const Color(0xFFFCD34D)),
-              const SizedBox(width: 8),
-              _buildMetricCard('Live Angle',
-                _detectionLost ? '---' : '${_liveAngle.toStringAsFixed(1)}°',
-                _angleColor(_liveAngle)),
-              const SizedBox(width: 8),
-              _buildMetricCard('Delta',
-                _detectionLost ? '---' : '${(_liveAngle - (_insertionAngle ?? 90)).abs().toStringAsFixed(1)}°',
-                (_liveAngle - (_insertionAngle ?? 90)).abs() <= 5.0 ? _green : _amber),
-            ],
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            '💡 Withdraw smoothly along the exact insertion path (maintain 90°).',
-            style: TextStyle(color: _accentBlue, fontSize: 11, fontWeight: FontWeight.w500),
-          ),
-        ],
+      return const Text(
+        'Withdraw smoothly along the exact insertion path (maintain 90°).',
+        style: TextStyle(color: _textMid, fontSize: 11, fontWeight: FontWeight.w500),
       );
     }
-  }
-
-  Widget _buildPhaseLegendPill(String label, String value, bool isActive) {
-    return FittedBox(
-      fit: BoxFit.scaleDown,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 6, height: 6,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: isActive ? _amber : (value != '—' ? _green : Colors.white.withValues(alpha: 0.3)),
-            ),
-          ),
-          const SizedBox(width: 4),
-          Text(
-            label,
-            style: TextStyle(
-              color: isActive ? Colors.white : Colors.white.withValues(alpha: 0.6),
-              fontSize: 10,
-              fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
-            ),
-          ),
-          const SizedBox(width: 4),
-          Text(
-            value,
-            style: TextStyle(
-              color: isActive ? _amber : (value != '—' ? _green : Colors.white.withValues(alpha: 0.4)),
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              fontFamily: 'monospace',
-            ),
-          ),
-        ],
-      ),
-    );
   }
 
   Widget _buildPhaseActionButton() {
@@ -879,7 +922,7 @@ class _PracticeModeScreenState extends State<PracticeModeScreen> {
       return Container(
         width: double.infinity, height: 46,
         decoration: BoxDecoration(
-          color: const Color(0xFF16A34A),
+          color: _green,
           borderRadius: BorderRadius.circular(14),
         ),
         alignment: Alignment.center,
@@ -901,15 +944,39 @@ class _PracticeModeScreenState extends State<PracticeModeScreen> {
         mainAxisSize: MainAxisSize.min,
         children: [
           GestureDetector(
+            onTap: _cancelPracticeWithBleeding,
+            child: Container(
+              width: double.infinity, height: 44,
+              decoration: BoxDecoration(
+                color: _redBg,
+                border: Border.all(color: _redBorder),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              alignment: Alignment.center,
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.warning_amber_rounded, color: _red, size: 18),
+                  SizedBox(width: 8),
+                  Text(
+                    'Cancel (Patient Bleeding)',
+                    style: TextStyle(color: _red, fontSize: 13, fontWeight: FontWeight.w700),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          GestureDetector(
             onTap: isBlocked ? null : _nextPhase,
             child: Container(
               width: double.infinity, height: 46,
               decoration: BoxDecoration(
-                color: isBlocked ? Colors.grey : const Color(0xFF16A34A),
+                color: isBlocked ? _textLight : _green,
                 borderRadius: BorderRadius.circular(14),
                 boxShadow: isBlocked
                     ? null
-                    : [BoxShadow(color: const Color(0xFF16A34A).withValues(alpha: 0.35), blurRadius: 8, offset: const Offset(0, 2))],
+                    : [BoxShadow(color: _green.withValues(alpha: 0.35), blurRadius: 8, offset: const Offset(0, 2))],
               ),
               alignment: Alignment.center,
               child: Row(
@@ -928,30 +995,6 @@ class _PracticeModeScreenState extends State<PracticeModeScreen> {
               ),
             ),
           ),
-          const SizedBox(height: 10),
-          GestureDetector(
-            onTap: _cancelPracticeWithBleeding,
-            child: Container(
-              width: double.infinity, height: 44,
-              decoration: BoxDecoration(
-                color: const Color(0xFFDC2626).withValues(alpha: 0.15),
-                border: Border.all(color: const Color(0xFFDC2626).withValues(alpha: 0.5)),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              alignment: Alignment.center,
-              child: const Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.warning_amber_rounded, color: Color(0xFFEF4444), size: 18),
-                  SizedBox(width: 8),
-                  Text(
-                    'Cancel (Patient Bleeding)',
-                    style: TextStyle(color: Color(0xFFEF4444), fontSize: 13, fontWeight: FontWeight.w700),
-                  ),
-                ],
-              ),
-            ),
-          ),
         ],
       );
     }
@@ -962,11 +1005,11 @@ class _PracticeModeScreenState extends State<PracticeModeScreen> {
 
     if (_practicePhase == 'insertion') {
       label = isBlocked ? 'Detection Lost — Reposition Syringe' : 'Lock Angle & Proceed to Aspiration';
-      btnColor = isBlocked ? Colors.grey : const Color(0xFF004080);
+      btnColor = isBlocked ? _textLight : _navy;
       icon = Icons.arrow_forward_rounded;
     } else {
       label = isBlocked ? 'Detection Lost — Reposition Syringe' : 'Confirm Withdrawal & View Feedback';
-      btnColor = isBlocked ? Colors.grey : const Color(0xFF16A34A);
+      btnColor = isBlocked ? _textLight : _green;
       icon = Icons.check_circle_outline_rounded;
     }
 
@@ -999,35 +1042,6 @@ class _PracticeModeScreenState extends State<PracticeModeScreen> {
     );
   }
 
-  Widget _buildMetricCard(String label, String value, Color valueColor) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.05),
-          border: Border.all(color: _accentBlue.withValues(alpha: 0.12)),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(label,
-              style: TextStyle(color: Colors.white.withValues(alpha: 0.35),
-                  fontSize: 9, fontWeight: FontWeight.w700, letterSpacing: 0.8),
-              maxLines: 1, overflow: TextOverflow.ellipsis),
-            const SizedBox(height: 2),
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerLeft,
-              child: Text(value,
-                style: TextStyle(color: valueColor, fontSize: 14,
-                    fontWeight: FontWeight.w700, fontFamily: 'monospace')),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }
 
 // Guide tip row
@@ -1046,7 +1060,7 @@ class _GuideTip extends StatelessWidget {
       Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text(label, style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 1)),
         const SizedBox(height: 2),
-        Text(text, style: TextStyle(color: Colors.white.withValues(alpha: 0.7), fontSize: 12, height: 1.4)),
+        Text(text, style: const TextStyle(color: _textMid, fontSize: 12, height: 1.4)),
       ])),
     ]);
   }
@@ -1071,4 +1085,28 @@ class _CornerPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _CornerPainter old) => old.color != color;
+}
+
+// ── Phase Step ────────────────────────────────────────────────────────────────
+class _PhaseStep extends StatelessWidget {
+  final String label;
+  final int    state; // 0=pending, 1=active, 2=completed
+  const _PhaseStep({required this.label, required this.state});
+
+  @override
+  Widget build(BuildContext context) {
+    late Color color;
+    if (state == 2) color = const Color(0xFF1A7A4A);
+    else if (state == 1) color = _navy;
+    else color = _textMid;
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(width: 7, height: 7, decoration: BoxDecoration(shape: BoxShape.circle, color: color)),
+        const SizedBox(width: 5),
+        Text(label, style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w600)),
+      ],
+    );
+  }
 }

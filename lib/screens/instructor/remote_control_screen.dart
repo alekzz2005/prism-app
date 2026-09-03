@@ -722,19 +722,19 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
         mainAxisSize: MainAxisSize.min,
         children: [
           _ControlButton(
+            label: 'Cancel (Patient Bleeding)',
+            hint: 'Fails session immediately',
+            color: Colors.redAccent,
+            onPressed: () => _cancelSessionWithBleeding(instructorId, session),
+          ),
+          const SizedBox(height: 12),
+          _ControlButton(
             label: 'No Bleeding (Proceed to Withdrawal)',
             hint: guardrailBlocked ? 'Detection lost — Reposition hand' : 'Aspiration clear',
             color: guardrailBlocked ? Colors.grey : const Color(0xFF16A34A),
             onPressed: guardrailBlocked ? () {} : () {
               _updatePhase(instructorId, 'withdrawal');
             },
-          ),
-          const SizedBox(height: 12),
-          _ControlButton(
-            label: 'Cancel (Patient Bleeding)',
-            hint: 'Fails session immediately',
-            color: Colors.redAccent,
-            onPressed: () => _cancelSessionWithBleeding(instructorId, session),
           ),
         ],
       );

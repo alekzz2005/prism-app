@@ -64,10 +64,31 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
   String _statusFilter = 'All';
   String _sectionFilter = 'All';
 
+  bool _isSelectionMode = false;
+  final Set<String> _selectedSessions = {};
+
+  void _toggleSelectionMode(bool enable) {
+    setState(() {
+      _isSelectionMode = enable;
+      if (!enable) _selectedSessions.clear();
+    });
+  }
+
+  void _toggleSelection(String sessionId) {
+    setState(() {
+      if (_selectedSessions.contains(sessionId)) {
+        _selectedSessions.remove(sessionId);
+      } else {
+        _selectedSessions.add(sessionId);
+      }
+    });
+  }
+
   // Filters for Sections
   String _schoolYearFilter = 'All';
   String _sectionsSearchQuery = '';
   int _sectionsPage = 1;
+  bool _sortAscending = true;
   static const int _sectionsPageSize = 10;
 
   static const _statusOptions = ['All', 'Pending', 'Released', 'Failed'];
@@ -351,7 +372,7 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
             ),
             
           // Shared FAB
-          if (instructorId != null)
+          if (instructorId != null && !_isSelectionMode)
             Positioned(
               bottom: 84, // Above nav bar
               right: 20,
@@ -669,11 +690,109 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
                   ),
                 );
               }
-              return ListView.separated(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 90),
-                itemCount: sessions.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 10),
-                itemBuilder: (context, i) => _SessionCard(session: sessions[i], repo: _repo),
+              return Column(
+                children: [
+                  Expanded(
+                    child: ListView.separated(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 90),
+                      itemCount: sessions.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 10),
+                      itemBuilder: (context, i) {
+                        final session = sessions[i];
+                        return _SessionCard(
+                          session: session,
+                          repo: _repo,
+                          isSelectionMode: _isSelectionMode,
+                          isSelected: _selectedSessions.contains(session.sessionId),
+                          onTap: () {
+                            if (_isSelectionMode) {
+                              _toggleSelection(session.sessionId);
+                            } else {
+                              Navigator.push(context, MaterialPageRoute(builder: (_) => FeedbackReviewScreen(session: session, repo: _repo)));
+                            }
+                          },
+                          onLongPress: () {
+                            if (!_isSelectionMode) {
+                              _toggleSelectionMode(true);
+                              _toggleSelection(session.sessionId);
+                            }
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                  if (_isSelectionMode)
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                      decoration: BoxDecoration(
+                        color: _cardBg,
+                        boxShadow: [BoxShadow(color: _navy.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, -4))],
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text('${_selectedSessions.length} selected', style: const TextStyle(color: _textDark, fontWeight: FontWeight.bold, fontSize: 14)),
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    GestureDetector(
+                                      onTap: () => setState(() {
+                                        final pending = sessions.where((s) => s.feedbackStatus == 'Pending').map((s) => s.sessionId);
+                                        _selectedSessions.addAll(pending);
+                                      }),
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                        decoration: BoxDecoration(color: _navy.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(6)),
+                                        child: const Text('Select All', style: TextStyle(color: _navy, fontSize: 11, fontWeight: FontWeight.w700)),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    GestureDetector(
+                                      onTap: () => setState(() => _selectedSessions.clear()),
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                        decoration: BoxDecoration(color: _textLight.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(6)),
+                                        child: const Text('Clear', style: TextStyle(color: _textMid, fontSize: 11, fontWeight: FontWeight.w700)),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: () => _toggleSelectionMode(false),
+                            style: TextButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 12),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            child: const Text('Exit', style: TextStyle(color: _textMid, fontWeight: FontWeight.w700)),
+                          ),
+                          const SizedBox(width: 8),
+                          ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: _navy,
+                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                            onPressed: _selectedSessions.isEmpty ? null : () async {
+                              final count = await FeedbackReleaseService().batchReleaseByIds(_selectedSessions.toList());
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Released $count sessions.')));
+                                _toggleSelectionMode(false);
+                              }
+                            },
+                            child: const Text('Release', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
               );
             },
           ),
@@ -1068,33 +1187,6 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
                         );
                       }
                     ),
-                    const SizedBox(width: 8),
-                    // Profile avatar
-                    GestureDetector(
-                      key: const Key('instructor_signout'),
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (_) => const ProfileScreen()),
-                        );
-                      },
-                      child: Container(
-                        width: 40, height: 40,
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.10),
-                          border: Border.all(color: _accentBlue, width: 2),
-                          borderRadius: BorderRadius.circular(24),
-                        ),
-                        alignment: Alignment.center,
-                        child: Builder(
-                          builder: (context) {
-                            final name = context.watch<UserRoleProvider>().fullName ?? 'I';
-                            final initial = name.isNotEmpty ? name[0].toUpperCase() : 'I';
-                            return Text(initial, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold));
-                          },
-                        ),
-                      ),
-                    ),
                   ],
                 ),
               if (_currentIndex == 0) ...[
@@ -1231,7 +1323,19 @@ class _FilterRow extends StatelessWidget {
 class _SessionCard extends StatelessWidget {
   final SessionModel session;
   final InstructorSessionRepository repo;
-  const _SessionCard({required this.session, required this.repo});
+  final bool isSelectionMode;
+  final bool isSelected;
+  final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
+
+  const _SessionCard({
+    required this.session, 
+    required this.repo,
+    this.isSelectionMode = false,
+    this.isSelected = false,
+    this.onTap,
+    this.onLongPress,
+  });
 
   ({Color bg, Color border, Color text}) _statusColors(String status) {
     if (status == 'Released') return (bg: _greenBg, border: _greenBorder, text: _green);
@@ -1259,8 +1363,9 @@ class _SessionCard extends StatelessWidget {
 
     return GestureDetector(
       key: Key('instructor_session_${session.sessionId}'),
-      onTap: () => Navigator.push(context,
+      onTap: onTap ?? () => Navigator.push(context,
           MaterialPageRoute(builder: (_) => FeedbackReviewScreen(session: session, repo: repo))),
+      onLongPress: onLongPress,
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
@@ -1352,9 +1457,19 @@ class _SessionCard extends StatelessWidget {
                 ],
               ),
             ),
-            SvgPicture.string(
-              '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="#E2EAF4" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-            ),
+            isSelectionMode 
+                ? Checkbox(
+                    value: isSelected,
+                    onChanged: (val) {
+                      if (onTap != null) onTap!();
+                    },
+                    activeColor: _navy,
+                    checkColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                  )
+                : SvgPicture.string(
+                    '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="#E2EAF4" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+                  ),
           ],
         ),
       ),

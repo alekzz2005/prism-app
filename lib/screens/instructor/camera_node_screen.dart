@@ -14,10 +14,22 @@ import '../../widgets/detection_overlay_painter.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 // ─── Brand Colours ─────────────────────────────────────────────────────────
+const _navy       = Color(0xFF003366);
+const _navyMid    = Color(0xFF004080);
+const _navyDark   = Color(0xFF002244);
 const _accentBlue = Color(0xFFA8C4E0);
-const _green      = Color(0xFF4ADE80);
+const _bg         = Color(0xFFF8FAFC);
+const _cardBg     = Color(0xFFFFFFFF);
+const _cardBorder = Color(0xFFE2EAF4);
+const _textDark   = Color(0xFF1A2B3C);
+const _textMid    = Color(0xFF4A5568);
+const _textLight  = Color(0xFF8A9BB0);
+const _green      = Color(0xFF1A7A4A);
+const _greenBg    = Color(0xFFEEF9F3);
+const _red        = Color(0xFF991B1B);
+const _redBg      = Color(0xFFFEF2F2);
+const _redBorder  = Color(0xFFFECACA);
 const _greenDark  = Color(0xFF22C55E);
-const _red        = Color(0xFFF87171);
 // ──────────────────────────────────────────────────────────────────────────────
 
 class CameraNodeScreen extends StatefulWidget {
@@ -439,7 +451,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
     _instructorId = instructorId;
 
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: _bg,
       body: StreamBuilder<LiveSessionModel?>(
         stream: _liveService.watchSession(instructorId!),
         builder: (context, snapshot) {
@@ -473,32 +485,24 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
           return Stack(
             fit: StackFit.expand,
             children: [
-              Container(
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [Color(0xFF001428), Color(0xFF001C38), Color(0xFF000E1E)],
-                  ),
-                ),
-              ),
+              Container(color: _bg),
               if (!_cameraReady)
                 Container(
-                  color: const Color(0xFF003366),
+                  color: _bg,
                   child: const Center(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        CircularProgressIndicator(color: Colors.white, strokeWidth: 3),
+                        CircularProgressIndicator(color: _navy, strokeWidth: 3),
                         SizedBox(height: 24),
                         Text(
                           'PRISM',
-                          style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: 6),
+                          style: TextStyle(color: _navy, fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: 6),
                         ),
                         SizedBox(height: 8),
                         Text(
                           'INITIALIZING CAMERA...',
-                          style: TextStyle(color: Color(0xFFA8C4E0), fontSize: 10, fontWeight: FontWeight.w600, letterSpacing: 2),
+                          style: TextStyle(color: _textMid, fontSize: 10, fontWeight: FontWeight.w600, letterSpacing: 2),
                         ),
                       ],
                     ),
@@ -539,52 +543,53 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
               if (!isWaiting && _detectionLost)
                 Positioned.fill(
                   child: Container(
-                    color: Colors.red.withValues(alpha: 0.15),
+                    color: _redBg.withValues(alpha: 0.75),
                     child: Center(
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 16),
+                        padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
                         decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.75),
+                          color: _cardBg,
                           borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: _red.withValues(alpha: 0.6), width: 2),
+                          border: Border.all(color: _redBorder, width: 2),
+                          boxShadow: [BoxShadow(color: _red.withValues(alpha: 0.1), blurRadius: 16, offset: const Offset(0, 4))],
                         ),
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.warning_amber_rounded, color: _red, size: 40),
-                            const SizedBox(height: 10),
+                            const Icon(Icons.warning_amber_rounded, color: _red, size: 48),
+                            const SizedBox(height: 12),
                             const Text(
                               'DETECTION LOST',
-                              style: TextStyle(color: Colors.white, fontSize: 16,
-                                  fontWeight: FontWeight.w800, letterSpacing: 2),
+                              style: TextStyle(color: _red, fontSize: 16,
+                                  fontWeight: FontWeight.w900, letterSpacing: 1.5),
                             ),
-                            const SizedBox(height: 6),
-                            Text(
+                            const SizedBox(height: 8),
+                            const Text(
                               'Syringe or arm not visible.\nReposition the camera.',
                               textAlign: TextAlign.center,
-                              style: TextStyle(color: Colors.white.withValues(alpha: 0.7),
-                                  fontSize: 12, height: 1.4),
+                              style: TextStyle(color: _textDark,
+                                  fontSize: 13, height: 1.4),
                             ),
-                            const SizedBox(height: 14),
+                            const SizedBox(height: 20),
                             GestureDetector(
                               onTap: () {
                                 HapticFeedback.lightImpact();
                                 setState(() => _showGuide = true);
                               },
                               child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                                 decoration: BoxDecoration(
-                                  color: _accentBlue.withValues(alpha: 0.15),
-                                  border: Border.all(color: _accentBlue.withValues(alpha: 0.5)),
-                                  borderRadius: BorderRadius.circular(10),
+                                  color: _bg,
+                                  border: Border.all(color: _cardBorder),
+                                  borderRadius: BorderRadius.circular(12),
                                 ),
                                 child: const Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    Icon(Icons.help_outline_rounded, color: _accentBlue, size: 15),
-                                    SizedBox(width: 6),
+                                    Icon(Icons.help_outline_rounded, color: _navy, size: 18),
+                                    SizedBox(width: 8),
                                     Text('Show Placement Guide',
-                                        style: TextStyle(color: _accentBlue, fontSize: 12, fontWeight: FontWeight.w600)),
+                                        style: TextStyle(color: _navy, fontSize: 13, fontWeight: FontWeight.w700)),
                                   ],
                                 ),
                               ),
@@ -598,7 +603,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
 
               if (isWaiting)
                 Container(
-                  color: Colors.black.withValues(alpha: 0.65),
+                  color: Colors.white.withValues(alpha: 0.85),
                   child: Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -607,48 +612,47 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                           width: 80, height: 80,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            color: const Color(0xFF003366).withValues(alpha: 0.35),
-                            border: Border.all(color: _accentBlue.withValues(alpha: 0.6), width: 2),
+                            color: _bg,
+                            border: Border.all(color: _cardBorder, width: 2),
                           ),
-                          child: const Icon(Icons.cast_connected, color: _accentBlue, size: 36),
+                          child: const Icon(Icons.cast_connected, color: _navy, size: 36),
                         ),
                         const SizedBox(height: 24),
                         const Text(
-                          'CAMERA NODE STANDBY',
-                          style: TextStyle(color: Colors.white, fontSize: 16,
-                              fontWeight: FontWeight.w700, letterSpacing: 2),
+                          'CAMERA STANDBY',
+                          style: TextStyle(color: _textDark, fontSize: 16,
+                              fontWeight: FontWeight.w800, letterSpacing: 1.5),
                         ),
                         const SizedBox(height: 8),
-                        Text(
+                        const Text(
                           'Frame the patient. Waiting for remote start...',
-                          style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 13),
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: _textMid, fontSize: 13, height: 1.4),
                         ),
-                        const SizedBox(height: 24),
-                        // Guide button
+                        const SizedBox(height: 28),
                         GestureDetector(
                           onTap: () { HapticFeedback.lightImpact(); setState(() => _showGuide = true); },
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                             decoration: BoxDecoration(
-                              color: _accentBlue.withValues(alpha: 0.12),
-                              border: Border.all(color: _accentBlue.withValues(alpha: 0.4)),
+                              color: _bg,
+                              border: Border.all(color: _cardBorder),
                               borderRadius: BorderRadius.circular(12)),
                             child: const Row(mainAxisSize: MainAxisSize.min, children: [
-                              Icon(Icons.help_outline_rounded, color: _accentBlue, size: 16),
-                              SizedBox(width: 7),
-                              Text('Placement Guide', style: TextStyle(color: _accentBlue, fontSize: 13, fontWeight: FontWeight.w600)),
+                              Icon(Icons.help_outline_rounded, color: _navy, size: 18),
+                              SizedBox(width: 8),
+                              Text('Placement Guide', style: TextStyle(color: _navy, fontSize: 13, fontWeight: FontWeight.w700)),
                             ]),
                           ),
                         ),
-                        const SizedBox(height: 24),
+                        const SizedBox(height: 16),
                         GestureDetector(
                           onTap: () => Navigator.pop(context),
                           child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF003366).withValues(alpha: 0.5),
-                              border: Border.all(color: _accentBlue.withValues(alpha: 0.4)),
-                              borderRadius: BorderRadius.circular(14),
+                              color: _navy,
+                              borderRadius: BorderRadius.circular(12),
                             ),
                             child: const Text('Exit Camera Mode',
                                 style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
@@ -661,10 +665,14 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
 
               if (!isWaiting && session != null) ...[
                 Positioned(
-                  top: 0, left: 0, right: 0,
+                  top: 48, left: 16, right: 16,
                   child: Container(
-                    color: Colors.black.withValues(alpha: 0.88),
-                    padding: const EdgeInsets.fromLTRB(18, 48, 18, 14),
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: _cardBg,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [BoxShadow(color: _navy.withValues(alpha: 0.08), blurRadius: 12, offset: const Offset(0, 4))],
+                    ),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
@@ -674,27 +682,27 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                             children: [
                               Text(
                                 '${_formatName(session.studentName)} — ${session.injectionType} Injection',
-                                style: const TextStyle(color: Colors.white, fontSize: 16,
+                                style: const TextStyle(color: _textDark, fontSize: 16,
                                     fontWeight: FontWeight.w700, height: 1.2),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                               ),
-                              const SizedBox(height: 4),
+                              const SizedBox(height: 6),
                               Row(
                                 children: [
                                   Container(
                                     width: 7, height: 7,
                                     decoration: BoxDecoration(
                                       shape: BoxShape.circle,
-                                      color: _accentBlue,
-                                      boxShadow: [BoxShadow(color: _accentBlue.withValues(alpha: 0.25), blurRadius: 0, spreadRadius: 3)],
+                                      color: _navy,
+                                      boxShadow: [BoxShadow(color: _navy.withValues(alpha: 0.25), blurRadius: 0, spreadRadius: 3)],
                                     ),
                                   ),
                                   const SizedBox(width: 8),
                                   Text(
                                     '${session.phase.toUpperCase().replaceAll("_", " ")} PHASE ACTIVE',
-                                    style: const TextStyle(color: _accentBlue, fontSize: 11,
-                                        fontWeight: FontWeight.w700, letterSpacing: 0.5),
+                                    style: const TextStyle(color: _navyMid, fontSize: 11,
+                                        fontWeight: FontWeight.w800, letterSpacing: 0.5),
                                   ),
                                 ],
                               ),
@@ -708,19 +716,17 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                             setState(() => _showGuide = !_showGuide);
                           },
                           child: Container(
-                            width: 36, height: 36,
+                            width: 40, height: 40,
                             decoration: BoxDecoration(
                               color: _showGuide
                                   ? _accentBlue.withValues(alpha: 0.25)
-                                  : Colors.white.withValues(alpha: 0.10),
-                              borderRadius: BorderRadius.circular(10),
-                              border: _showGuide
-                                  ? Border.all(color: _accentBlue.withValues(alpha: 0.6))
-                                  : null,
+                                  : _bg,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: _showGuide ? _navy : _cardBorder),
                             ),
                             alignment: Alignment.center,
-                            child: const Icon(Icons.help_outline_rounded,
-                                color: _accentBlue, size: 20),
+                            child: Icon(Icons.help_outline_rounded,
+                                color: _showGuide ? _navy : _textMid, size: 22),
                           ),
                         ),
                       ],
@@ -733,8 +739,12 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                 Positioned(
                   bottom: 0, left: 0, right: 0,
                   child: Container(
-                    color: Colors.black.withValues(alpha: 0.90),
-                    padding: const EdgeInsets.fromLTRB(20, 14, 20, 30),
+                    decoration: BoxDecoration(
+                      color: _cardBg,
+                      borderRadius: const BorderRadius.only(topLeft: Radius.circular(24), topRight: Radius.circular(24)),
+                      boxShadow: [BoxShadow(color: _navy.withValues(alpha: 0.05), blurRadius: 16, offset: const Offset(0, -4))],
+                    ),
+                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
                     child: Column(
                       children: [
                         Row(
@@ -757,49 +767,49 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                                   _detectionLost ? 'DETECTION LOST' : 'TRACKING ACTIVE',
                                   style: TextStyle(
                                     color: _detectionLost ? _red : _green,
-                                    fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.8)),
+                                    fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 0.8)),
                               ],
                             ),
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                               decoration: BoxDecoration(
-                                color: const Color(0xFF991B1B).withValues(alpha: 0.3),
-                                border: Border.all(color: const Color(0xFF991B1B).withValues(alpha: 0.5)),
-                                borderRadius: BorderRadius.circular(6),
+                                color: _redBg,
+                                border: Border.all(color: _redBorder),
+                                borderRadius: BorderRadius.circular(8),
                               ),
                               child: const Text('\u25cf REC',
-                                  style: TextStyle(color: Color(0xFFFCA5A5), fontSize: 10,
-                                      fontWeight: FontWeight.w700, letterSpacing: 0.8)),
+                                  style: TextStyle(color: _red, fontSize: 10,
+                                      fontWeight: FontWeight.w800, letterSpacing: 0.8)),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 12),
+                        const SizedBox(height: 16),
                         Row(
                           children: [
                             _buildMetricCard('Phase',
                               session.phase.split('_')[0],
-                              const Color(0xFFFCD34D)),
+                              _navy),
                             const SizedBox(width: 8),
                             _buildMetricCard('Angle',
                               _detectionLost ? '---' : '${_liveAngle.toStringAsFixed(1)}°',
-                              _detectionLost ? Colors.white38 : Colors.white),
+                              _detectionLost ? _textLight : _textDark),
                             const SizedBox(width: 8),
                             _buildMetricCard('Score',
                               _detectionLost ? '-' : '$_liveScore/5',
-                              _liveScore >= 4 ? _green : _liveScore >= 2 ? const Color(0xFFFCD34D) : _red),
+                              _liveScore >= 4 ? _green : _liveScore >= 2 ? const Color(0xFFB45309) : _red),
                           ],
                         ),
-                        const SizedBox(height: 10),
+                        const SizedBox(height: 16),
                         GestureDetector(
                           onTap: () {
                             _liveService.clearSession(instructorId);
                             Navigator.pop(context);
                           },
                           child: Container(
-                            width: double.infinity, height: 46,
+                            width: double.infinity, height: 48,
                             decoration: BoxDecoration(
-                              color: const Color(0xFF003366).withValues(alpha: 0.35),
-                              border: Border.all(color: _accentBlue.withValues(alpha: 0.2)),
+                              color: _bg,
+                              border: Border.all(color: _cardBorder),
                               borderRadius: BorderRadius.circular(14),
                             ),
                             alignment: Alignment.center,
@@ -807,12 +817,12 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
                                 SvgPicture.string(
-                                  '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M10 7.5H3M6 4.5L3 7.5L6 10.5" stroke="rgba(255,255,255,0.55)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 3h4v9H8" stroke="rgba(255,255,255,0.55)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+                                  '<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M10 7.5H3M6 4.5L3 7.5L6 10.5" stroke="#4A5568" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 3h4v9H8" stroke="#4A5568" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
                                 ),
-                                const SizedBox(width: 7),
-                                Text('Exit Camera Mode',
-                                  style: TextStyle(color: Colors.white.withValues(alpha: 0.55),
-                                      fontSize: 13, fontWeight: FontWeight.w600)),
+                                const SizedBox(width: 8),
+                                const Text('Exit Camera Mode',
+                                  style: TextStyle(color: _textMid,
+                                      fontSize: 14, fontWeight: FontWeight.w700)),
                               ],
                             ),
                           ),
@@ -832,45 +842,60 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
   Widget _buildGuideOverlay() {
     return GestureDetector(
       onTap: () => setState(() => _showGuide = false),
-      child: Container(color: Colors.black.withValues(alpha: 0.92),
+      child: Container(color: Colors.white.withValues(alpha: 0.90),
         child: SafeArea(child: Column(children: [
           Padding(padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
             child: Row(children: [
-              Container(width: 36, height: 36,
-                decoration: BoxDecoration(color: _accentBlue.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(10), border: Border.all(color: _accentBlue.withValues(alpha: 0.4))),
-                child: const Icon(Icons.camera_alt_outlined, color: _accentBlue, size: 18)),
-              const SizedBox(width: 12),
-              const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('Placement Guide', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800)),
-                Text('How to frame for best detection', style: TextStyle(color: _accentBlue, fontSize: 11)),
-              ]),
+              GestureDetector(
+                onTap: () => setState(() => _showGuide = false),
+                child: Container(
+                  width: 36, height: 36,
+                  decoration: BoxDecoration(
+                    color: _bg,
+                    border: Border.all(color: _cardBorder),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  alignment: Alignment.center,
+                  child: const Icon(Icons.close_rounded, color: _textDark, size: 20),
+                ),
+              ),
+              const SizedBox(width: 14),
+              const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('PLACEMENT', style: TextStyle(color: _textDark, fontSize: 22, fontWeight: FontWeight.w800, letterSpacing: 3, height: 1.0)),
+                  SizedBox(height: 3),
+                  Text('HOW TO FRAME FOR BEST DETECTION', style: TextStyle(color: _navyMid, fontSize: 9, fontWeight: FontWeight.w800, letterSpacing: 1.0)),
+                ],
+              ),
               const Spacer(),
-              GestureDetector(onTap: () => setState(() => _showGuide = false),
-                child: Container(width: 32, height: 32,
-                  decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.10), borderRadius: BorderRadius.circular(8)),
-                  child: const Icon(Icons.close_rounded, color: Colors.white, size: 18))),
             ])),
           Expanded(child: Padding(padding: const EdgeInsets.all(20),
-            child: ClipRRect(borderRadius: BorderRadius.circular(16),
+            child: Container(
+              decoration: BoxDecoration(
+                color: _cardBg,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: _cardBorder, width: 1.5),
+                boxShadow: [BoxShadow(color: _navy.withValues(alpha: 0.05), blurRadius: 12, offset: const Offset(0, 4))],
+              ),
+              clipBehavior: Clip.antiAlias,
               child: Image.asset('assets/injection_placement_guide.jpg', fit: BoxFit.contain)))),
           Padding(padding: const EdgeInsets.fromLTRB(20, 0, 20, 12), child: Column(children: [
             _InstructorGuideTip(icon: Icons.crop_free_rounded, color: _green, label: 'ARM',
               text: 'Keep the bare upper-arm / deltoid area centered — the GREEN box tracks this.'),
             const SizedBox(height: 10),
-            _InstructorGuideTip(icon: Icons.vaccines_rounded, color: const Color(0xFF22D3EE), label: 'SYRINGE',
-              text: 'The entire syringe barrel must be visible from the side — the CYAN box tracks this.'),
+            _InstructorGuideTip(icon: Icons.vaccines_rounded, color: const Color(0xFF0284C7), label: 'SYRINGE',
+              text: 'The entire syringe barrel must be visible from the side — the BLUE box tracks this.'),
             const SizedBox(height: 10),
-            _InstructorGuideTip(icon: Icons.straighten_rounded, color: const Color(0xFFFCD34D), label: 'TRIPOD POSITION',
+            _InstructorGuideTip(icon: Icons.straighten_rounded, color: const Color(0xFFB45309), label: 'TRIPOD POSITION',
               text: 'Place the tripod level with the injection site, 30–50 cm away, facing the side of the arm.'),
           ])),
           Padding(padding: const EdgeInsets.fromLTRB(20, 0, 20, 30),
             child: GestureDetector(onTap: () => setState(() => _showGuide = false),
-              child: Container(height: 46, alignment: Alignment.center,
-                decoration: BoxDecoration(color: _accentBlue.withValues(alpha: 0.15),
-                  border: Border.all(color: _accentBlue.withValues(alpha: 0.4)),
+              child: Container(height: 48, alignment: Alignment.center,
+                decoration: BoxDecoration(color: _navy,
                   borderRadius: BorderRadius.circular(14)),
-                child: const Text('Got it — Back to Camera', style: TextStyle(color: _accentBlue, fontSize: 14, fontWeight: FontWeight.w700))))),
+                child: const Text('Got it!', style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w700))))),
         ]))),
     );
   }
@@ -878,26 +903,26 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
   Widget _buildMetricCard(String label, String value, Color valueColor) {
     return Expanded(
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.05),
-          border: Border.all(color: _accentBlue.withValues(alpha: 0.12)),
-          borderRadius: BorderRadius.circular(10),
+          color: _bg,
+          border: Border.all(color: _cardBorder),
+          borderRadius: BorderRadius.circular(12),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(label,
-              style: TextStyle(color: Colors.white.withValues(alpha: 0.3),
-                  fontSize: 9, fontWeight: FontWeight.w700, letterSpacing: 1),
+            Text(label.toUpperCase(),
+              style: const TextStyle(color: _textLight,
+                  fontSize: 9, fontWeight: FontWeight.w800, letterSpacing: 1),
               maxLines: 1, overflow: TextOverflow.ellipsis),
-            const SizedBox(height: 2),
+            const SizedBox(height: 4),
             FittedBox(
               fit: BoxFit.scaleDown,
               alignment: Alignment.centerLeft,
               child: Text(value,
-                style: TextStyle(color: valueColor, fontSize: 15,
-                    fontWeight: FontWeight.w700, fontFamily: 'DM Mono')),
+                style: TextStyle(color: valueColor, fontSize: 18,
+                    fontWeight: FontWeight.w800, fontFamily: 'DM Mono')),
             ),
           ],
         ),
@@ -944,34 +969,43 @@ class _InstructorGuideTip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          width: 32, height: 32,
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: color.withValues(alpha: 0.4)),
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: _cardBg,
+        border: Border.all(color: _cardBorder),
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [BoxShadow(color: _navy.withValues(alpha: 0.03), blurRadius: 8, offset: const Offset(0, 2))],
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 32, height: 32,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: color.withValues(alpha: 0.3)),
+            ),
+            child: Icon(icon, color: color, size: 16),
           ),
-          child: Icon(icon, color: color, size: 16),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(label,
-                  style: TextStyle(color: color, fontSize: 11,
-                      fontWeight: FontWeight.w800, letterSpacing: 1)),
-              const SizedBox(height: 2),
-              Text(text,
-                  style: TextStyle(color: Colors.white.withValues(alpha: 0.7),
-                      fontSize: 12, height: 1.4)),
-            ],
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label,
+                    style: TextStyle(color: color, fontSize: 11,
+                        fontWeight: FontWeight.w800, letterSpacing: 1)),
+                const SizedBox(height: 2),
+                Text(text,
+                    style: const TextStyle(color: _textDark,
+                        fontSize: 12, height: 1.4)),
+              ],
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

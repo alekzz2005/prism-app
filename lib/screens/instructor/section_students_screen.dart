@@ -60,7 +60,6 @@ class _SectionStudentsScreenState extends State<SectionStudentsScreen> {
   }
 
   void _showAddStudentModal(String instructorId) {
-    _toggleFab();
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
