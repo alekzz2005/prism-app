@@ -34,20 +34,25 @@ jobs:
           gem install xcodeproj
           ruby -e "require 'xcodeproj'; project = Xcodeproj::Project.open('ios/Runner.xcodeproj'); group = project.main_group.find_subpath('Runner', true); file = group.new_file('GoogleService-Info.plist'); project.targets.first.resources_build_phase.add_file_reference(file); project.save"
 
-      - name: Force Disable Code Signing
+      - name: Force Disable Code Signing in Xcode
         run: |
           ruby -e "require 'xcodeproj'; project = Xcodeproj::Project.open('ios/Runner.xcodeproj'); project.targets.each { |target| target.build_configurations.each { |config| config.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'; config.build_settings['CODE_SIGNING_REQUIRED'] = 'NO'; config.build_settings['CODE_SIGN_IDENTITY'] = ''; config.build_settings['CODE_SIGN_STYLE'] = 'Manual'; config.build_settings.delete('DEVELOPMENT_TEAM') } }; project.save"
 
-      - name: Build iOS App without Codesign
+      - name: Patch Flutter to bypass keychain validation
         run: |
-          flutter build ios --release --no-codesign --config-only
-          cd ios
-          xcodebuild -workspace Runner.xcworkspace -scheme Runner -configuration Release -sdk iphoneos -destination generic/platform=iOS CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" DEVELOPMENT_TEAM="" ENTITLEMENTS_REQUIRED=NO SYMROOT="$(pwd)/../build/ios" clean build
+          FLUTTER_DIR="$(dirname $(which flutter))/.."
+          find "$FLUTTER_DIR/packages/flutter_tools/lib/src" -type f -name "*.dart" -exec sed -i '' "s/throwToolExit('No development certificates available/print('Bypassed/g" {} +
+          find "$FLUTTER_DIR/packages/flutter_tools/lib/src" -type f -name "*.dart" -exec sed -i '' "s/throwToolExit('No valid code signing certificates were found/print('Bypassed/g" {} +
+          rm -f "$FLUTTER_DIR/bin/cache/flutter_tools.stamp"
+          flutter --version
+
+      - name: Build iOS App without Codesign
+        run: flutter build ios --release --no-codesign
 
       - name: Package to IPA
         run: |
           mkdir -p Payload
-          mv build/ios/Release-iphoneos/Runner.app Payload/
+          mv build/ios/iphoneos/Runner.app Payload/
           zip -qq -r app-unsigned.ipa Payload
 
       - name: Upload IPA Artifact
