@@ -155,7 +155,7 @@ class LiveSessionService {
 
   /// Deprecated: Live mirroring is handled purely via WebRTC P2P streaming.
   /// This is a no-op to prevent persisting raw camera frames into Firestore.
-  @Deprecated('Use WebRTCSignalingService for peer-to-peer video streaming.')
+  @Deprecated('Use WebRtcSignalingService for peer-to-peer video streaming.')
   Future<void> updateLiveFrame(String instructorId, String base64) async {}
 
   /// Pushes the live aspiration metrics. Called by the Camera node at ~2Hz during aspiration.

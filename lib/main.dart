@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:provider/provider.dart';
@@ -10,8 +11,10 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   try {
     await dotenv.load(fileName: ".env");
-  } catch (_) {
-    // Allows the app to start even when .env isn't present (e.g. CI / testing)
+  } catch (e) {
+    if (kDebugMode) {
+      debugPrint('Failed to load .env: $e');
+    }
   }
   runApp(const PrismApp());
 }
