@@ -3,7 +3,6 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:provider/provider.dart';
 import '../../providers/user_role_provider.dart';
 import '../../services/roster_service.dart';
-import 'package:file_picker/file_picker.dart';
 
 // --- Brand Colours ------------------------------------------------------------
 const _navy = Color(0xFF003366);
@@ -907,8 +906,8 @@ class _AddStudentBottomSheetState extends State<_AddStudentBottomSheet> {
       setState(() => _errorMsg = 'Email is required.');
       return;
     }
-    if (!email.endsWith('@gmail.com')) {
-      setState(() => _errorMsg = 'Email must be a valid Gmail (@gmail.com) address.');
+    if (!RosterService.isValidEmail(email)) {
+      setState(() => _errorMsg = 'Please enter a valid email address.');
       return;
     }
 
@@ -1005,7 +1004,7 @@ class _AddStudentBottomSheetState extends State<_AddStudentBottomSheet> {
 
               // Email
               _fieldLabel('EMAIL ADDRESS'),
-              _inputField(_emailCtrl, 'e.g. student@gmail.com'),
+              _inputField(_emailCtrl, 'e.g. student@cit.edu'),
               
               if (_errorMsg != null)
                 Padding(
@@ -1140,8 +1139,8 @@ class _EditStudentBottomSheetState extends State<_EditStudentBottomSheet> {
       return;
     }
 
-    if (email.isNotEmpty && !email.endsWith('@gmail.com')) {
-      setState(() => _errorMsg = 'Email must be a valid Gmail (@gmail.com) address.');
+    if (email.isNotEmpty && !RosterService.isValidEmail(email)) {
+      setState(() => _errorMsg = 'Please enter a valid email address.');
       return;
     }
 
@@ -1244,7 +1243,7 @@ class _EditStudentBottomSheetState extends State<_EditStudentBottomSheet> {
 
               // Email
               _fieldLabel('EMAIL ADDRESS'),
-              _inputField(_emailCtrl, 'e.g. student@gmail.com'),
+              _inputField(_emailCtrl, 'e.g. student@cit.edu'),
               
               if (_errorMsg != null)
                 Padding(
