@@ -220,19 +220,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                   ),
                                   const SizedBox(height: 14),
 
-                                  // Google / Gmail Address
-                                  _label('GMAIL ADDRESS (@gmail.com)'),
+                                  // Email Address
+                                  _label('EMAIL ADDRESS'),
                                   TextFormField(
                                     key: const Key('register_email'),
                                     controller: _emailController,
                                     keyboardType: TextInputType.emailAddress,
                                     style: const TextStyle(color: Color(0xFF1A2B3C)),
-                                    decoration: _inputDecoration('student@gmail.com', Icons.email_outlined),
+                                    decoration: _inputDecoration('e.g. student@cit.edu', Icons.email_outlined),
                                     validator: (v) {
-                                      if (v == null || v.trim().isEmpty) return 'Enter your Gmail address';
+                                      if (v == null || v.trim().isEmpty) return 'Enter your email address';
                                       final clean = v.trim().toLowerCase();
-                                      if (!clean.endsWith('@gmail.com')) {
-                                        return 'Must be a valid Gmail account (@gmail.com)';
+                                      if (!AuthService.isValidEmail(clean)) {
+                                        return 'Please enter a valid email address';
                                       }
                                       return null;
                                     },

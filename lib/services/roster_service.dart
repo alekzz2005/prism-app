@@ -117,6 +117,12 @@ class RosterService {
         });
   }
 
+  /// Helper to validate standard email format.
+  static bool isValidEmail(String email) {
+    final clean = email.trim().toLowerCase();
+    return RegExp(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$').hasMatch(clean);
+  }
+
   /// Adds a single student to the given section's roster.
   Future<void> addStudent(
     String instructorId,
@@ -134,8 +140,8 @@ class RosterService {
         .collection('students');
         
     final e = email.trim().toLowerCase();
-    if (e.isNotEmpty && !e.endsWith('@gmail.com')) {
-      throw 'Email address must end with @gmail.com';
+    if (e.isNotEmpty && !isValidEmail(e)) {
+      throw 'Please enter a valid email address.';
     }
     
     // Check for duplicate email among active students
@@ -183,8 +189,8 @@ class RosterService {
         .collection('students');
 
     final e = email.trim().toLowerCase();
-    if (e.isNotEmpty && !e.endsWith('@gmail.com')) {
-      throw 'Email address must end with @gmail.com';
+    if (e.isNotEmpty && !isValidEmail(e)) {
+      throw 'Please enter a valid email address.';
     }
 
     // Check for duplicate email among other active students

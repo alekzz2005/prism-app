@@ -18,8 +18,6 @@ const _border     = Color(0xFFE2EAF4);
 const _textDark   = Color(0xFF1A2B3C);
 const _textMid    = Color(0xFF4A5568);
 const _textLight  = Color(0xFF8A9BB0);
-const _green      = Color(0xFF16A34A);
-const _red        = Color(0xFFDC2626);
 
 class EmailVerificationScreen extends StatefulWidget {
   const EmailVerificationScreen({super.key});
@@ -256,7 +254,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
                       ),
                       const SizedBox(height: 16),
 
-                      // Spam Folder Heads-up Banner
+                      // Spam / Quarantine Folder Heads-up Banner
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
@@ -271,7 +269,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
                             SizedBox(width: 10),
                             Expanded(
                               child: Text(
-                                'Can\'t find the email? Please check your Spam folder. You may mark it as "Not Spam" to receive future notifications.',
+                                'Can\'t find the email? Please check your Spam, Junk, or Quarantined folder. It may take 1–2 minutes to arrive. You may mark it as "Not Spam" or safe to ensure you receive future notifications.',
                                 style: TextStyle(color: Color(0xFF92400E), fontSize: 12, height: 1.4, fontWeight: FontWeight.w500),
                               ),
                             ),

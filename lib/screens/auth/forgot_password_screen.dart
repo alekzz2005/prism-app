@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import '../../services/auth_service.dart';
 
 // ─── Brand Colours ────────────────────────────────────────────────────────────
 const _navy       = Color(0xFF003366);
@@ -48,13 +49,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
   Future<void> _handleSendResetEmail() async {
     final email = _emailController.text.trim().toLowerCase();
-    if (email.isEmpty || !email.contains('@')) {
+    if (email.isEmpty || !AuthService.isValidEmail(email)) {
       setState(() => _error = 'Please enter a valid email address.');
-      return;
-    }
-
-    if (!email.endsWith('@gmail.com')) {
-      setState(() => _error = 'Please enter a registered Gmail address (@gmail.com).');
       return;
     }
 
@@ -216,7 +212,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
           keyboardType: TextInputType.emailAddress,
           style: const TextStyle(color: _textDark, fontSize: 14),
           decoration: InputDecoration(
-            hintText: 'student@gmail.com',
+            hintText: 'e.g. student@cit.edu',
             hintStyle: const TextStyle(color: _textLight, fontSize: 14),
             prefixIcon: const Icon(Icons.email_outlined, color: _textLight, size: 20),
             filled: true,
@@ -287,7 +283,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
         ),
         const SizedBox(height: 16),
 
-        // Spam Folder Heads-up Banner
+        // Spam / Quarantine Folder Heads-up Banner
         Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
@@ -302,7 +298,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
               SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  'Can\'t find the email? Please check your Spam folder. It may take 1–2 minutes to arrive.',
+                  'Can\'t find the email? Please check your Spam, Junk, or Quarantined folder. It may take 1–2 minutes to arrive.',
                   style: TextStyle(color: Color(0xFF92400E), fontSize: 12, height: 1.4, fontWeight: FontWeight.w500),
                 ),
               ),

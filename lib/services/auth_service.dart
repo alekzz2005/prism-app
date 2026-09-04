@@ -21,10 +21,10 @@ class AuthService {
 
   // ── Email / Password ────────────────────────────────────────────────
 
-  /// Domain lock: Strictly Gmail accounts only (@gmail.com)
-  static bool isGmail(String email) {
+  /// Validates standard email address format (e.g., student@cit.edu, user@gmail.com, etc.).
+  static bool isValidEmail(String email) {
     final clean = email.trim().toLowerCase();
-    return clean.endsWith('@gmail.com');
+    return RegExp(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$').hasMatch(clean);
   }
 
   /// Registers a new Student account and writes their profile to `users/{uid}`.
@@ -36,9 +36,9 @@ class AuthService {
   }) async {
     final cleanEmail = email.trim().toLowerCase();
 
-    // Enforce Gmail Requirement (@gmail.com only)
-    if (!isGmail(cleanEmail)) {
-      throw AuthException('Only Google / Gmail (@gmail.com) email addresses are allowed.');
+    // Validate email format
+    if (!isValidEmail(cleanEmail)) {
+      throw AuthException('Incorrect email format. Please enter a valid email address.');
     }
 
     try {
@@ -100,15 +100,6 @@ class AuthService {
       final cred = await _auth.signInWithCredential(credential);
       final uid = cred.user!.uid;
       final email = (cred.user!.email ?? '').toLowerCase().trim();
-
-      // Enforce Gmail
-      if (!isGmail(email)) {
-        await _auth.signOut();
-        try {
-          await _googleSignIn.signOut();
-        } catch (_) {}
-        throw AuthException('Only @gmail.com Google accounts are allowed.');
-      }
 
       // Only create the user doc if it doesn't exist yet (first-time Google login)
       final userRef = _db.collection('users').doc(uid);
