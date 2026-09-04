@@ -21,10 +21,13 @@ class AuthService {
 
   // ── Email / Password ────────────────────────────────────────────────
 
+  static final RegExp _emailRegExp =
+      RegExp(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$');
+
   /// Validates standard email address format (e.g., student@cit.edu, user@gmail.com, etc.).
   static bool isValidEmail(String email) {
     final clean = email.trim().toLowerCase();
-    return RegExp(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$').hasMatch(clean);
+    return _emailRegExp.hasMatch(clean);
   }
 
   /// Registers a new Student account and writes their profile to `users/{uid}`.
@@ -100,6 +103,15 @@ class AuthService {
       final cred = await _auth.signInWithCredential(credential);
       final uid = cred.user!.uid;
       final email = (cred.user!.email ?? '').toLowerCase().trim();
+
+      // Ensure a valid non-empty email was returned by Google
+      if (email.isEmpty || !isValidEmail(email)) {
+        await _auth.signOut();
+        try {
+          await _googleSignIn.signOut();
+        } catch (_) {}
+        throw AuthException('Failed to retrieve a valid email address from your Google account.');
+      }
 
       // Only create the user doc if it doesn't exist yet (first-time Google login)
       final userRef = _db.collection('users').doc(uid);

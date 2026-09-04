@@ -176,7 +176,7 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
                         _DataRow('Measured Angle', '${session.insertionAngle.toStringAsFixed(1)}°', false),
                         _DataRow('Target Angle', '${target.toStringAsFixed(0)}°', false),
                         _DataRow('Deviation', '${(session.insertionAngle - target).abs().toStringAsFixed(1)}°', false),
-                        _DataRow('Rubric Score', "${session.insertionScore ?? '—'} / 5", false),
+                        _DataRow('Rubric Score', "${session.insertionScore} / 5", false),
                         _DataRow(
                           'Result', '', true,
                           trailing: _Chip(
@@ -224,7 +224,7 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
                             bgColor: session.correspondenceResult == 'Matches' ? _greenBg : _amberBg,
                           ),
                         ),
-                        _DataRow('Rubric Score', "${session.withdrawalScore ?? '—'} / 5", false),
+                        _DataRow('Rubric Score', "${session.withdrawalScore} / 5", false),
                         _DataRow(
                           'Result', '', true,
                           trailing: _Chip(
@@ -465,7 +465,7 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
                   children: [
                     Column(
                       children: [
-                        Text("${session.overallScore ?? '—'}", style: const TextStyle(color: Colors.white, fontSize: 48, fontWeight: FontWeight.w800, height: 1, fontFeatures: [FontFeature.tabularFigures()])),
+                        Text("${session.overallScore}", style: const TextStyle(color: Colors.white, fontSize: 48, fontWeight: FontWeight.w800, height: 1, fontFeatures: [FontFeature.tabularFigures()])),
                         Text('/5', style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 16, height: 1, fontWeight: FontWeight.w400)),
                       ],
                     ),
@@ -506,9 +506,9 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
 
   Map<String, double> _targetForType(String type) {
     const targets = {
-      'IM': {'target': 90.0, 'tolerance': 10.0},
+      'IM': {'target': 90.0, 'tolerance': 5.0},
     };
-    return targets[type] ?? {'target': 0, 'tolerance': 5};
+    return targets[type] ?? {'target': 0, 'tolerance': 5.0};
   }
 }
 

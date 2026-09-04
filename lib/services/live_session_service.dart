@@ -153,12 +153,10 @@ class LiveSessionService {
     }, SetOptions(merge: true));
   }
 
-  /// Pushes the raw camera frame (base64 JPEG) for remote mirroring.
-  Future<void> updateLiveFrame(String instructorId, String base64) async {
-    await _db.collection('live_sessions').doc(instructorId).set({
-      'latestFrameBase64': base64,
-    }, SetOptions(merge: true));
-  }
+  /// Deprecated: Live mirroring is handled purely via WebRTC P2P streaming.
+  /// This is a no-op to prevent persisting raw camera frames into Firestore.
+  @Deprecated('Use WebRTCSignalingService for peer-to-peer video streaming.')
+  Future<void> updateLiveFrame(String instructorId, String base64) async {}
 
   /// Pushes the live aspiration metrics. Called by the Camera node at ~2Hz during aspiration.
   Future<void> updateLiveAspiration(String instructorId, String result, double duration) async {

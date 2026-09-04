@@ -117,10 +117,13 @@ class RosterService {
         });
   }
 
+  static final RegExp _emailRegex =
+      RegExp(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$');
+
   /// Helper to validate standard email format.
   static bool isValidEmail(String email) {
     final clean = email.trim().toLowerCase();
-    return RegExp(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$').hasMatch(clean);
+    return _emailRegex.hasMatch(clean);
   }
 
   /// Adds a single student to the given section's roster.

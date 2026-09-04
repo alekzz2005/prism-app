@@ -14,7 +14,7 @@ service cloud.firestore {
 
     // ── Password Resets / OTPs ─────────────────────────────────────────
     match /password_resets/{email} {
-      allow read, write: if true; // Public for forgot password OTP verification
+      allow read, write: if false;
     }
 
     // ── Sessions collection ───────────────────────────────────────────

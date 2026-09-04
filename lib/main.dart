@@ -8,7 +8,11 @@ import 'widgets/auth_wrapper.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await dotenv.load(fileName: ".env");
+  try {
+    await dotenv.load(fileName: ".env");
+  } catch (_) {
+    // Allows the app to start even when .env isn't present (e.g. CI / testing)
+  }
   runApp(const PrismApp());
 }
 
