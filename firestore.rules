@@ -34,12 +34,13 @@ service cloud.firestore {
     // ── Sessions collection ───────────────────────────────────────────
     match /sessions/{sessionId} {
       // Instructors can create official sessions.
-      // Students may create their own practice sessions (must match auth.uid and feedbackStatus == 'Released')
+      // Students may create their own practice sessions (must match auth.uid, isPractice == true, and feedbackStatus == 'Released')
       allow create: if isSignedIn() && (
         isInstructor() ||
         (
           (request.resource.data.userId == request.auth.uid || request.resource.data.userId == request.auth.token.email) &&
-          request.resource.data.feedbackStatus == 'Released'
+          request.resource.data.feedbackStatus == 'Released' &&
+          request.resource.data.isPractice == true
         )
       );
       
@@ -53,8 +54,24 @@ service cloud.firestore {
         isInstructor()
       );
       
-      // Instructors only can update or delete session documents
-      allow update, delete: if isInstructor();
+      // Instructors have full update rights.
+      // Students may update ONLY their own practice sessions to populate generated AI feedback.
+      // Strictly restricted to feedback fields; cannot alter scores, angles, userId, isPractice, or feedbackStatus.
+      allow update: if isInstructor() || (
+        isSignedIn() &&
+        (resource.data.userId == request.auth.uid || resource.data.userId == request.auth.token.email) &&
+        resource.data.isPractice == true &&
+        resource.data.feedbackStatus == 'Released' &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'aiFeedbackText',
+          'instructorNote',
+          'aiValidationStatus',
+          'aiValidationNotes'
+        ])
+      );
+      
+      // Instructors only can delete session documents
+      allow delete: if isInstructor();
     }
 
     // ── Live Sessions (Two-Device Architecture & WebRTC Signaling) ──────
