@@ -318,6 +318,7 @@ class _PracticeModeScreenState extends State<PracticeModeScreen> {
         insertionImageBase64: _insertionBase64,
         aspirationImageBase64: _aspirationBase64,
         withdrawalImageBase64: _withdrawalBase64,
+        isPractice: true,
       );
 
       final repo = InstructorSessionRepository();
@@ -415,6 +416,7 @@ class _PracticeModeScreenState extends State<PracticeModeScreen> {
         insertionImageBase64: _insertionBase64,
         aspirationImageBase64: _aspirationBase64,
         withdrawalImageBase64: _withdrawalBase64,
+        isPractice: true,
       );
 
       final repo = InstructorSessionRepository();
