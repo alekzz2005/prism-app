@@ -9,7 +9,7 @@ class ReleaseFailedException implements Exception {
 }
 
 /// Atomically updates a session document to release feedback to the student.
-/// NEVER modifies aiFeedbackText.
+/// Writes edited aiFeedbackText and instructorNote, but never touches aiFeedbackOriginal.
 class FeedbackReleaseService {
   final _db = FirebaseFirestore.instance;
 
@@ -22,6 +22,7 @@ class FeedbackReleaseService {
           'feedbackStatus': 'Released',
           'releaseTimestamp': FieldValue.serverTimestamp(),
           'instructorNote': instructorNote,
+          'aiFeedbackText': aiFeedbackText,
         });
         
         final sessionSnap = await _db.collection('sessions').doc(sessionId).get();

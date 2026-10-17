@@ -75,25 +75,13 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
     });
   }
 
-  String _effectiveInstructorNote() {
-    final note = _noteController.text.trim();
-    final editedAi = _aiFeedbackController.text.trim();
-    final originalAi = widget.session.aiFeedbackText.trim();
-    if (editedAi.isNotEmpty && editedAi != originalAi) {
-      if (note.isNotEmpty) {
-        return '$editedAi\n\nInstructor Note:\n$note';
-      }
-      return editedAi;
-    }
-    return note;
-  }
-
   Future<void> _saveDraftQuietly() async {
     if (!mounted || widget.session.feedbackStatus == 'Released') return;
     try {
       await InstructorSessionRepository().updateFeedbackDraft(
         widget.session.sessionId,
-        _effectiveInstructorNote(),
+        _noteController.text.trim(),
+        aiFeedbackText: _aiFeedbackController.text.trim(),
       );
     } catch (_) {
       // Silently fail for background draft saving
@@ -115,7 +103,7 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
     try {
       await _releaseService.releaseSession(
         widget.session.sessionId,
-        _effectiveInstructorNote(),
+        _noteController.text.trim(),
         _aiFeedbackController.text.trim(),
       );
       if (!mounted) return;
@@ -231,12 +219,16 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
                       stream: FirebaseFirestore.instance.collection('sessions').doc(widget.session.sessionId).snapshots(),
                       builder: (context, snapshot) {
                         String streamAiText = widget.session.aiFeedbackText;
+                        String streamOriginalAi = widget.session.aiFeedbackOriginal.isNotEmpty
+                            ? widget.session.aiFeedbackOriginal
+                            : widget.session.aiFeedbackText;
                         String streamStatus = widget.session.feedbackStatus;
                         String? streamValidationStatus = widget.session.aiValidationStatus;
 
                         if (snapshot.hasData && snapshot.data!.exists) {
                           final data = snapshot.data!.data() as Map<String, dynamic>;
                           streamAiText = data['aiFeedbackText'] as String? ?? '';
+                          streamOriginalAi = data['aiFeedbackOriginal'] as String? ?? (data['aiFeedbackText'] as String? ?? streamOriginalAi);
                           streamStatus = data['feedbackStatus'] as String? ?? 'Pending';
                           streamValidationStatus = data['aiValidationStatus'] as String? ?? streamValidationStatus;
 
@@ -291,7 +283,7 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
                                       const SizedBox(width: 8),
                                       TextButton.icon(
                                         onPressed: () {
-                                          _aiFeedbackController.text = streamAiText;
+                                          _aiFeedbackController.text = streamOriginalAi;
                                         },
                                         icon: const Icon(Icons.restore, size: 16, color: _textMid),
                                         label: const Text('Revert', style: TextStyle(color: _textMid, fontSize: 12)),
@@ -382,7 +374,7 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        _sectionHeader('Instructor Note (optional)'),
+                        _sectionHeader('Private instructor note (not shown to students)'),
                         if (!isReleased)
                           ValueListenableBuilder<UndoHistoryValue>(
                             valueListenable: _noteUndoController,
