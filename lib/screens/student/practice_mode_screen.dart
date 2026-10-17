@@ -960,6 +960,7 @@ class _PracticeModeScreenState extends State<PracticeModeScreen> {
         mainAxisSize: MainAxisSize.min,
         children: [
           GestureDetector(
+            key: const Key('aspiration_stop_button'),
             onTap: _cancelPracticeWithBleeding,
             child: Container(
               width: double.infinity, height: 44,
@@ -984,6 +985,7 @@ class _PracticeModeScreenState extends State<PracticeModeScreen> {
           ),
           const SizedBox(height: 10),
           GestureDetector(
+            key: const Key('aspiration_continue_button'),
             onTap: isBlocked ? null : _nextPhase,
             child: Container(
               width: double.infinity, height: 46,

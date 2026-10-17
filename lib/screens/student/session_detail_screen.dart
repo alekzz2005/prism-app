@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../models/session_model.dart';
+import '../../core/aspiration_outcome.dart';
 import '../../services/feedback_service.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import '../../widgets/image_zoom_dialog.dart';
@@ -73,7 +74,8 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
     final tolerance = config['tolerance']!;
     final insertionPass = (session.insertionAngle - target).abs() <= tolerance;
     final withdrawalPass = (session.withdrawalAngle - target).abs() <= tolerance;
-    final aspirationPass = session.aspirationResult == 'No Bleeding' || session.aspirationResult == 'No' || session.aspirationResult == 'Correct';
+    final outcome = AspirationOutcome.parse(session.aspirationResult);
+    final aspirationPass = outcome == AspirationOutcome.noBleeding;
     final formattedDate = DateFormat('MMMM d, yyyy · h:mm a').format(session.timestamp.toDate());
 
     return PopScope(
@@ -194,9 +196,16 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
                       themeColor: const Color(0xFF1E5F8A),
                       title: 'Section 2 — Needle Aspiration',
                       children: [
-                        _DataRow('Blood Return Check', session.aspirationResult, false),
-                        _DataRow('Clinical Finding', aspirationPass ? 'No Blood (Safe to Inject)' : 'Blood Observed (Vascular Puncture)', false),
-                        _DataRow('Rubric Score', "${aspirationPass ? 5 : 1} / 5", false),
+                        _DataRow('Instructor blood check', outcome.label, false),
+                        _DataRow(
+                          'Needle stability during aspiration',
+                          session.aspirationAngleDrift != null
+                              ? '±${session.aspirationAngleDrift!.toStringAsFixed(1)}° from insertion angle'
+                              : 'Not measured',
+                          false,
+                        ),
+                        _DataRow('Aspiration time', '${session.aspirationDuration.toStringAsFixed(1)}s', false),
+                        _DataRow('Rubric Score', "${session.aspirationScore} / 5", false),
                         _DataRow(
                           'Result', '', true,
                           trailing: _Chip(

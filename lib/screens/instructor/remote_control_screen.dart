@@ -307,7 +307,7 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
       aiFeedbackText: '',
       feedbackStatus: 'Pending',
       instructorNote: '',
-      flagged: false,
+      flagged: outcome.needsFlag,
       insertionImageBase64: _insertionBase64,
       aspirationImageBase64: _aspirationBase64,
       withdrawalImageBase64: _withdrawalBase64,
@@ -805,6 +805,7 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
             ),
           ),
           _ControlButton(
+            key: const Key('aspiration_stop_button'),
             label: 'Cancel (Patient Bleeding)',
             hint: 'Fails session immediately',
             color: Colors.redAccent,
@@ -815,6 +816,7 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
           ),
           const SizedBox(height: 12),
           _ControlButton(
+            key: const Key('aspiration_continue_button'),
             label: 'No Bleeding (Proceed to Withdrawal)',
             hint: guardrailBlocked ? 'Detection lost — Reposition hand' : 'Aspiration clear',
             color: guardrailBlocked ? Colors.grey : const Color(0xFF16A34A),
@@ -941,6 +943,7 @@ class _ControlButton extends StatelessWidget {
   final VoidCallback onPressed;
 
   const _ControlButton({
+    super.key,
     required this.label,
     required this.color,
     required this.hint,
