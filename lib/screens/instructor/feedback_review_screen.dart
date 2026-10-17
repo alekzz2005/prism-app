@@ -224,6 +224,7 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
                             : widget.session.aiFeedbackText;
                         String streamStatus = widget.session.feedbackStatus;
                         String? streamValidationStatus = widget.session.aiValidationStatus;
+                        List<String>? streamValidationNotes = widget.session.aiValidationNotes;
 
                         if (snapshot.hasData && snapshot.data!.exists) {
                           final data = snapshot.data!.data() as Map<String, dynamic>;
@@ -231,6 +232,9 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
                           streamOriginalAi = data['aiFeedbackOriginal'] as String? ?? (data['aiFeedbackText'] as String? ?? streamOriginalAi);
                           streamStatus = data['feedbackStatus'] as String? ?? 'Pending';
                           streamValidationStatus = data['aiValidationStatus'] as String? ?? streamValidationStatus;
+                          streamValidationNotes = (data['aiValidationNotes'] as List<dynamic>?)
+                              ?.map((e) => e.toString())
+                              .toList() ?? streamValidationNotes;
 
                           if (_aiFeedbackController.text.isEmpty && streamAiText.isNotEmpty) {
                             WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -240,6 +244,9 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
                             });
                           }
                         }
+
+                        final bool isUnavailableFallback = streamStatus == 'Feedback Generation Failed' ||
+                            (streamValidationNotes?.contains('ai_unavailable') ?? false);
 
                         return Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -298,6 +305,30 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
                               ],
                             ),
                             const SizedBox(height: 8),
+                            if (isUnavailableFallback)
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                margin: const EdgeInsets.only(bottom: 8),
+                                decoration: BoxDecoration(
+                                  color: _amberBg,
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(color: _amberBorder),
+                                ),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: const [
+                                    Icon(Icons.warning_amber_rounded, color: _amber, size: 18),
+                                    SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        'AI feedback was unavailable. A summary built from the recorded metrics is shown. Review and edit before releasing.',
+                                        style: TextStyle(color: _amber, fontSize: 12, fontWeight: FontWeight.w600, height: 1.4),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             if (streamAiText.isEmpty && streamStatus == 'Pending')
                               Container(
                                 padding: const EdgeInsets.all(20),
