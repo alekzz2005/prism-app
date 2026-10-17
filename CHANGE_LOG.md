@@ -140,8 +140,8 @@
   - Branch: `fix/security/rules_and_secret_hygiene`
 - Summary of change:
   - Hardened `firestore.rules` to quarantine student session reads until `feedbackStatus == 'Released'`.
-  - Restricted session update and delete permissions strictly to authenticated instructors (`role == 'Instructor'`).
-  - Allowed student creation of sessions exclusively for self-practice sessions where `userId == auth.uid` and `feedbackStatus == 'Released'`.
+  - Restricted session update and delete permissions strictly to authenticated instructors (`role == 'Instructor'`), with a narrow exception allowing students to update only AI feedback fields on their own released practice sessions (`isPractice == true`).
+  - Allowed student creation of sessions exclusively for self-practice sessions where `userId == auth.uid`, `isPractice == true`, and `feedbackStatus == 'Released'`.
   - Restricted `live_sessions/**` reads and writes to instructors only (protecting telemetry and WebRTC signaling).
   - Allowed instructors to query `users` by email and write release notifications to student notification subcollections.
   - Added root `firebase.json` declaring Firestore rules configuration.
@@ -155,14 +155,14 @@
   | `users/{uid}/notifications/{id}` | `list`, `get`, `update`, `delete` | Student / Instructor | Yes (`auth.uid == uid`) | Yes (`auth.uid == uid`) | Managing user's own in-app notification center |
   | `users/{targetUid}/notifications` | `add` (create) | Instructor | No (failed: only `auth.uid == targetUid`) | Yes (`isInstructor()`) | Instructor delivers feedback release alerts to student |
   | `sessions/{id}` | `create` (official RD) | Instructor | Yes (`auth != null`) | Yes (`isInstructor()`) | Saves completed or aborted clinical return-demonstration |
-  | `sessions/{id}` | `create` (practice mode) | Student | Yes (`auth != null`) | Yes (`userId == auth.uid` && `status == 'Released'`) | Student self-practice returns released feedback immediately |
+  | `sessions/{id}` | `create` (practice mode) | Student | Yes (`auth != null`) | Yes (`userId == auth.uid`, `isPractice == true`, `status == 'Released'`) | Student self-practice returns released feedback immediately |
   | `sessions` | `list` / query | Instructor | Yes (`isInstructor()`) | Yes (`isInstructor()`) | Instructor dashboard and section analytics |
   | `sessions/{id}` | `get` | Instructor | Yes (`isInstructor()`) | Yes (`isInstructor()`) | Session review and rubric grading screens |
   | `sessions/{id}` | `update` (draft / release) | Instructor | Yes (`isInstructor()`) | Yes (`isInstructor()`) | Feedback draft auto-save and single release |
   | `sessions` | `batch.update` | Instructor | Yes (`isInstructor()`) | Yes (`isInstructor()`) | Batch release by section, count, or IDs |
   | `sessions` | `list` / query | Student | Yes (read any own doc, even Pending) | Yes, only when `feedbackStatus == 'Released'` | Pre-Release Feedback Quarantine enforced |
   | `sessions/{id}` | `get` | Student | Yes (read any own doc, even Pending) | Yes, only when `feedbackStatus == 'Released'` | Direct doc lookup blocked until released |
-  | `sessions/{id}` | `update` | Student | Yes (could edit own doc!) | No (instructors only) | Tamper prevention: students cannot alter scores or feedback |
+  | `sessions/{id}` | `update` | Student | Yes (could edit own doc!) | Allowed ONLY for own practice sessions (`isPractice == true`, `status == 'Released'`) touching feedback keys | Tamper prevention: students cannot alter scores, angles, or official sessions |
   | `sessions/{id}` | `delete` | Any | No (`false`) | Instructors only | Instructors manage session lifecycle |
   | `live_sessions/{id}` | `set`, `snapshots`, `delete` | Instructor | Yes (`auth != null`) | Yes (`isInstructor()`) | Telemetry sync between camera and remote |
   | `live_sessions/{id}/ice_candidates` | `add`, `snapshots` | Instructor | Yes (`auth != null`) | Yes (`isInstructor()`) | WebRTC P2P signaling between instructor devices |
@@ -175,10 +175,11 @@
   5. Click **Publish** to apply the security rules immediately.
 - SRS impact (UC ids + new/changed requirement wording):
   - Pre-Release Feedback Quarantine: Students shall access session feedback, rubric scores, and session snapshots only after the supervising instructor explicitly reviews and releases the session (`feedbackStatus == 'Released'`). Prior to release, all session telemetry is quarantined and inaccessible to student accounts.
-  - Session Document Integrity: Session modification and deletion permissions are strictly restricted to authenticated instructors. Students cannot edit session records.
+  - Session Document Integrity: Official session modification and deletion permissions are strictly restricted to authenticated instructors. Students may only populate AI feedback fields on their own released practice sessions.
 - SDD impact (components added/changed, data design fields):
   - Added `firebase.json` project configuration file.
-  - Updated `firestore.rules` with helper functions (`isSignedIn`, `isInstructor`) and quarantine read/write conditions.
+  - Updated `firestore.rules` with helper functions (`isSignedIn`, `isInstructor`), quarantine read/write conditions, and restricted practice update rule.
+  - Added `isPractice: bool` field to `SessionModel` and set `isPractice: true` in `PracticeModeScreen`.
   - Added `android/app/google-services.json.example` template with sanitized credentials.
   - Updated `.gitignore` to ignore sensitive credentials, keystores, and environments.
   - Removed deprecated packages and legacy files `hand_landmark_service.dart`, `pose_landmark_service.dart`, and `angle_overlay_painter.dart`.
@@ -188,30 +189,35 @@
   - `.gitignore`
   - `android/app/google-services.json` (untracked)
   - `android/app/google-services.json.example` (created)
+  - `lib/models/session_model.dart`
+  - `lib/screens/student/practice_mode_screen.dart`
   - `lib/services/hand_landmark_service.dart` (deleted)
   - `lib/services/pose_landmark_service.dart` (deleted)
   - `lib/widgets/angle_overlay_painter.dart` (deleted)
   - `CHANGE_LOG.md`
 - New/changed Firestore fields:
-  - None (enforced constraints on existing `feedbackStatus`, `userId`, and `role` fields).
+  - `sessions/{sessionId}.isPractice`: `bool` (indicates whether session is a self-practice session; defaults to false for official RDs).
 - Widget Keys added:
   - None.
 - Acceptance criteria (testable, pass/fail):
   - A student cannot read a Pending or Failed session by direct document lookup; can read it after release.
-  - A student cannot update a session or read `live_sessions`.
-  - Instructor flows (live demo, release, batch release, roster, notifications) and student practice mode still work.
+  - A student cannot update an official session or read `live_sessions`.
+  - A student finishing self-practice successfully saves background AI feedback without permission errors.
+  - Instructor flows (live demo, release, batch release, roster, notifications) and student practice mode work.
   - `git ls-files` shows no `google-services.json`, `.env`, `.jks` or `key.properties`.
   - `flutter analyze` reports zero errors.
   - Manual test (owner, after publishing the rules in the console): student A cannot open a Pending session; instructor releases it; student A can.
 - Suggested test cases (for STD / RTM):
   - TC-CR4-01: Authenticated student attempts to read a session with `feedbackStatus: 'Pending'` via document get -> Firestore permission-denied.
   - TC-CR4-02: Authenticated student reads a session with `feedbackStatus: 'Released'` where `userId == auth.uid` -> Document read succeeds.
-  - TC-CR4-03: Authenticated student attempts to update a session document -> Firestore permission-denied.
-  - TC-CR4-04: Authenticated student creates a practice session document with `feedbackStatus: 'Released'` -> Create succeeds.
+  - TC-CR4-03: Authenticated student attempts to update an official session document -> Firestore permission-denied.
+  - TC-CR4-04: Authenticated student creates a practice session document with `isPractice: true`, `feedbackStatus: 'Released'` -> Create succeeds.
   - TC-CR4-05: Authenticated instructor reads any session (Pending or Released) -> Read succeeds.
   - TC-CR4-06: Authenticated instructor writes to `live_sessions/{instructorId}` -> Write succeeds.
   - TC-CR4-07: Authenticated student attempts to read/write `live_sessions/{instructorId}` -> Firestore permission-denied.
   - TC-CR4-08: Authenticated instructor adds release notification to student `users/{studentUid}/notifications` -> Write succeeds.
+  - TC-CR4-09: Student finishes practice session -> AI background task successfully updates feedback fields (`aiFeedbackText`, `instructorNote`, `aiValidationStatus`, `aiValidationNotes`) on the practice document.
+  - TC-CR4-10: Student attempts to modify score or angle fields on a practice session document -> Firestore permission-denied.
 - Evidence to capture (screenshots/logs):
   - Firebase console rules simulator showing denied read for unreleased student session and allowed read for released session.
   - Terminal output of `git ls-files android/app/google-services.json` returning empty.
