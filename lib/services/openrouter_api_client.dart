@@ -6,6 +6,8 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'feedback_exceptions.dart';
+import 'feedback_evidence.dart';
+import 'deterministic_feedback_builder.dart';
 
 /// Set this to true to skip the real API call and return mock feedback.
 /// Useful for testing the full session flow without an API key.
@@ -59,9 +61,12 @@ class OpenRouterApiClient {
 
   /// Sends [prompt] to Llama 3.3 70B and returns the response text.
   /// Throws [FeedbackTimeoutException] on timeout, [FeedbackApiException] on non-200.
-  Future<String> generateFeedback(String prompt) async {
+  Future<String> generateFeedback(String prompt, {FeedbackEvidence? evidence}) async {
     if (kUseMockFeedback) {
-      await Future.delayed(const Duration(seconds: 1));
+      await Future.delayed(const Duration(milliseconds: 200));
+      if (evidence != null) {
+        return DeterministicFeedbackBuilder.build(evidence);
+      }
       return _mockFeedbackText;
     }
 
