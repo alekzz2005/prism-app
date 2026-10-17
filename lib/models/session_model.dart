@@ -48,6 +48,8 @@ class SessionModel {
   final String? aspirationImageBase64;
   final String? withdrawalImageBase64;
 
+  final bool isPractice;
+
   const SessionModel({
     required this.sessionId,
     required this.userId,
@@ -79,6 +81,7 @@ class SessionModel {
     this.insertionImageBase64,
     this.aspirationImageBase64,
     this.withdrawalImageBase64,
+    this.isPractice = false,
   });
 
   factory SessionModel.fromFirestore(DocumentSnapshot doc) {
@@ -124,6 +127,7 @@ class SessionModel {
       insertionImageBase64: data['insertionImageBase64'] as String?,
       aspirationImageBase64: data['aspirationImageBase64'] as String?,
       withdrawalImageBase64: data['withdrawalImageBase64'] as String?,
+      isPractice: data['isPractice'] as bool? ?? (rawSection == 'Practice' || data['partnerName'] == 'Self-Practice'),
     );
   }
 
@@ -157,6 +161,7 @@ class SessionModel {
         if (insertionImageBase64 != null) 'insertionImageBase64': insertionImageBase64,
         if (aspirationImageBase64 != null) 'aspirationImageBase64': aspirationImageBase64,
         if (withdrawalImageBase64 != null) 'withdrawalImageBase64': withdrawalImageBase64,
+        'isPractice': isPractice,
       };
 
   SessionModel copyWith({
@@ -190,6 +195,7 @@ class SessionModel {
     String? insertionImageBase64,
     String? aspirationImageBase64,
     String? withdrawalImageBase64,
+    bool? isPractice,
   }) {
     return SessionModel(
       sessionId: sessionId ?? this.sessionId,
@@ -222,6 +228,7 @@ class SessionModel {
       insertionImageBase64: insertionImageBase64 ?? this.insertionImageBase64,
       aspirationImageBase64: aspirationImageBase64 ?? this.aspirationImageBase64,
       withdrawalImageBase64: withdrawalImageBase64 ?? this.withdrawalImageBase64,
+      isPractice: isPractice ?? this.isPractice,
     );
   }
 }
