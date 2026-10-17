@@ -14,11 +14,15 @@ service cloud.firestore {
 
     // ── Users collection ──────────────────────────────────────────────
     match /users/{uid} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+      // Users can read/write their own document; Instructors can read user profiles (e.g. resolving email to UID)
+      allow read: if isSignedIn() && (request.auth.uid == uid || isInstructor());
+      allow write: if isSignedIn() && request.auth.uid == uid;
       
       // User In-App Notifications
       match /notifications/{notifId} {
-        allow read, write: if request.auth != null && request.auth.uid == uid;
+        allow read: if isSignedIn() && request.auth.uid == uid;
+        allow create: if isSignedIn() && (request.auth.uid == uid || isInstructor());
+        allow update, delete: if isSignedIn() && request.auth.uid == uid;
       }
     }
 
@@ -29,7 +33,15 @@ service cloud.firestore {
 
     // ── Sessions collection ───────────────────────────────────────────
     match /sessions/{sessionId} {
-      allow create: if request.auth != null;
+      // Instructors can create official sessions.
+      // Students may create their own practice sessions (must match auth.uid and feedbackStatus == 'Released')
+      allow create: if isSignedIn() && (
+        isInstructor() ||
+        (
+          (request.resource.data.userId == request.auth.uid || request.resource.data.userId == request.auth.token.email) &&
+          request.resource.data.feedbackStatus == 'Released'
+        )
+      );
       
       // Students can read their own sessions ONLY after feedback is Released (Pre-Release Feedback Quarantine)
       // Instructors can read ALL sessions
@@ -41,35 +53,30 @@ service cloud.firestore {
         isInstructor()
       );
       
-      // Instructors can update all sessions; Students can update their own practice sessions (e.g. background AI feedback)
-      allow update: if request.auth != null && (
-        resource.data.userId == request.auth.uid || 
-        resource.data.userId == request.auth.token.email ||
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Instructor'
-      );
-      allow delete: if false;
+      // Instructors only can update or delete session documents
+      allow update, delete: if isInstructor();
     }
 
     // ── Live Sessions (Two-Device Architecture & WebRTC Signaling) ──────
-    // The instructor (Remote) and their camera node read/write to this document
-    // and its subcollections (like ice_candidates for WebRTC P2P mirroring).
+    // The instructor (Remote) and camera node read/write to this document
+    // and subcollections (ice_candidates for WebRTC P2P signaling). Instructors only.
     match /live_sessions/{instructorId} {
-      allow read, write: if request.auth != null;
+      allow read, write: if isInstructor();
 
       match /{allChildren=**} {
-        allow read, write: if request.auth != null;
+        allow read, write: if isInstructor();
       }
     }
 
     // ── Instructor Roster & Sections ──────────────────────────────────
     // Instructors manage their Sections
     match /instructor_roster/{instructorId}/sections/{sectionId} {
-      allow read, write: if request.auth != null && request.auth.uid == instructorId;
+      allow read, write: if isSignedIn() && request.auth.uid == instructorId && isInstructor();
     }
     
     // Instructors manage their CSV imported student roster inside Sections
     match /instructor_roster/{instructorId}/sections/{sectionId}/students/{studentDoc} {
-      allow read, write: if request.auth != null && request.auth.uid == instructorId;
+      allow read, write: if isSignedIn() && request.auth.uid == instructorId && isInstructor();
     }
   }
 }
