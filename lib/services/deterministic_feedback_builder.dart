@@ -40,7 +40,7 @@ class DeterministicFeedbackBuilder {
         break;
       case AspirationOutcome.notRecorded:
         p2 = 'The aspiration outcome was not recorded during this session$durationSnippet$driftSnippet. '
-            'Because the clinical blood check was not documented, this phase received a rubric score of ${evidence.aspirationScore} out of 5.';
+            'Because the aspiration technique was not documented, this phase received a rubric score of ${evidence.aspirationScore} out of 5.';
         break;
     }
 
