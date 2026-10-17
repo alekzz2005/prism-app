@@ -112,6 +112,7 @@ class FeedbackService {
 
     return session.copyWith(
       aiFeedbackText: feedbackText,
+      aiFeedbackOriginal: feedbackText,
       feedbackStatus: feedbackStatus,
       instructorNote: instructorNote,
       aiValidationStatus: validationStatus,
@@ -123,19 +124,24 @@ class FeedbackService {
   Future<void> generateAndSaveFeedbackInBackground(SessionModel session) async {
     try {
       final updatedSession = await generateFeedbackForSession(session);
-      await FirebaseFirestore.instance.collection('sessions').doc(session.sessionId).update({
+      final updateData = <String, dynamic>{
         'aiFeedbackText': updatedSession.aiFeedbackText,
-        'feedbackStatus': updatedSession.feedbackStatus,
-        'instructorNote': updatedSession.instructorNote,
+        'aiFeedbackOriginal': updatedSession.aiFeedbackOriginal,
         if (updatedSession.aiValidationStatus != null)
           'aiValidationStatus': updatedSession.aiValidationStatus,
         if (updatedSession.aiValidationNotes != null)
           'aiValidationNotes': updatedSession.aiValidationNotes,
-      });
+      };
+      if (!session.isPractice) {
+        updateData['feedbackStatus'] = updatedSession.feedbackStatus;
+      }
+      await FirebaseFirestore.instance.collection('sessions').doc(session.sessionId).update(updateData);
     } catch (e) {
-      await FirebaseFirestore.instance.collection('sessions').doc(session.sessionId).update({
-        'feedbackStatus': 'Feedback Generation Failed',
-      });
+      if (!session.isPractice) {
+        await FirebaseFirestore.instance.collection('sessions').doc(session.sessionId).update({
+          'feedbackStatus': 'Feedback Generation Failed',
+        });
+      }
     }
   }
 }
