@@ -13,6 +13,7 @@ import '../../services/feedback_service.dart';
 import '../../services/notification_service.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import '../../services/webrtc_signaling_service.dart';
+import '../../core/aspiration_outcome.dart';
 
 // ─── Brand Colours ─────────────────────────────────────────────────────────
 const _navy       = Color(0xFF003366);
@@ -228,8 +229,17 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
     String finalUserId = session.studentEmail.toLowerCase();
 
     // Build final session model
-    final aspirationResult = session.aspirationResult ?? 'No Bleeding';
-    final aspirationScore = (aspirationResult == 'No Bleeding' || aspirationResult == 'No') ? 5 : 1;
+    final rawAspiration = session.aspirationResult ?? 'No Bleeding';
+    final parsedOutcome = AspirationOutcome.parse(rawAspiration);
+    final outcome = (parsedOutcome == AspirationOutcome.bleedingDetected)
+        ? AspirationOutcome.bleedingDetected
+        : AspirationOutcome.noBleeding;
+    final aspirationScore = outcome.score;
+    final aspirationResult = outcome == AspirationOutcome.noBleeding
+        ? 'No Bleeding'
+        : 'Bleeding Detected';
+    final bleedingObserved = outcome == AspirationOutcome.bleedingDetected;
+    final aspirationAngleDrift = session.aspirationAngleDrift;
 
     // Overall score: average of 3 components (insertion + aspiration + withdrawal)
     final overallScore = (((session.insertionScore ?? 1) + aspirationScore + (session.withdrawalScore ?? 1)) / 3).round();
@@ -246,6 +256,9 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
       insertionAngle: session.finalInsertionAngle ?? 0,
       insertionScore: session.insertionScore ?? 1,
       aspirationResult: aspirationResult,
+      aspirationScore: aspirationScore,
+      bleedingObserved: bleedingObserved,
+      aspirationAngleDrift: aspirationAngleDrift,
       aspirationDuration: 0,
       motionSmoothness: 'N/A',
       withdrawalAngle: session.finalWithdrawalAngle ?? 0,
@@ -266,32 +279,7 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
     final generatedSessionId = await _repo.saveSession(initialSession);
     
     // Reconstruct with ID for background task
-    SessionModel sessionWithId = SessionModel(
-      sessionId: generatedSessionId,
-      userId: finalUserId, 
-      studentName: session.studentName,
-      timestamp: initialSession.timestamp, 
-      injectionType: session.injectionType,
-      sectionName: session.sectionName,
-      partnerName: session.partnerName,
-      insertionAngle: session.finalInsertionAngle ?? 0,
-      insertionScore: session.insertionScore ?? 1,
-      aspirationResult: aspirationResult,
-      aspirationDuration: 0,
-      motionSmoothness: 'N/A',
-      withdrawalAngle: session.finalWithdrawalAngle ?? 0,
-      withdrawalScore: session.withdrawalScore ?? 1,
-      correspondenceResult: session.correspondenceResult ?? 'Deviates',
-      angularDelta: session.angularDelta ?? 0,
-      overallScore: overallScore,
-      aiFeedbackText: '',
-      feedbackStatus: 'Pending',
-      instructorNote: '',
-      flagged: false,
-      insertionImageBase64: _insertionBase64,
-      aspirationImageBase64: _aspirationBase64,
-      withdrawalImageBase64: _withdrawalBase64,
-    );
+    SessionModel sessionWithId = initialSession.copyWith(sessionId: generatedSessionId);
 
     // Fire and forget background generation
     _feedbackService.generateAndSaveFeedbackInBackground(sessionWithId);
@@ -323,6 +311,12 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
 
     String finalUserId = session.studentEmail;
 
+    final outcome = AspirationOutcome.bleedingDetected;
+    final aspirationScore = outcome.score;
+    const aspirationResult = 'Bleeding Detected';
+    const bleedingObserved = true;
+    final aspirationAngleDrift = session.aspirationAngleDrift;
+
     SessionModel failedSession = SessionModel(
       sessionId: '', // Auto-generated
       userId: finalUserId, 
@@ -333,7 +327,10 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
       partnerName: session.partnerName,
       insertionAngle: session.finalInsertionAngle ?? 0,
       insertionScore: session.insertionScore ?? 1,
-      aspirationResult: 'Bleeding Detected',
+      aspirationResult: aspirationResult,
+      aspirationScore: aspirationScore,
+      bleedingObserved: bleedingObserved,
+      aspirationAngleDrift: aspirationAngleDrift,
       aspirationDuration: 0,
       motionSmoothness: 'N/A',
       withdrawalAngle: 0,

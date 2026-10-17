@@ -66,27 +66,10 @@ class FeedbackService {
       instructorNote = 'AI Unknown Error: $e';
     }
 
-    return SessionModel(
-      sessionId: session.sessionId,
-      userId: session.userId,
-      studentName: session.studentName,
-      timestamp: session.timestamp,
-      injectionType: session.injectionType,
-      insertionAngle: session.insertionAngle,
-      insertionScore: session.insertionScore,
-      aspirationResult: session.aspirationResult,
-      aspirationDuration: session.aspirationDuration,
-      motionSmoothness: session.motionSmoothness,
-      withdrawalAngle: session.withdrawalAngle,
-      withdrawalScore: session.withdrawalScore,
-      correspondenceResult: session.correspondenceResult,
-      angularDelta: session.angularDelta,
-      overallScore: session.overallScore,
+    return session.copyWith(
       aiFeedbackText: feedbackText,
       feedbackStatus: feedbackStatus,
-      releaseTimestamp: session.releaseTimestamp,
       instructorNote: instructorNote,
-      flagged: session.flagged,
     );
   }
 

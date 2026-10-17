@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../models/session_model.dart';
+import '../../core/aspiration_outcome.dart';
 import '../../services/feedback_service.dart';
 import '../../services/instructor_session_repository.dart';
 import '../../services/roboflow_service.dart';
@@ -72,6 +73,7 @@ class _PracticeModeScreenState extends State<PracticeModeScreen> {
   double? _withdrawalAngle;
   int?    _withdrawalScore;
   double? _delta;
+  double? _maxAspirationDrift;
 
   static const double _targetAngle = 90.0;
 
@@ -179,7 +181,19 @@ class _PracticeModeScreenState extends State<PracticeModeScreen> {
       setState(() {
         _detectionLost   = result.detectionLost;
         _latestDetection = result.detection;
-        if (!result.detectionLost) { _liveAngle = result.angle; _liveScore = result.score; }
+        if (!result.detectionLost) {
+          _liveAngle = result.angle;
+          _liveScore = result.score;
+          if (_practicePhase == 'aspiration') {
+            final lockedAngle = _insertionAngle;
+            if (lockedAngle != null && _liveAngle >= 0) {
+              final drift = (_liveAngle - lockedAngle).abs();
+              if (_maxAspirationDrift == null || drift > _maxAspirationDrift!) {
+                _maxAspirationDrift = double.parse(drift.toStringAsFixed(1));
+              }
+            }
+          }
+        }
       });
     } catch (_) {} finally { _isInferenceRunning = false; }
   }
@@ -197,6 +211,7 @@ class _PracticeModeScreenState extends State<PracticeModeScreen> {
     if (_practicePhase == 'insertion') {
       _insertionAngle = _liveAngle;
       _insertionScore = _liveScore;
+      _maxAspirationDrift = null;
       if (_lastFrameData != null) {
         RoboflowDetectionService.getSnapshotBase64(_lastFrameData!).then((snap) {
           if (mounted && snap != null) _insertionBase64 = snap;
@@ -251,9 +266,12 @@ class _PracticeModeScreenState extends State<PracticeModeScreen> {
       const wthScore = 1;
       final delta = (_liveAngle - insAngle).abs();
       final correspondence = delta <= 5.0 ? 'Matches' : 'Deviates';
+      const outcome = AspirationOutcome.bleedingDetected;
+      final aspirationScore = outcome.score;
       const aspirationResult = 'Bleeding Detected';
-      const aspirationScore = 1;
-      final overall = ((insScore + aspirationScore + wthScore) / 3).round();
+      const bleedingObserved = true;
+      final aspirationAngleDrift = _maxAspirationDrift;
+      final overall = 1;
 
       if (_lastFrameData != null) {
         final snap = await RoboflowDetectionService.getSnapshotBase64(_lastFrameData!);
@@ -271,6 +289,9 @@ class _PracticeModeScreenState extends State<PracticeModeScreen> {
         insertionAngle: insAngle,
         insertionScore: insScore,
         aspirationResult: aspirationResult,
+        aspirationScore: aspirationScore,
+        bleedingObserved: bleedingObserved,
+        aspirationAngleDrift: aspirationAngleDrift,
         aspirationDuration: 2.0,
         motionSmoothness: 'Low',
         withdrawalAngle: wthAngle,
@@ -343,8 +364,11 @@ class _PracticeModeScreenState extends State<PracticeModeScreen> {
           ? (_withdrawalAngle! - _insertionAngle!).abs()
           : 0.0;
       final correspondence = delta <= 5.0 ? 'Matches' : 'Deviates';
+      const outcome = AspirationOutcome.noBleeding;
+      final aspirationScore = outcome.score;
       const aspirationResult = 'No Bleeding';
-      const aspirationScore = 5;
+      const bleedingObserved = false;
+      final aspirationAngleDrift = _maxAspirationDrift;
       final overall = ((insScore + aspirationScore + wthScore) / 3).round();
 
       final initialSession = SessionModel(
@@ -358,6 +382,9 @@ class _PracticeModeScreenState extends State<PracticeModeScreen> {
         insertionAngle: insAngle,
         insertionScore: insScore,
         aspirationResult: aspirationResult,
+        aspirationScore: aspirationScore,
+        bleedingObserved: bleedingObserved,
+        aspirationAngleDrift: aspirationAngleDrift,
         aspirationDuration: 5.0,
         motionSmoothness: 'Good',
         withdrawalAngle: wthAngle,
@@ -378,33 +405,7 @@ class _PracticeModeScreenState extends State<PracticeModeScreen> {
       final repo = InstructorSessionRepository();
       final docId = await repo.saveSession(initialSession);
 
-      final sessionWithId = SessionModel(
-        sessionId: docId,
-        userId: email,
-        studentName: name,
-        timestamp: initialSession.timestamp,
-        injectionType: 'IM',
-        sectionName: 'Practice',
-        partnerName: 'Self-Practice',
-        insertionAngle: insAngle,
-        insertionScore: insScore,
-        aspirationResult: aspirationResult,
-        aspirationDuration: 5.0,
-        motionSmoothness: 'Good',
-        withdrawalAngle: wthAngle,
-        withdrawalScore: wthScore,
-        correspondenceResult: correspondence,
-        angularDelta: delta,
-        overallScore: overall,
-        aiFeedbackText: '',
-        feedbackStatus: 'Released',
-        releaseTimestamp: initialSession.releaseTimestamp,
-        instructorNote: '',
-        flagged: false,
-        insertionImageBase64: _insertionBase64,
-        aspirationImageBase64: _aspirationBase64,
-        withdrawalImageBase64: _withdrawalBase64,
-      );
+      final sessionWithId = initialSession.copyWith(sessionId: docId);
 
       // Trigger background AI feedback generation
       FeedbackService().generateAndSaveFeedbackInBackground(sessionWithId);
