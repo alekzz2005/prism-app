@@ -74,6 +74,8 @@ class _PracticeModeScreenState extends State<PracticeModeScreen> {
   int?    _withdrawalScore;
   double? _delta;
   double? _maxAspirationDrift;
+  DateTime? _aspirationStartTime;
+  double? _aspirationDuration;
 
   static const double _targetAngle = 90.0;
 
@@ -212,6 +214,8 @@ class _PracticeModeScreenState extends State<PracticeModeScreen> {
       _insertionAngle = _liveAngle;
       _insertionScore = _liveScore;
       _maxAspirationDrift = null;
+      _aspirationStartTime = DateTime.now();
+      _aspirationDuration = null;
       if (_lastFrameData != null) {
         RoboflowDetectionService.getSnapshotBase64(_lastFrameData!).then((snap) {
           if (mounted && snap != null) _insertionBase64 = snap;
@@ -219,6 +223,9 @@ class _PracticeModeScreenState extends State<PracticeModeScreen> {
       }
       setState(() => _practicePhase = 'aspiration');
     } else if (_practicePhase == 'aspiration') {
+      if (_aspirationStartTime != null) {
+        _aspirationDuration = double.parse((DateTime.now().difference(_aspirationStartTime!).inMilliseconds / 1000.0).toStringAsFixed(1));
+      }
       if (_lastFrameData != null) {
         RoboflowDetectionService.getSnapshotBase64(_lastFrameData!).then((snap) {
           if (mounted && snap != null) _aspirationBase64 = snap;
@@ -278,6 +285,10 @@ class _PracticeModeScreenState extends State<PracticeModeScreen> {
         if (snap != null) _aspirationBase64 = snap;
       }
 
+      final aspDuration = _aspirationDuration ?? (_aspirationStartTime != null
+          ? double.parse((DateTime.now().difference(_aspirationStartTime!).inMilliseconds / 1000.0).toStringAsFixed(1))
+          : 0.0);
+
       final initialSession = SessionModel(
         sessionId: '',
         userId: email,
@@ -292,8 +303,8 @@ class _PracticeModeScreenState extends State<PracticeModeScreen> {
         aspirationScore: aspirationScore,
         bleedingObserved: bleedingObserved,
         aspirationAngleDrift: aspirationAngleDrift,
-        aspirationDuration: 2.0,
-        motionSmoothness: 'Low',
+        aspirationDuration: aspDuration,
+        motionSmoothness: 'N/A',
         withdrawalAngle: wthAngle,
         withdrawalScore: wthScore,
         correspondenceResult: correspondence,
@@ -371,6 +382,10 @@ class _PracticeModeScreenState extends State<PracticeModeScreen> {
       final aspirationAngleDrift = _maxAspirationDrift;
       final overall = ((insScore + aspirationScore + wthScore) / 3).round();
 
+      final aspDuration = _aspirationDuration ?? (_aspirationStartTime != null
+          ? double.parse((DateTime.now().difference(_aspirationStartTime!).inMilliseconds / 1000.0).toStringAsFixed(1))
+          : 0.0);
+
       final initialSession = SessionModel(
         sessionId: '',
         userId: email,
@@ -385,8 +400,8 @@ class _PracticeModeScreenState extends State<PracticeModeScreen> {
         aspirationScore: aspirationScore,
         bleedingObserved: bleedingObserved,
         aspirationAngleDrift: aspirationAngleDrift,
-        aspirationDuration: 5.0,
-        motionSmoothness: 'Good',
+        aspirationDuration: aspDuration,
+        motionSmoothness: 'N/A',
         withdrawalAngle: wthAngle,
         withdrawalScore: wthScore,
         correspondenceResult: correspondence,

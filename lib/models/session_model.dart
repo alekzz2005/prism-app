@@ -104,7 +104,7 @@ class SessionModel {
       bleedingObserved: data['bleedingObserved'] as bool?,
       aspirationAngleDrift: (data['aspirationAngleDrift'] as num?)?.toDouble(),
       aspirationDuration: (data['aspirationDuration'] as num?)?.toDouble() ?? 0.0,
-      motionSmoothness: data['motionSmoothness'] as String? ?? 'Low',
+      motionSmoothness: data['motionSmoothness'] as String? ?? 'N/A',
       withdrawalAngle: (data['withdrawalAngle'] as num?)?.toDouble() ?? 0.0,
       withdrawalScore: data['withdrawalScore'] as int? ?? 1,
       correspondenceResult: data['correspondenceResult'] as String? ?? 'Deviates',

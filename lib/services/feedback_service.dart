@@ -31,7 +31,7 @@ class PayloadBuilder {
         'Step 3 - Withdrawal Phase:\n'
         '• Measured Angle: ${session.withdrawalAngle.toStringAsFixed(1)}° (Score: ${session.withdrawalScore}/5)\n'
         '• Angular Delta: ${session.angularDelta.toStringAsFixed(1)}° (${session.correspondenceResult})\n'
-        '• Motion Smoothness: ${session.motionSmoothness}\n\n'
+        '${(session.motionSmoothness != 'N/A' && session.motionSmoothness.isNotEmpty) ? '• Motion Smoothness: ${session.motionSmoothness}\n' : ''}\n'
         'Overall Rubric Score: ${session.overallScore}/5'
         '${session.flagged ? '\nFLAGGED: One or more components were undetectable or bleeding was detected.' : ''}';
   }
