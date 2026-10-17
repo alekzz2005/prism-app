@@ -75,12 +75,25 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
     });
   }
 
+  String _effectiveInstructorNote() {
+    final note = _noteController.text.trim();
+    final editedAi = _aiFeedbackController.text.trim();
+    final originalAi = widget.session.aiFeedbackText.trim();
+    if (editedAi.isNotEmpty && editedAi != originalAi) {
+      if (note.isNotEmpty) {
+        return '$editedAi\n\nInstructor Note:\n$note';
+      }
+      return editedAi;
+    }
+    return note;
+  }
+
   Future<void> _saveDraftQuietly() async {
     if (!mounted || widget.session.feedbackStatus == 'Released') return;
     try {
       await InstructorSessionRepository().updateFeedbackDraft(
         widget.session.sessionId,
-        _noteController.text.trim(),
+        _effectiveInstructorNote(),
       );
     } catch (_) {
       // Silently fail for background draft saving
@@ -102,7 +115,7 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
     try {
       await _releaseService.releaseSession(
         widget.session.sessionId,
-        _noteController.text.trim(),
+        _effectiveInstructorNote(),
         _aiFeedbackController.text.trim(),
       );
       if (!mounted) return;

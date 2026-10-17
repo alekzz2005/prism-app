@@ -256,6 +256,7 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
                           return _buildFeedbackSection(
                             isPractice: isPractice,
                             aiText: session.aiFeedbackText,
+                            instructorNote: session.instructorNote,
                             status: session.feedbackStatus,
                           );
                         }
@@ -265,18 +266,21 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
                           builder: (context, snap) {
                             String streamAiText = session.aiFeedbackText;
                             String streamStatus = session.feedbackStatus;
+                            String streamInstructorNote = session.instructorNote;
 
                             if (snap.hasData && snap.data!.exists) {
                               final data = snap.data!.data() as Map<String, dynamic>?;
                               if (data != null) {
                                 streamAiText = data['aiFeedbackText'] as String? ?? streamAiText;
                                 streamStatus = data['feedbackStatus'] as String? ?? streamStatus;
+                                streamInstructorNote = data['instructorNote'] as String? ?? streamInstructorNote;
                               }
                             }
 
                             return _buildFeedbackSection(
                               isPractice: isPractice,
                               aiText: streamAiText,
+                              instructorNote: streamInstructorNote,
                               status: streamStatus,
                             );
                           },
@@ -297,10 +301,14 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
   Widget _buildFeedbackSection({
     required bool isPractice,
     required String aiText,
+    required String instructorNote,
     required String status,
   }) {
     final isFailed = status == 'Feedback Generation Failed';
-    final isLoading = aiText.isEmpty && !isFailed;
+    final displayText = instructorNote.trim().isNotEmpty
+        ? instructorNote.trim()
+        : aiText.trim();
+    final isLoading = displayText.isEmpty && !isFailed;
 
     return _SectionCard(
       themeColor: _accent,
@@ -394,7 +402,7 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
               thickness: 4,
               child: SingleChildScrollView(
                 child: Text(
-                  aiText.isEmpty ? 'No feedback text available.' : aiText,
+                  displayText.isEmpty ? 'No feedback text available.' : displayText,
                   style: const TextStyle(color: _textMid, fontSize: 15, height: 1.6),
                 ),
               ),
