@@ -47,6 +47,10 @@ app.*.map.json
 # API keys - never commit
 .env.json
 .env
+google-services.json
+*.jks
+key.properties
+dist/
 
 # Ignore local AI agent layouts and wireframes
 wireframes/
