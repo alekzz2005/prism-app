@@ -41,8 +41,6 @@ class OpenRouterApiClient {
   static const List<String> _models = [
     'meta-llama/llama-3.3-70b-instruct:free',
     'meta-llama/llama-3.3-70b-instruct',
-    'google/gemini-2.0-flash-lite-preview-02-05:free',
-    'deepseek/deepseek-r1:free',
   ];
 
   static const _systemPrompt =
@@ -75,7 +73,11 @@ class OpenRouterApiClient {
     }
 
     Exception? lastError;
-    for (final model in _models) {
+    for (int i = 0; i < _models.length; i++) {
+      final model = _models[i];
+      if (i > 0) {
+        await Future.delayed(const Duration(milliseconds: 1500));
+      }
       try {
         final response = await _postWithModel(prompt, model).timeout(
           const Duration(seconds: 20),
@@ -121,7 +123,7 @@ class OpenRouterApiClient {
             {'role': 'user', 'content': userPrompt},
           ],
           'max_tokens': 300,
-          'temperature': 0.7,
+          'temperature': 0.3,
         }),
       );
 }
