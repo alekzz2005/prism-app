@@ -1,0 +1,64 @@
+# PRISM Midterm Change Log
+
+## CR-1 — CR-1 Aspiration: instructor stop/continue decision as the aspiration score (SO 1.3)
+- Validation finding / Specific Objective:
+  - Validation finding: Aspiration evaluation had the lowest instructor agreement (73.3%). Camera vision cannot detect intravascular blood flash in the syringe barrel.
+  - Specific Objective: SO 1.3 — Evaluate aspiration technique alignment with CIT-U Intramuscular Injection Return-Demonstration rubric (Step 19–21).
+- Branch / PR:
+  - Branch: `feature/aspiration/bleeding_stop_continue`
+- Summary of change:
+  - Created single source of truth helper `AspirationOutcome` (`noBleeding`, `bleedingDetected`, `notRecorded`) and scoring rule function `aspirationScore` (noBleeding = 5, bleedingDetected/notRecorded = 1 & flagged).
+  - Tracked needle stability during aspiration on camera node by measuring maximum angular drift (`max |liveAngle - lockedInsertionAngle|`) during valid frames, publishing `aspirationAngleDrift` to `live_sessions` (information-only, does not alter score).
+  - Added `aspirationScore`, `bleedingObserved`, and `aspirationAngleDrift` to `SessionModel` and Firestore session documents with backward-compatible defaults for legacy documents.
+  - Implemented real elapsed aspiration timer on `RemoteControlScreen` with `Key('aspiration_timer')` and persisted real duration (> 0s) on both Continue and Stop paths; replaced fabricated values in practice mode.
+  - Unified aspiration outcome display and AI prompt payload across `RemoteControlScreen`, `FeedbackReviewScreen`, `SessionDetailScreen`, `PracticeModeScreen`, and `FeedbackService`.
+  - Added button keys `Key('aspiration_stop_button')` and `Key('aspiration_continue_button')`.
+  - Added comprehensive unit tests in `test/aspiration_outcome_test.dart`.
+- SRS impact (UC ids + new/changed requirement wording):
+  - UC-1.2: The instructor's stop/continue decision determines blood presence; the camera does not detect blood. Needle stability during aspiration is recorded and presented as supporting evidence only. The CIT-U rubric defines no aspiration timing or angle bands, so neither is scored.
+- SDD impact (components added/changed, data design fields):
+  - Added `lib/core/aspiration_outcome.dart` (`AspirationOutcome` enum and pure scoring function).
+  - Updated `LiveSessionModel` and `LiveSessionService` to store and publish `aspirationAngleDrift`.
+  - Updated `SessionModel` (`aspirationScore: int`, `bleedingObserved: bool?`, `aspirationAngleDrift: double?`).
+  - Updated `CameraNodeScreen` to track max drift during aspiration.
+  - Updated `RemoteControlScreen`, `PracticeModeScreen`, `FeedbackReviewScreen`, `SessionDetailScreen`, and `FeedbackService`.
+- Files changed:
+  - `lib/core/aspiration_outcome.dart`
+  - `lib/services/live_session_service.dart`
+  - `lib/screens/instructor/camera_node_screen.dart`
+  - `lib/models/session_model.dart`
+  - `lib/screens/instructor/remote_control_screen.dart`
+  - `lib/screens/student/practice_mode_screen.dart`
+  - `lib/screens/instructor/feedback_review_screen.dart`
+  - `lib/screens/student/session_detail_screen.dart`
+  - `lib/services/feedback_service.dart`
+  - `test/aspiration_outcome_test.dart`
+  - `CHANGE_LOG.md`
+- New/changed Firestore fields:
+  - `sessions/{sessionId}.aspirationScore`: `int` (5 if no bleeding, 1 if bleeding detected or not recorded)
+  - `sessions/{sessionId}.bleedingObserved`: `bool?` (false if no bleeding, true if bleeding detected, null if not recorded)
+  - `sessions/{sessionId}.aspirationAngleDrift`: `double?` (max needle angle deviation in degrees during aspiration)
+  - `live_sessions/{instructorId}.aspirationAngleDrift`: `double?` (live session sync)
+- Widget Keys added:
+  - `Key('aspiration_timer')`: Live aspiration timer display on remote control.
+  - `Key('aspiration_stop_button')`: Stop / Bleeding Detected button.
+  - `Key('aspiration_continue_button')`: Continue / No Bleeding button.
+- Acceptance criteria (testable, pass/fail):
+  - The same session shows the same aspiration outcome and score on remote, review, student detail and in the AI prompt, including legacy 'Not Detected'.
+  - Stop → 1 and flagged, session ends as today. Continue → 5. Needle drift is stored and shown but never changes the score.
+  - `aspirationDuration` equals the on-screen timer (> 0); no fabricated values remain.
+  - SRS impact: UC-1.2 states that the instructor's stop/continue decision determines blood presence, the camera does not detect blood, and needle stability during aspiration is recorded as supporting evidence only. The rubric defines no aspiration timing or angle bands, so none are scored.
+  - Test cases for STD: Stop path; Continue path; detection lost during aspiration; legacy document display.
+- Suggested test cases (for STD / RTM):
+  - TC-CR1-01: Instructor presses "Cancel (Patient Bleeding)" during aspiration -> session fails immediately, `aspirationScore` = 1, `flagged` = true, real duration recorded, `bleedingObserved` = true.
+  - TC-CR1-02: Instructor presses "No Bleeding (Proceed to Withdrawal)" -> proceeds to withdrawal, `aspirationScore` = 5, `flagged` = false, real duration recorded, `bleedingObserved` = false.
+  - TC-CR1-03: Detection lost during aspiration -> camera node ignores lost frames for drift calculation; drift reflects max valid frame deviation; guardrail disables continue button until syringe re-acquired.
+  - TC-CR1-04: Legacy document with `aspirationResult: 'Not Detected'` -> displays score 1/5, flagged banner, "Instructor blood check: Not recorded", and AI prompt states "Outcome was not recorded" without mentioning blood return.
+- Evidence to capture (screenshots/logs):
+  - Remote control screen displaying `Key('aspiration_timer')` and action buttons.
+  - Instructor review screen displaying "Instructor blood check", "Needle stability during aspiration", "Aspiration time", and rubric score.
+  - Student session detail screen displaying matching aspiration section and score.
+  - Firestore document showing `aspirationScore`, `bleedingObserved`, `aspirationAngleDrift`, and `aspirationDuration`.
+- Known limitations:
+  - Camera vision does not detect blood return directly; relies on instructor clinical observation via stop/continue input.
+  - Needle stability drift is null if syringe detection is lost for the entire aspiration phase.
