@@ -132,3 +132,92 @@
   - LLM regeneration is limited to 1 retry to bound latency before defaulting to deterministic fallback draft.
   - Numeric validation allows +-0.05 tolerance to accommodate floating point rounding.
 
+## CR-4 — CR-4 Firestore quarantine rules, secret hygiene and legacy cleanup
+- Validation finding / Specific Objective:
+  - Validation finding: The audit showed database rules did not enforce the Pre-Release Feedback Quarantine requirement (students could read unreleased AI feedback and base64 snapshots of pending/failed sessions, and could update their own session documents). Furthermore, `android/app/google-services.json` was tracked in git, and legacy MediaPipe/ML Kit files caused analyzer errors due to removed dependencies.
+  - Specific Objective: Enforce Pre-Release Feedback Quarantine in Firestore rules, ensure repository secret hygiene, and eliminate analyzer errors by removing abandoned legacy code.
+- Branch / PR:
+  - Branch: `fix/security/rules_and_secret_hygiene`
+- Summary of change:
+  - Hardened `firestore.rules` to quarantine student session reads until `feedbackStatus == 'Released'`.
+  - Restricted session update and delete permissions strictly to authenticated instructors (`role == 'Instructor'`).
+  - Allowed student creation of sessions exclusively for self-practice sessions where `userId == auth.uid` and `feedbackStatus == 'Released'`.
+  - Restricted `live_sessions/**` reads and writes to instructors only (protecting telemetry and WebRTC signaling).
+  - Allowed instructors to query `users` by email and write release notifications to student notification subcollections.
+  - Added root `firebase.json` declaring Firestore rules configuration.
+  - Untracked `android/app/google-services.json` from git while preserving the local file, added `android/app/google-services.json.example`, and updated `.gitignore` for `google-services.json`, `*.jks`, `key.properties`, `.env`, `.env.json`, and `dist/`.
+  - Removed obsolete leftover MediaPipe/ML Kit files (`hand_landmark_service.dart`, `pose_landmark_service.dart`, `angle_overlay_painter.dart`), achieving zero `flutter analyze` errors.
+- Rules-vs-Calls Matrix:
+  | Call Site | Operation | Caller | Allowed by Prior Rule? | Allowed by Hardened Rule? | Clinical & Security Rationale |
+  |---|---|---|---|---|---|
+  | `users/{uid}` | `get`, `set` | Student / Instructor | Yes (`auth.uid == uid`) | Yes (`auth.uid == uid`) | Auth profile creation and role lookup |
+  | `users` (query by email) | `get` (`where email == x`) | Instructor | No (failed: only `auth.uid == uid`) | Yes (`isInstructor()`) | Resolves student email to UID upon feedback release |
+  | `users/{uid}/notifications/{id}` | `list`, `get`, `update`, `delete` | Student / Instructor | Yes (`auth.uid == uid`) | Yes (`auth.uid == uid`) | Managing user's own in-app notification center |
+  | `users/{targetUid}/notifications` | `add` (create) | Instructor | No (failed: only `auth.uid == targetUid`) | Yes (`isInstructor()`) | Instructor delivers feedback release alerts to student |
+  | `sessions/{id}` | `create` (official RD) | Instructor | Yes (`auth != null`) | Yes (`isInstructor()`) | Saves completed or aborted clinical return-demonstration |
+  | `sessions/{id}` | `create` (practice mode) | Student | Yes (`auth != null`) | Yes (`userId == auth.uid` && `status == 'Released'`) | Student self-practice returns released feedback immediately |
+  | `sessions` | `list` / query | Instructor | Yes (`isInstructor()`) | Yes (`isInstructor()`) | Instructor dashboard and section analytics |
+  | `sessions/{id}` | `get` | Instructor | Yes (`isInstructor()`) | Yes (`isInstructor()`) | Session review and rubric grading screens |
+  | `sessions/{id}` | `update` (draft / release) | Instructor | Yes (`isInstructor()`) | Yes (`isInstructor()`) | Feedback draft auto-save and single release |
+  | `sessions` | `batch.update` | Instructor | Yes (`isInstructor()`) | Yes (`isInstructor()`) | Batch release by section, count, or IDs |
+  | `sessions` | `list` / query | Student | Yes (read any own doc, even Pending) | Yes, only when `feedbackStatus == 'Released'` | Pre-Release Feedback Quarantine enforced |
+  | `sessions/{id}` | `get` | Student | Yes (read any own doc, even Pending) | Yes, only when `feedbackStatus == 'Released'` | Direct doc lookup blocked until released |
+  | `sessions/{id}` | `update` | Student | Yes (could edit own doc!) | No (instructors only) | Tamper prevention: students cannot alter scores or feedback |
+  | `sessions/{id}` | `delete` | Any | No (`false`) | Instructors only | Instructors manage session lifecycle |
+  | `live_sessions/{id}` | `set`, `snapshots`, `delete` | Instructor | Yes (`auth != null`) | Yes (`isInstructor()`) | Telemetry sync between camera and remote |
+  | `live_sessions/{id}/ice_candidates` | `add`, `snapshots` | Instructor | Yes (`auth != null`) | Yes (`isInstructor()`) | WebRTC P2P signaling between instructor devices |
+  | `instructor_roster/**` | `read`, `write` | Instructor | Yes (`auth.uid == instructorId`) | Yes (`auth.uid == instructorId && isInstructor()`) | Section and roster CSV management |
+- How to deploy rules:
+  1. Open the Firebase Console (`https://console.firebase.google.com/`).
+  2. Select the PRISM project (`prism-app-ae2d6`).
+  3. Navigate to **Firestore Database** -> **Rules** tab.
+  4. Copy and paste the complete contents of `firestore.rules`.
+  5. Click **Publish** to apply the security rules immediately.
+- SRS impact (UC ids + new/changed requirement wording):
+  - Pre-Release Feedback Quarantine: Students shall access session feedback, rubric scores, and session snapshots only after the supervising instructor explicitly reviews and releases the session (`feedbackStatus == 'Released'`). Prior to release, all session telemetry is quarantined and inaccessible to student accounts.
+  - Session Document Integrity: Session modification and deletion permissions are strictly restricted to authenticated instructors. Students cannot edit session records.
+- SDD impact (components added/changed, data design fields):
+  - Added `firebase.json` project configuration file.
+  - Updated `firestore.rules` with helper functions (`isSignedIn`, `isInstructor`) and quarantine read/write conditions.
+  - Added `android/app/google-services.json.example` template with sanitized credentials.
+  - Updated `.gitignore` to ignore sensitive credentials, keystores, and environments.
+  - Removed deprecated packages and legacy files `hand_landmark_service.dart`, `pose_landmark_service.dart`, and `angle_overlay_painter.dart`.
+- Files changed:
+  - `firestore.rules`
+  - `firebase.json`
+  - `.gitignore`
+  - `android/app/google-services.json` (untracked)
+  - `android/app/google-services.json.example` (created)
+  - `lib/services/hand_landmark_service.dart` (deleted)
+  - `lib/services/pose_landmark_service.dart` (deleted)
+  - `lib/widgets/angle_overlay_painter.dart` (deleted)
+  - `CHANGE_LOG.md`
+- New/changed Firestore fields:
+  - None (enforced constraints on existing `feedbackStatus`, `userId`, and `role` fields).
+- Widget Keys added:
+  - None.
+- Acceptance criteria (testable, pass/fail):
+  - A student cannot read a Pending or Failed session by direct document lookup; can read it after release.
+  - A student cannot update a session or read `live_sessions`.
+  - Instructor flows (live demo, release, batch release, roster, notifications) and student practice mode still work.
+  - `git ls-files` shows no `google-services.json`, `.env`, `.jks` or `key.properties`.
+  - `flutter analyze` reports zero errors.
+  - Manual test (owner, after publishing the rules in the console): student A cannot open a Pending session; instructor releases it; student A can.
+- Suggested test cases (for STD / RTM):
+  - TC-CR4-01: Authenticated student attempts to read a session with `feedbackStatus: 'Pending'` via document get -> Firestore permission-denied.
+  - TC-CR4-02: Authenticated student reads a session with `feedbackStatus: 'Released'` where `userId == auth.uid` -> Document read succeeds.
+  - TC-CR4-03: Authenticated student attempts to update a session document -> Firestore permission-denied.
+  - TC-CR4-04: Authenticated student creates a practice session document with `feedbackStatus: 'Released'` -> Create succeeds.
+  - TC-CR4-05: Authenticated instructor reads any session (Pending or Released) -> Read succeeds.
+  - TC-CR4-06: Authenticated instructor writes to `live_sessions/{instructorId}` -> Write succeeds.
+  - TC-CR4-07: Authenticated student attempts to read/write `live_sessions/{instructorId}` -> Firestore permission-denied.
+  - TC-CR4-08: Authenticated instructor adds release notification to student `users/{studentUid}/notifications` -> Write succeeds.
+- Evidence to capture (screenshots/logs):
+  - Firebase console rules simulator showing denied read for unreleased student session and allowed read for released session.
+  - Terminal output of `git ls-files android/app/google-services.json` returning empty.
+  - Terminal output of `flutter analyze` returning zero errors.
+  - Terminal output of `flutter test` showing all unit tests passing.
+- Known limitations:
+  - Firestore security rules require manual publishing in Firebase Console or via Firebase CLI deploy.
+
+
