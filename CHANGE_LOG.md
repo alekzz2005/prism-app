@@ -62,3 +62,73 @@
 - Known limitations:
   - Camera vision does not detect blood return directly; relies on instructor clinical observation via stop/continue input.
   - Needle stability drift is null if syringe detection is lost for the entire aspiration phase.
+
+## CR-2 — CR-2 AI feedback validation rules (SO 2.1)
+- Validation finding / Specific Objective:
+  - Validation finding: Instructors corrected technical details, timing information, and procedural explanations in generated AI feedback. Feedback made unsupported claims about unrecorded durations ("5-10s"), unmeasured physical traits (wrist steadiness, speed, smoothness), and camera-detected blood return.
+  - Specific Objective: SO 2.1 — Validate AI clinical feedback against recorded telemetry, CIT-U rubrics, and instructor decisions to eliminate hallucinations and ensure factual clinical grounding.
+- Branch / PR:
+  - Branch: `feature/feedback/ai_validation_rules`
+- Summary of change:
+  - Built pure-Dart `FeedbackEvidence` model extracting only measured and instructor-decided facts along with an `allowedNumbers` whitelist.
+  - Rewrote system prompt with strict negative constraints (only payload numbers, no durations unless given, blood confirmed only by instructor, no unmeasured physical terms, exactly 4 paragraphs, <= 175 words) and fixed `PayloadBuilder` to omit duration/drift when unrecorded and eliminate the ungrounded "5-10s" claim.
+  - Implemented `FeedbackValidator` verifying numeric tokens against allowed numbers (+-0.05), blood assertions against `AspirationOutcome`, prohibited physical terms, and 4-paragraph / 175-word structure.
+  - Added single-retry regeneration with violation corrections and a deterministic rule-based fallback draft (`DeterministicFeedbackBuilder`), recording `aiValidationStatus` and `aiValidationNotes`. Updated mock mode to return the deterministic draft.
+  - Enforced `aiFeedbackText` immutability by preventing release operations from modifying it; routed instructor edits to `instructorNote` and displayed `instructorNote` (or original AI text) to students; stopped leaking raw exception strings.
+  - Restricted OpenRouter cascade strictly to Llama 3.3 70B (free variant then paid) with 1500ms backoff and reduced temperature to 0.3.
+  - Added validation status badge on `FeedbackReviewScreen` (`Key('ai_validation_badge')`) showing "Validated" (green), "Auto-corrected" (amber), or "Template draft — review closely" (amber).
+  - Added unit test suites `test/feedback_validator_test.dart` and `test/feedback_prompt_test.dart`.
+- SRS impact (UC ids + new/changed requirement wording):
+  - UC-2.1: The system shall generate clinical feedback strictly grounded in recorded session metrics and CIT-U Intramuscular Injection rubrics. The system shall enforce post-generation validation against numeric, aspiration, and terminology rules. If violations are detected, the system shall attempt regeneration once with specific violation notes, and fall back to a deterministic rule-based template if validation fails a second time. The original AI output shall be preserved immutably in `aiFeedbackText` (replacing legacy `selfFeedbackText`), with all instructor edits persisted separately in `instructorNote`. Evaluation plan: compare PRISM rubric decisions with instructor decisions (target >= 85%, pending adviser confirmation) and count instructor corrections per session.
+- SDD impact (components added/changed, data design fields):
+  - Added `lib/services/feedback_evidence.dart`: `FeedbackEvidence` model with allowed number bounds.
+  - Added `lib/services/feedback_validator.dart`: `FeedbackValidator` static validation logic returning violation codes.
+  - Added `lib/services/deterministic_feedback_builder.dart`: Deterministic fallback draft builder.
+  - Updated `lib/services/feedback_service.dart`: PayloadBuilder cleaned; 2-pass generate-validate-regenerate loop with fallback.
+  - Updated `lib/services/openrouter_api_client.dart`: System prompt rewritten, Llama 3.3 only, temp 0.3, mock feedback uses deterministic builder.
+  - Updated `lib/models/session_model.dart`: Added `aiValidationStatus` and `aiValidationNotes`.
+  - Updated `lib/services/feedback_release_service.dart`: Removed `aiFeedbackText` updates on single/batch release.
+  - Updated `lib/screens/instructor/feedback_review_screen.dart`: Routed edits to `instructorNote`, added `ai_validation_badge`.
+  - Updated `lib/screens/student/session_detail_screen.dart`: Shows `instructorNote` if non-empty, otherwise `aiFeedbackText`.
+- Files changed:
+  - `lib/services/feedback_evidence.dart`
+  - `lib/services/feedback_validator.dart`
+  - `lib/services/deterministic_feedback_builder.dart`
+  - `lib/services/feedback_service.dart`
+  - `lib/services/openrouter_api_client.dart`
+  - `lib/models/session_model.dart`
+  - `lib/services/feedback_release_service.dart`
+  - `lib/screens/instructor/feedback_review_screen.dart`
+  - `lib/screens/student/session_detail_screen.dart`
+  - `test/feedback_validator_test.dart`
+  - `test/feedback_prompt_test.dart`
+  - `CHANGE_LOG.md`
+- New/changed Firestore fields:
+  - `sessions/{sessionId}.aiValidationStatus`: `String?` ("Passed" | "Auto-corrected" | "Template Fallback")
+  - `sessions/{sessionId}.aiValidationNotes`: `List<String>?` (violation codes from first pass)
+  - `sessions/{sessionId}.aiFeedbackText`: Immutable `String` (never modified after initial generation)
+  - `sessions/{sessionId}.instructorNote`: `String` (contains instructor modifications and notes)
+- Widget Keys added:
+  - `Key('ai_validation_badge')`: Validation badge on `FeedbackReviewScreen` indicating pass, auto-corrected, or fallback status.
+- Acceptance criteria (testable, pass/fail):
+  - No generated feedback contains a number, timing or aspiration claim absent from the recorded metrics (validator-enforced).
+  - `aiFeedbackText` is never modified after generation; instructor edits live in `instructorNote`.
+  - Validation outcome is stored and visible to the instructor; template fallback is used after one failed regeneration.
+  - Only Llama 3.3 is called.
+  - SRS impact: UC-2.1 adds validation rules, regeneration/fallback, and the field name `aiFeedbackText` (fix `selfFeedbackText`). Evaluation plan: compare PRISM rubric decisions with instructor decisions (target >= 85%, pending adviser confirmation) and count instructor corrections per session.
+- Suggested test cases (for STD / RTM):
+  - TC-CR2-01: Validator rejects unrecorded numbers (e.g. 42.7) with `unsupported_number`.
+  - TC-CR2-02: Validator rejects bleeding claims on a `noBleeding` session and safe claims on a `bleedingDetected` session (`aspiration_conflict`).
+  - TC-CR2-03: Validator rejects timing words ("seconds", "duration") when aspiration duration is null/unrecorded (`unsupported_term`).
+  - TC-CR2-04: Deterministic builder output passes all validator rules across all permutations of session outcomes.
+  - TC-CR2-05: Payload builder omits duration and needle drift when unrecorded and excludes the "5-10s" claim.
+  - TC-CR2-06: Instructor review edits write to `instructorNote` while preserving `aiFeedbackText` in Firestore.
+  - TC-CR2-07: Validation badge displays green "Validated" for Passed, amber "Auto-corrected" for Auto-corrected, and amber "Template draft — review closely" for Template Fallback.
+- Evidence to capture (screenshots/logs):
+  - `FeedbackReviewScreen` displaying `Key('ai_validation_badge')` alongside editable AI draft and Undo/Revert controls.
+  - Firestore document showing immutable `aiFeedbackText`, separate `instructorNote`, `aiValidationStatus`, and `aiValidationNotes`.
+  - Unit test run logs showing all 25 tests passing in `test/feedback_validator_test.dart`, `test/feedback_prompt_test.dart`, and `test/aspiration_outcome_test.dart`.
+- Known limitations:
+  - LLM regeneration is limited to 1 retry to bound latency before defaulting to deterministic fallback draft.
+  - Numeric validation allows +-0.05 tolerance to accommodate floating point rounding.
+

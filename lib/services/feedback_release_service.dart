@@ -22,7 +22,6 @@ class FeedbackReleaseService {
           'feedbackStatus': 'Released',
           'releaseTimestamp': FieldValue.serverTimestamp(),
           'instructorNote': instructorNote,
-          'aiFeedbackText': aiFeedbackText,
         });
         
         final sessionSnap = await _db.collection('sessions').doc(sessionId).get();

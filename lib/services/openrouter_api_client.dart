@@ -6,6 +6,8 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'feedback_exceptions.dart';
+import 'feedback_evidence.dart';
+import 'deterministic_feedback_builder.dart';
 
 /// Set this to true to skip the real API call and return mock feedback.
 /// Useful for testing the full session flow without an API key.
@@ -39,25 +41,30 @@ class OpenRouterApiClient {
   static const List<String> _models = [
     'meta-llama/llama-3.3-70b-instruct:free',
     'meta-llama/llama-3.3-70b-instruct',
-    'google/gemini-2.0-flash-lite-preview-02-05:free',
-    'deepseek/deepseek-r1:free',
   ];
 
   static const _systemPrompt =
-      'You are PRISM, an AI clinical nursing evaluator for Intramuscular (IM) injection return-demonstrations (RDs) at CIT-U. '
-      'Evaluate the injection performance strictly in CHRONOLOGICAL, SEQUENTIAL order across all three procedural phases.\n\n'
-      'Structure your response in EXACTLY 4 short, distinct paragraphs (no headers, no markdown bullet points):\n'
-      'Paragraph 1 (Insertion Phase): Evaluate the insertion angle against the 90° target (±5° tolerance), dart-like motion, and score.\n'
-      'Paragraph 2 (Aspiration Phase): Evaluate the aspiration technique, duration, and blood check (confirming absence or presence of blood return/vascular puncture before injection).\n'
-      'Paragraph 3 (Withdrawal Phase): Evaluate the withdrawal angle and angular delta compared to insertion, explaining the clinical implications for tissue trauma and needle tract alignment.\n'
-      'Paragraph 4 (Actionable Recommendation): Provide one specific, actionable practice recommendation targeting the procedural step that most needs improvement to ensure safe clinical nursing practice.\n\n'
-      'Tone: Professional, direct, constructive, and clinically precise. Max 175 words total.';
+      'You are PRISM, an AI clinical nursing evaluator for Intramuscular (IM) injection return-demonstrations (RDs) at CIT-U.\n\n'
+      'MANDATORY CLINICAL VALIDATION RULES:\n'
+      '1. Use ONLY numbers provided in the payload. Do not invent, extrapolate, or mention any numbers not in the payload (except the 90° standard and 1-5 rubric scores).\n'
+      '2. Never state a time or duration unless one is explicitly given in the payload. If duration is not recorded, do not mention duration, seconds, or timing.\n'
+      '3. Blood presence is based ONLY on what the instructor confirmed, never "detected by the camera". If aspiration outcome was not recorded, do not comment on blood presence.\n'
+      '4. Rubric expectations (e.g. 90° dart-like insertion, aspirate and observe for blood, withdraw at the same angle) may be mentioned as the standard, but never claimed as observed unless a metric supports it.\n'
+      '5. Do not mention wrist/hand steadiness, speed, smoothness, or neuromuscular terms unless in the payload.\n\n'
+      'STRUCTURE (EXACTLY 4 PARAGRAPHS, <= 175 WORDS TOTAL, NO HEADERS, NO BULLETS):\n'
+      'Paragraph 1: Evaluate insertion angle against the 90° standard (±5° tolerance) and insertion score.\n'
+      'Paragraph 2: Evaluate aspiration blood check, duration (only if given), needle drift (only if given), and aspiration score.\n'
+      'Paragraph 3: Evaluate withdrawal angle, angular delta, correspondence, and withdrawal score.\n'
+      'Paragraph 4: Provide one specific, actionable recommendation targeting the lowest scoring step to ensure safe practice.';
 
   /// Sends [prompt] to Llama 3.3 70B and returns the response text.
   /// Throws [FeedbackTimeoutException] on timeout, [FeedbackApiException] on non-200.
-  Future<String> generateFeedback(String prompt) async {
+  Future<String> generateFeedback(String prompt, {FeedbackEvidence? evidence}) async {
     if (kUseMockFeedback) {
-      await Future.delayed(const Duration(seconds: 1));
+      await Future.delayed(const Duration(milliseconds: 200));
+      if (evidence != null) {
+        return DeterministicFeedbackBuilder.build(evidence);
+      }
       return _mockFeedbackText;
     }
 
@@ -66,7 +73,11 @@ class OpenRouterApiClient {
     }
 
     Exception? lastError;
-    for (final model in _models) {
+    for (int i = 0; i < _models.length; i++) {
+      final model = _models[i];
+      if (i > 0) {
+        await Future.delayed(const Duration(milliseconds: 1500));
+      }
       try {
         final response = await _postWithModel(prompt, model).timeout(
           const Duration(seconds: 20),
@@ -112,7 +123,7 @@ class OpenRouterApiClient {
             {'role': 'user', 'content': userPrompt},
           ],
           'max_tokens': 300,
-          'temperature': 0.7,
+          'temperature': 0.3,
         }),
       );
 }

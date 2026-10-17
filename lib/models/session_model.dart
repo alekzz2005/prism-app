@@ -40,6 +40,8 @@ class SessionModel {
   final Timestamp? releaseTimestamp;
   final String instructorNote;
   final bool flagged;
+  final String? aiValidationStatus; // "Passed" | "Auto-corrected" | "Template Fallback"
+  final List<String>? aiValidationNotes;
 
   // Snapshots
   final String? insertionImageBase64;
@@ -72,6 +74,8 @@ class SessionModel {
     this.releaseTimestamp,
     required this.instructorNote,
     required this.flagged,
+    this.aiValidationStatus,
+    this.aiValidationNotes,
     this.insertionImageBase64,
     this.aspirationImageBase64,
     this.withdrawalImageBase64,
@@ -115,6 +119,8 @@ class SessionModel {
       releaseTimestamp: data['releaseTimestamp'] as Timestamp?,
       instructorNote: data['instructorNote'] as String? ?? '',
       flagged: data['flagged'] as bool? ?? false,
+      aiValidationStatus: data['aiValidationStatus'] as String? ?? 'Passed',
+      aiValidationNotes: (data['aiValidationNotes'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? const [],
       insertionImageBase64: data['insertionImageBase64'] as String?,
       aspirationImageBase64: data['aspirationImageBase64'] as String?,
       withdrawalImageBase64: data['withdrawalImageBase64'] as String?,
@@ -146,6 +152,8 @@ class SessionModel {
         if (releaseTimestamp != null) 'releaseTimestamp': releaseTimestamp,
         'instructorNote': instructorNote,
         'flagged': flagged,
+        if (aiValidationStatus != null) 'aiValidationStatus': aiValidationStatus,
+        if (aiValidationNotes != null) 'aiValidationNotes': aiValidationNotes,
         if (insertionImageBase64 != null) 'insertionImageBase64': insertionImageBase64,
         if (aspirationImageBase64 != null) 'aspirationImageBase64': aspirationImageBase64,
         if (withdrawalImageBase64 != null) 'withdrawalImageBase64': withdrawalImageBase64,
@@ -177,6 +185,8 @@ class SessionModel {
     Timestamp? releaseTimestamp,
     String? instructorNote,
     bool? flagged,
+    String? aiValidationStatus,
+    List<String>? aiValidationNotes,
     String? insertionImageBase64,
     String? aspirationImageBase64,
     String? withdrawalImageBase64,
@@ -207,6 +217,8 @@ class SessionModel {
       releaseTimestamp: releaseTimestamp ?? this.releaseTimestamp,
       instructorNote: instructorNote ?? this.instructorNote,
       flagged: flagged ?? this.flagged,
+      aiValidationStatus: aiValidationStatus ?? this.aiValidationStatus,
+      aiValidationNotes: aiValidationNotes ?? this.aiValidationNotes,
       insertionImageBase64: insertionImageBase64 ?? this.insertionImageBase64,
       aspirationImageBase64: aspirationImageBase64 ?? this.aspirationImageBase64,
       withdrawalImageBase64: withdrawalImageBase64 ?? this.withdrawalImageBase64,

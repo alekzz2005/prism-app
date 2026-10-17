@@ -75,12 +75,25 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
     });
   }
 
+  String _effectiveInstructorNote() {
+    final note = _noteController.text.trim();
+    final editedAi = _aiFeedbackController.text.trim();
+    final originalAi = widget.session.aiFeedbackText.trim();
+    if (editedAi.isNotEmpty && editedAi != originalAi) {
+      if (note.isNotEmpty) {
+        return '$editedAi\n\nInstructor Note:\n$note';
+      }
+      return editedAi;
+    }
+    return note;
+  }
+
   Future<void> _saveDraftQuietly() async {
     if (!mounted || widget.session.feedbackStatus == 'Released') return;
     try {
       await InstructorSessionRepository().updateFeedbackDraft(
         widget.session.sessionId,
-        _noteController.text.trim(),
+        _effectiveInstructorNote(),
       );
     } catch (_) {
       // Silently fail for background draft saving
@@ -102,7 +115,7 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
     try {
       await _releaseService.releaseSession(
         widget.session.sessionId,
-        _noteController.text.trim(),
+        _effectiveInstructorNote(),
         _aiFeedbackController.text.trim(),
       );
       if (!mounted) return;
@@ -219,11 +232,13 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
                       builder: (context, snapshot) {
                         String streamAiText = widget.session.aiFeedbackText;
                         String streamStatus = widget.session.feedbackStatus;
+                        String? streamValidationStatus = widget.session.aiValidationStatus;
 
                         if (snapshot.hasData && snapshot.data!.exists) {
                           final data = snapshot.data!.data() as Map<String, dynamic>;
                           streamAiText = data['aiFeedbackText'] as String? ?? '';
                           streamStatus = data['feedbackStatus'] as String? ?? 'Pending';
+                          streamValidationStatus = data['aiValidationStatus'] as String? ?? streamValidationStatus;
 
                           if (_aiFeedbackController.text.isEmpty && streamAiText.isNotEmpty) {
                             WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -239,8 +254,22 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
                           children: [
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              crossAxisAlignment: CrossAxisAlignment.center,
                               children: [
-                                _sectionHeader('AI Assisted Feedback'),
+                                Flexible(
+                                  child: Wrap(
+                                    crossAxisAlignment: WrapCrossAlignment.center,
+                                    spacing: 8,
+                                    runSpacing: 4,
+                                    children: [
+                                      const Text(
+                                        'AI ASSISTED FEEDBACK',
+                                        style: TextStyle(color: _navy, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.1),
+                                      ),
+                                      _buildAiValidationBadge(streamValidationStatus),
+                                    ],
+                                  ),
+                                ),
                                 if (!isReleased && streamAiText.isNotEmpty)
                                   Row(
                                     children: [
@@ -581,6 +610,54 @@ Widget _sectionHeader(String title) => Padding(
     style: const TextStyle(color: _navy, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.1),
   ),
 );
+
+Widget _buildAiValidationBadge(String? status) {
+  final effectiveStatus = (status == null || status.isEmpty) ? 'Passed' : status;
+  final Color bg;
+  final Color border;
+  final Color text;
+  final String label;
+
+  switch (effectiveStatus) {
+    case 'Auto-corrected':
+      bg = _amberBg;
+      border = _amberBorder;
+      text = _amber;
+      label = 'Auto-corrected';
+      break;
+    case 'Template Fallback':
+      bg = _amberBg;
+      border = _amberBorder;
+      text = _amber;
+      label = 'Template draft — review closely';
+      break;
+    case 'Passed':
+    default:
+      bg = _greenBg;
+      border = _greenBorder;
+      text = _green;
+      label = 'Validated';
+      break;
+  }
+
+  return Container(
+    key: const Key('ai_validation_badge'),
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+    decoration: BoxDecoration(
+      color: bg,
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: border),
+    ),
+    child: Text(
+      label,
+      style: TextStyle(
+        color: text,
+        fontSize: 11,
+        fontWeight: FontWeight.w600,
+      ),
+    ),
+  );
+}
 
 class _Card extends StatelessWidget {
   final Widget child;
