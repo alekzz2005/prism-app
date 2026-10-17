@@ -55,6 +55,22 @@ class PayloadBuilder {
   }
 }
 
+/// Helpers for user-facing feedback labels across roles and statuses.
+class FeedbackLabels {
+  static String studentFeedbackLabel({
+    required bool isPractice,
+    bool isTemplateFallback = false,
+  }) {
+    if (isPractice) {
+      if (isTemplateFallback) {
+        return 'Automatic summary from your recorded metrics (AI unavailable). Not reviewed by an instructor.';
+      }
+      return 'AI guide for practice, not reviewed by an instructor';
+    }
+    return 'AI-assisted feedback, reviewed by your instructor';
+  }
+}
+
 /// Orchestrates AI feedback generation and Firestore session persistence.
 class FeedbackService {
   final _client = OpenRouterApiClient();

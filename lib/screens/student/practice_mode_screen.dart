@@ -313,7 +313,7 @@ class _PracticeModeScreenState extends State<PracticeModeScreen> {
         aiFeedbackText: '',
         feedbackStatus: 'Released',
         releaseTimestamp: Timestamp.now(),
-        instructorNote: 'Vascular puncture observed during practice. Injection aborted.',
+        instructorNote: '',
         flagged: true,
         insertionImageBase64: _insertionBase64,
         aspirationImageBase64: _aspirationBase64,
