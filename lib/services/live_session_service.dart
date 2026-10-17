@@ -26,6 +26,7 @@ class LiveSessionModel {
   final String? correspondenceResult;
   final double? angularDelta;
   final String? sectionName;
+  final double? aspirationAngleDrift;
 
   LiveSessionModel({
     required this.studentName,
@@ -49,6 +50,7 @@ class LiveSessionModel {
     this.withdrawalScore,
     this.correspondenceResult,
     this.angularDelta,
+    this.aspirationAngleDrift,
   });
 
   factory LiveSessionModel.fromMap(Map<String, dynamic> data) {
@@ -74,6 +76,7 @@ class LiveSessionModel {
       withdrawalScore: data['withdrawalScore'],
       correspondenceResult: data['correspondenceResult'],
       angularDelta: data['angularDelta']?.toDouble(),
+      aspirationAngleDrift: data['aspirationAngleDrift']?.toDouble(),
     );
   }
 }
@@ -101,6 +104,7 @@ class LiveSessionService {
       'liveAngle': 0.0,
       'liveAspirationResult': 'Not Detected',
       'liveAspirationDuration': 0.0,
+      'aspirationAngleDrift': null,
       'finalInsertionAngle': null,
       'insertionScore': null,
       'aspirationResult': null,
@@ -163,6 +167,13 @@ class LiveSessionService {
     await _db.collection('live_sessions').doc(instructorId).set({
       'liveAspirationResult': result,
       'liveAspirationDuration': duration,
+    }, SetOptions(merge: true));
+  }
+
+  /// Publishes the aspiration angle drift measured by the Camera node.
+  Future<void> updateAspirationDrift(String instructorId, double? drift) async {
+    await _db.collection('live_sessions').doc(instructorId).set({
+      'aspirationAngleDrift': drift,
     }, SetOptions(merge: true));
   }
 
