@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../core/aspiration_outcome.dart';
 
 /// Mirrors the Firestore `sessions/{sessionId}` document schema.
 class SessionModel {
@@ -15,7 +16,10 @@ class SessionModel {
   final int insertionScore; // 1–5
 
   // Aspiration
-  final String aspirationResult; // "Correct" | "Incorrect" | "Not Detected"
+  final String aspirationResult; // "No Bleeding" | "Bleeding Detected" (or legacy "Not Detected" / "Correct")
+  final int aspirationScore; // 1–5
+  final bool? bleedingObserved; // null = not recorded
+  final double? aspirationAngleDrift;
   final double aspirationDuration; // seconds
   final String motionSmoothness; // "Good" | "Low"
 
@@ -53,6 +57,9 @@ class SessionModel {
     required this.insertionAngle,
     required this.insertionScore,
     required this.aspirationResult,
+    required this.aspirationScore,
+    this.bleedingObserved,
+    this.aspirationAngleDrift,
     required this.aspirationDuration,
     required this.motionSmoothness,
     required this.withdrawalAngle,
@@ -78,6 +85,10 @@ class SessionModel {
       rawSection = rawSection.split('_').first;
     }
 
+    final rawAspirationResult = data['aspirationResult'] as String? ?? 'Not Detected';
+    final parsedScore = data['aspirationScore'] as int? ??
+        AspirationOutcome.parse(rawAspirationResult).score;
+
     return SessionModel(
       sessionId: doc.id,
       userId: data['userId'] as String? ?? '',
@@ -88,9 +99,12 @@ class SessionModel {
       partnerName: data['partnerName'] as String?,
       insertionAngle: (data['insertionAngle'] as num?)?.toDouble() ?? 0.0,
       insertionScore: data['insertionScore'] as int? ?? 1,
-      aspirationResult: data['aspirationResult'] as String? ?? 'Not Detected',
+      aspirationResult: rawAspirationResult,
+      aspirationScore: parsedScore,
+      bleedingObserved: data['bleedingObserved'] as bool?,
+      aspirationAngleDrift: (data['aspirationAngleDrift'] as num?)?.toDouble(),
       aspirationDuration: (data['aspirationDuration'] as num?)?.toDouble() ?? 0.0,
-      motionSmoothness: data['motionSmoothness'] as String? ?? 'Low',
+      motionSmoothness: data['motionSmoothness'] as String? ?? 'N/A',
       withdrawalAngle: (data['withdrawalAngle'] as num?)?.toDouble() ?? 0.0,
       withdrawalScore: data['withdrawalScore'] as int? ?? 1,
       correspondenceResult: data['correspondenceResult'] as String? ?? 'Deviates',
@@ -117,6 +131,9 @@ class SessionModel {
         'insertionAngle': insertionAngle,
         'insertionScore': insertionScore,
         'aspirationResult': aspirationResult,
+        'aspirationScore': aspirationScore,
+        if (bleedingObserved != null) 'bleedingObserved': bleedingObserved,
+        if (aspirationAngleDrift != null) 'aspirationAngleDrift': aspirationAngleDrift,
         'aspirationDuration': aspirationDuration,
         'motionSmoothness': motionSmoothness,
         'withdrawalAngle': withdrawalAngle,
@@ -145,6 +162,9 @@ class SessionModel {
     double? insertionAngle,
     int? insertionScore,
     String? aspirationResult,
+    int? aspirationScore,
+    bool? bleedingObserved,
+    double? aspirationAngleDrift,
     double? aspirationDuration,
     String? motionSmoothness,
     double? withdrawalAngle,
@@ -172,6 +192,9 @@ class SessionModel {
       insertionAngle: insertionAngle ?? this.insertionAngle,
       insertionScore: insertionScore ?? this.insertionScore,
       aspirationResult: aspirationResult ?? this.aspirationResult,
+      aspirationScore: aspirationScore ?? this.aspirationScore,
+      bleedingObserved: bleedingObserved ?? this.bleedingObserved,
+      aspirationAngleDrift: aspirationAngleDrift ?? this.aspirationAngleDrift,
       aspirationDuration: aspirationDuration ?? this.aspirationDuration,
       motionSmoothness: motionSmoothness ?? this.motionSmoothness,
       withdrawalAngle: withdrawalAngle ?? this.withdrawalAngle,

@@ -13,6 +13,7 @@ import '../../services/feedback_service.dart';
 import '../../services/notification_service.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import '../../services/webrtc_signaling_service.dart';
+import '../../core/aspiration_outcome.dart';
 
 // ─── Brand Colours ─────────────────────────────────────────────────────────
 const _navy       = Color(0xFF003366);
@@ -61,6 +62,36 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
   String? _insertionBase64;
   String? _aspirationBase64;
   String? _withdrawalBase64;
+
+  DateTime? _aspirationStartTime;
+  Timer? _aspirationTimer;
+  double _aspirationElapsedSeconds = 0.0;
+  String? _lastObservedPhase;
+
+  void _startAspirationTimer() {
+    if (_aspirationTimer != null) return;
+    _aspirationStartTime = DateTime.now();
+    _aspirationElapsedSeconds = 0.0;
+    _aspirationTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
+      if (mounted) {
+        setState(() {
+          if (_aspirationStartTime != null) {
+            _aspirationElapsedSeconds =
+                DateTime.now().difference(_aspirationStartTime!).inMilliseconds / 1000.0;
+          }
+        });
+      }
+    });
+  }
+
+  void _stopAspirationTimer() {
+    _aspirationTimer?.cancel();
+    _aspirationTimer = null;
+    if (_aspirationStartTime != null) {
+      _aspirationElapsedSeconds =
+          DateTime.now().difference(_aspirationStartTime!).inMilliseconds / 1000.0;
+    }
+  }
 
   @override
   void initState() {
@@ -201,6 +232,7 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
 
   @override
   void dispose() {
+    _aspirationTimer?.cancel();
     _offerSub?.cancel();
     _iceSub?.cancel();
     _peerConnection?.close();
@@ -211,6 +243,12 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
 
 
   void _updatePhase(String instructorId, String newPhase) {
+    if (newPhase == 'aspiration') {
+      _startAspirationTimer();
+    } else if (_lastObservedPhase == 'aspiration' || newPhase != 'aspiration') {
+      _stopAspirationTimer();
+    }
+    _lastObservedPhase = newPhase;
     _liveService.updatePhase(instructorId, newPhase);
     // Snapshots are sent by the camera node via SNAP: DataChannel messages.
     // No manual snapshot capture needed here.
@@ -228,8 +266,18 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
     String finalUserId = session.studentEmail.toLowerCase();
 
     // Build final session model
-    final aspirationResult = session.aspirationResult ?? 'No Bleeding';
-    final aspirationScore = (aspirationResult == 'No Bleeding' || aspirationResult == 'No') ? 5 : 1;
+    final rawAspiration = session.aspirationResult ?? 'No Bleeding';
+    final parsedOutcome = AspirationOutcome.parse(rawAspiration);
+    final outcome = (parsedOutcome == AspirationOutcome.bleedingDetected)
+        ? AspirationOutcome.bleedingDetected
+        : AspirationOutcome.noBleeding;
+    final aspirationScore = outcome.score;
+    final aspirationResult = outcome == AspirationOutcome.noBleeding
+        ? 'No Bleeding'
+        : 'Bleeding Detected';
+    final bleedingObserved = outcome == AspirationOutcome.bleedingDetected;
+    final aspirationAngleDrift = session.aspirationAngleDrift;
+    final aspirationDuration = double.parse(_aspirationElapsedSeconds.toStringAsFixed(1));
 
     // Overall score: average of 3 components (insertion + aspiration + withdrawal)
     final overallScore = (((session.insertionScore ?? 1) + aspirationScore + (session.withdrawalScore ?? 1)) / 3).round();
@@ -246,7 +294,10 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
       insertionAngle: session.finalInsertionAngle ?? 0,
       insertionScore: session.insertionScore ?? 1,
       aspirationResult: aspirationResult,
-      aspirationDuration: 0,
+      aspirationScore: aspirationScore,
+      bleedingObserved: bleedingObserved,
+      aspirationAngleDrift: aspirationAngleDrift,
+      aspirationDuration: aspirationDuration,
       motionSmoothness: 'N/A',
       withdrawalAngle: session.finalWithdrawalAngle ?? 0,
       withdrawalScore: session.withdrawalScore ?? 1,
@@ -256,7 +307,7 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
       aiFeedbackText: '',
       feedbackStatus: 'Pending',
       instructorNote: '',
-      flagged: false,
+      flagged: outcome.needsFlag,
       insertionImageBase64: _insertionBase64,
       aspirationImageBase64: _aspirationBase64,
       withdrawalImageBase64: _withdrawalBase64,
@@ -266,32 +317,7 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
     final generatedSessionId = await _repo.saveSession(initialSession);
     
     // Reconstruct with ID for background task
-    SessionModel sessionWithId = SessionModel(
-      sessionId: generatedSessionId,
-      userId: finalUserId, 
-      studentName: session.studentName,
-      timestamp: initialSession.timestamp, 
-      injectionType: session.injectionType,
-      sectionName: session.sectionName,
-      partnerName: session.partnerName,
-      insertionAngle: session.finalInsertionAngle ?? 0,
-      insertionScore: session.insertionScore ?? 1,
-      aspirationResult: aspirationResult,
-      aspirationDuration: 0,
-      motionSmoothness: 'N/A',
-      withdrawalAngle: session.finalWithdrawalAngle ?? 0,
-      withdrawalScore: session.withdrawalScore ?? 1,
-      correspondenceResult: session.correspondenceResult ?? 'Deviates',
-      angularDelta: session.angularDelta ?? 0,
-      overallScore: overallScore,
-      aiFeedbackText: '',
-      feedbackStatus: 'Pending',
-      instructorNote: '',
-      flagged: false,
-      insertionImageBase64: _insertionBase64,
-      aspirationImageBase64: _aspirationBase64,
-      withdrawalImageBase64: _withdrawalBase64,
-    );
+    SessionModel sessionWithId = initialSession.copyWith(sessionId: generatedSessionId);
 
     // Fire and forget background generation
     _feedbackService.generateAndSaveFeedbackInBackground(sessionWithId);
@@ -313,6 +339,7 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
   }
 
   void _cancelSessionWithBleeding(String instructorId, LiveSessionModel session) async {
+    _stopAspirationTimer();
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -322,6 +349,13 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
     );
 
     String finalUserId = session.studentEmail;
+
+    final outcome = AspirationOutcome.bleedingDetected;
+    final aspirationScore = outcome.score;
+    const aspirationResult = 'Bleeding Detected';
+    const bleedingObserved = true;
+    final aspirationAngleDrift = session.aspirationAngleDrift;
+    final aspirationDuration = double.parse(_aspirationElapsedSeconds.toStringAsFixed(1));
 
     SessionModel failedSession = SessionModel(
       sessionId: '', // Auto-generated
@@ -333,8 +367,11 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
       partnerName: session.partnerName,
       insertionAngle: session.finalInsertionAngle ?? 0,
       insertionScore: session.insertionScore ?? 1,
-      aspirationResult: 'Bleeding Detected',
-      aspirationDuration: 0,
+      aspirationResult: aspirationResult,
+      aspirationScore: aspirationScore,
+      bleedingObserved: bleedingObserved,
+      aspirationAngleDrift: aspirationAngleDrift,
+      aspirationDuration: aspirationDuration,
       motionSmoothness: 'N/A',
       withdrawalAngle: 0,
       withdrawalScore: 1,
@@ -383,6 +420,19 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
             }
 
             final session = snapshot.data;
+            if (session != null) {
+              if (session.phase == 'aspiration' && _lastObservedPhase != 'aspiration') {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  _startAspirationTimer();
+                });
+              } else if (session.phase != 'aspiration' && _lastObservedPhase == 'aspiration') {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  _stopAspirationTimer();
+                });
+              }
+              _lastObservedPhase = session.phase;
+            }
+
             if (session == null) {
               return Column(
                 children: [
@@ -721,18 +771,57 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
       button = Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          Container(
+            key: const Key('aspiration_timer'),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            margin: const EdgeInsets.only(bottom: 12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: _cardBorder),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.05),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.timer_outlined, size: 20, color: _navy),
+                const SizedBox(width: 8),
+                Text(
+                  'Aspiration time: ${_aspirationElapsedSeconds.toStringAsFixed(1)}s',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: _textDark,
+                  ),
+                ),
+              ],
+            ),
+          ),
           _ControlButton(
+            key: const Key('aspiration_stop_button'),
             label: 'Cancel (Patient Bleeding)',
             hint: 'Fails session immediately',
             color: Colors.redAccent,
-            onPressed: () => _cancelSessionWithBleeding(instructorId, session),
+            onPressed: () {
+              _stopAspirationTimer();
+              _cancelSessionWithBleeding(instructorId, session);
+            },
           ),
           const SizedBox(height: 12),
           _ControlButton(
+            key: const Key('aspiration_continue_button'),
             label: 'No Bleeding (Proceed to Withdrawal)',
             hint: guardrailBlocked ? 'Detection lost — Reposition hand' : 'Aspiration clear',
             color: guardrailBlocked ? Colors.grey : const Color(0xFF16A34A),
             onPressed: guardrailBlocked ? () {} : () {
+              _stopAspirationTimer();
               _updatePhase(instructorId, 'withdrawal');
             },
           ),
@@ -854,6 +943,7 @@ class _ControlButton extends StatelessWidget {
   final VoidCallback onPressed;
 
   const _ControlButton({
+    super.key,
     required this.label,
     required this.color,
     required this.hint,

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import '../../models/session_model.dart';
+import '../../core/aspiration_outcome.dart';
 import '../../services/instructor_session_repository.dart';
 import '../../services/feedback_release_service.dart';
 import '../../widgets/image_zoom_dialog.dart';
@@ -156,43 +157,59 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
 
                     // Detection Results
                     _sectionHeader('Detection Results'),
-                    _Card(
-                      child: Column(
-                        children: [
-                          _ResultRow(
-                            label: 'Insertion',
-                            value: '${s.insertionAngle.toStringAsFixed(1)}\u00b0',
-                            score: s.insertionScore,
+                    Builder(
+                      builder: (context) {
+                        final outcome = AspirationOutcome.parse(s.aspirationResult);
+                        final stabilityText = s.aspirationAngleDrift != null
+                            ? '±${s.aspirationAngleDrift!.toStringAsFixed(1)}\u00b0 from insertion angle'
+                            : 'Not measured';
+                        return _Card(
+                          child: Column(
+                            children: [
+                              _ResultRow(
+                                label: 'Insertion',
+                                value: '${s.insertionAngle.toStringAsFixed(1)}\u00b0',
+                                score: s.insertionScore,
+                              ),
+                              _ResultRow(
+                                label: 'Instructor blood check',
+                                value: outcome.label,
+                                isValueGreen: outcome == AspirationOutcome.noBleeding,
+                                score: s.aspirationScore,
+                              ),
+                              _ResultRow(
+                                label: 'Needle stability during aspiration',
+                                value: stabilityText,
+                              ),
+                              _ResultRow(
+                                label: 'Aspiration time',
+                                value: '${s.aspirationDuration.toStringAsFixed(1)}s',
+                              ),
+                              _ResultRow(
+                                label: 'Withdrawal',
+                                value: '${s.withdrawalAngle.toStringAsFixed(1)}\u00b0',
+                                score: s.withdrawalScore,
+                              ),
+                              _ResultRow(
+                                label: 'Correspondence',
+                                value: s.correspondenceResult,
+                                isValueGreen: s.correspondenceResult == 'Matches',
+                              ),
+                              _ResultRow(
+                                label: 'Angular Delta',
+                                value: '${s.angularDelta.toStringAsFixed(1)}\u00b0',
+                              ),
+                              Container(height: 1, color: _cardBorder, margin: const EdgeInsets.symmetric(vertical: 6)),
+                              _ResultRow(
+                                label: 'Overall Score',
+                                value: '',
+                                score: s.overallScore,
+                                highlight: true,
+                              ),
+                            ],
                           ),
-                          _ResultRow(
-                            label: 'Aspiration',
-                            value: s.aspirationResult,
-                            isValueGreen: s.aspirationResult == 'No Bleeding' || s.aspirationResult == 'No' || s.aspirationResult == 'Correct',
-                            score: (s.aspirationResult == 'No Bleeding' || s.aspirationResult == 'No' || s.aspirationResult == 'Correct') ? 5 : 1,
-                          ),
-                          _ResultRow(
-                            label: 'Withdrawal',
-                            value: '${s.withdrawalAngle.toStringAsFixed(1)}\u00b0',
-                            score: s.withdrawalScore,
-                          ),
-                          _ResultRow(
-                            label: 'Correspondence',
-                            value: s.correspondenceResult ?? 'Deviates',
-                            isValueGreen: s.correspondenceResult == 'Matches',
-                          ),
-                          _ResultRow(
-                            label: 'Angular Delta',
-                            value: '${s.angularDelta?.toStringAsFixed(1) ?? "0.0"}\u00b0',
-                          ),
-                          Container(height: 1, color: _cardBorder, margin: const EdgeInsets.symmetric(vertical: 6)),
-                          _ResultRow(
-                            label: 'Overall Score',
-                            value: '',
-                            score: s.overallScore,
-                            highlight: true,
-                          ),
-                        ],
-                      ),
+                        );
+                      },
                     ),
                     const SizedBox(height: 14),
 
@@ -306,7 +323,7 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
                     const SizedBox(height: 14),
 
                     // Flagged banner
-                    if (s.flagged) ...[
+                    if (s.flagged || AspirationOutcome.parse(s.aspirationResult).needsFlag) ...[
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                         decoration: BoxDecoration(

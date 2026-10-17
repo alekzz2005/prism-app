@@ -55,6 +55,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
 
   Timer? _syncTimer;
   double? _lastInsertionAngle;
+  double? _maxAspirationDrift;
   String? _instructorId;
 
   // Roboflow detection state
@@ -373,6 +374,17 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
           if (_liveAngle >= 0) {
             _liveService.updateLiveAngle(instructorId, _liveAngle);
           }
+        } else if (_currentPhase == 'aspiration') {
+          if (_liveAngle >= 0) {
+            _liveService.updateLiveAngle(instructorId, _liveAngle);
+            final lockedAngle = _lastInsertionAngle ?? _currentSession?.finalInsertionAngle;
+            if (lockedAngle != null) {
+              final drift = (_liveAngle - lockedAngle).abs();
+              if (_maxAspirationDrift == null || drift > _maxAspirationDrift!) {
+                _maxAspirationDrift = double.parse(drift.toStringAsFixed(1));
+              }
+            }
+          }
         }
       }
     } catch (e) {
@@ -391,11 +403,16 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
     if (session.phase == oldPhase) return;
     _currentPhase = session.phase;
 
+    if (oldPhase == 'aspiration' && session.phase != 'aspiration') {
+      _liveService.updateAspirationDrift(instructorId, _maxAspirationDrift);
+    }
+
     if (session.phase == 'waiting' || session.phase == 'completed') {
       _withdrawalTimer?.cancel();
       _withdrawalSnapSent = false;
       setState(() {
         _lastInsertionAngle = null;
+        _maxAspirationDrift = null;
         _detectionLost = false;
         _latestDetection = null;
       });
@@ -406,7 +423,8 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
       _liveService.saveInsertionMetrics(instructorId, _liveAngle, score);
       // 📸 Capture insertion snapshot
       _sendSnapshot('insertion');
-    } else if (session.phase == 'aspiration' && oldPhase == 'insertion_locked') {
+    } else if (session.phase == 'aspiration' && oldPhase != 'aspiration') {
+      _maxAspirationDrift = null;
       // 📸 Capture aspiration snapshot (beginning of aspiration phase)
       _sendSnapshot('aspiration');
     } else if (session.phase == 'withdrawal' && oldPhase != 'withdrawal') {
@@ -474,6 +492,7 @@ class _CameraNodeScreenState extends State<CameraNodeScreen> {
                 setState(() {
                   _currentPhase = 'waiting';
                   _lastInsertionAngle = null;
+                  _maxAspirationDrift = null;
                 });
                 RoboflowDetectionService.resetSmoothing();
               }

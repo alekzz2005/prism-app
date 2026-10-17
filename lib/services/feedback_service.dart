@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/session_model.dart';
 import '../core/injection_config.dart';
+import '../core/aspiration_outcome.dart';
 import 'openrouter_api_client.dart';
 import 'feedback_exceptions.dart';
 
@@ -16,9 +17,21 @@ class PayloadBuilder {
       _ => 'Parenteral Injection Return-Demonstration',
     };
 
-    final aspirationNote = session.aspirationResult == 'Bleeding Detected' || session.aspirationResult == 'Failed (Bleeding)'
-        ? 'Blood return detected (Vascular puncture — clinical risk)'
-        : 'No blood return (Correct technique — muscle tissue safe)';
+    final outcome = AspirationOutcome.parse(session.aspirationResult);
+    final String aspirationCheck;
+    if (outcome == AspirationOutcome.notRecorded) {
+      aspirationCheck = 'Outcome was not recorded';
+    } else if (outcome == AspirationOutcome.bleedingDetected) {
+      aspirationCheck = '${session.aspirationResult} (Blood return detected — vascular puncture, clinical risk)';
+    } else {
+      aspirationCheck = '${session.aspirationResult} (No blood return — correct technique, muscle tissue safe)';
+    }
+
+    final driftLine = session.aspirationAngleDrift != null
+        ? '• Needle Stability: ±${session.aspirationAngleDrift!.toStringAsFixed(1)}° from insertion angle\n'
+        : '';
+
+    final isFlagged = session.flagged || outcome.needsFlag;
 
     return '$clinicalContext\n'
         'Standard: 90° insertion (±${config.tolerance.toStringAsFixed(0)}° tolerance), 5-10s aspiration check, smooth withdrawal along same vector.\n\n'
@@ -26,14 +39,16 @@ class PayloadBuilder {
         '• Target Angle: ${config.targetAngle.toStringAsFixed(0)}° (Tolerance ±${config.tolerance.toStringAsFixed(0)}°)\n'
         '• Measured Angle: ${session.insertionAngle.toStringAsFixed(1)}° (Score: ${session.insertionScore}/5)\n\n'
         'Step 2 - Aspiration Phase:\n'
-        '• Aspiration Blood Check: ${session.aspirationResult} ($aspirationNote)\n'
-        '• Duration: ${session.aspirationDuration.toStringAsFixed(1)}s\n\n'
+        '• Aspiration Blood Check: $aspirationCheck\n'
+        '• Score: ${session.aspirationScore}/5\n'
+        '• Duration: ${session.aspirationDuration.toStringAsFixed(1)}s\n'
+        '$driftLine\n'
         'Step 3 - Withdrawal Phase:\n'
         '• Measured Angle: ${session.withdrawalAngle.toStringAsFixed(1)}° (Score: ${session.withdrawalScore}/5)\n'
         '• Angular Delta: ${session.angularDelta.toStringAsFixed(1)}° (${session.correspondenceResult})\n'
-        '• Motion Smoothness: ${session.motionSmoothness}\n\n'
+        '${(session.motionSmoothness != 'N/A' && session.motionSmoothness.isNotEmpty) ? '• Motion Smoothness: ${session.motionSmoothness}\n' : ''}\n'
         'Overall Rubric Score: ${session.overallScore}/5'
-        '${session.flagged ? '\nFLAGGED: One or more components were undetectable or bleeding was detected.' : ''}';
+        '${isFlagged ? '\nFLAGGED: One or more components were undetectable or bleeding was detected.' : ''}';
   }
 }
 
@@ -66,27 +81,10 @@ class FeedbackService {
       instructorNote = 'AI Unknown Error: $e';
     }
 
-    return SessionModel(
-      sessionId: session.sessionId,
-      userId: session.userId,
-      studentName: session.studentName,
-      timestamp: session.timestamp,
-      injectionType: session.injectionType,
-      insertionAngle: session.insertionAngle,
-      insertionScore: session.insertionScore,
-      aspirationResult: session.aspirationResult,
-      aspirationDuration: session.aspirationDuration,
-      motionSmoothness: session.motionSmoothness,
-      withdrawalAngle: session.withdrawalAngle,
-      withdrawalScore: session.withdrawalScore,
-      correspondenceResult: session.correspondenceResult,
-      angularDelta: session.angularDelta,
-      overallScore: session.overallScore,
+    return session.copyWith(
       aiFeedbackText: feedbackText,
       feedbackStatus: feedbackStatus,
-      releaseTimestamp: session.releaseTimestamp,
       instructorNote: instructorNote,
-      flagged: session.flagged,
     );
   }
 
