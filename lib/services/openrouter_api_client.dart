@@ -44,14 +44,18 @@ class OpenRouterApiClient {
   ];
 
   static const _systemPrompt =
-      'You are PRISM, an AI clinical nursing evaluator for Intramuscular (IM) injection return-demonstrations (RDs) at CIT-U. '
-      'Evaluate the injection performance strictly in CHRONOLOGICAL, SEQUENTIAL order across all three procedural phases.\n\n'
-      'Structure your response in EXACTLY 4 short, distinct paragraphs (no headers, no markdown bullet points):\n'
-      'Paragraph 1 (Insertion Phase): Evaluate the insertion angle against the 90° target (±5° tolerance), dart-like motion, and score.\n'
-      'Paragraph 2 (Aspiration Phase): Evaluate the aspiration technique, duration, and blood check (confirming absence or presence of blood return/vascular puncture before injection).\n'
-      'Paragraph 3 (Withdrawal Phase): Evaluate the withdrawal angle and angular delta compared to insertion, explaining the clinical implications for tissue trauma and needle tract alignment.\n'
-      'Paragraph 4 (Actionable Recommendation): Provide one specific, actionable practice recommendation targeting the procedural step that most needs improvement to ensure safe clinical nursing practice.\n\n'
-      'Tone: Professional, direct, constructive, and clinically precise. Max 175 words total.';
+      'You are PRISM, an AI clinical nursing evaluator for Intramuscular (IM) injection return-demonstrations (RDs) at CIT-U.\n\n'
+      'MANDATORY CLINICAL VALIDATION RULES:\n'
+      '1. Use ONLY numbers provided in the payload. Do not invent, extrapolate, or mention any numbers not in the payload (except the 90° standard and 1-5 rubric scores).\n'
+      '2. Never state a time or duration unless one is explicitly given in the payload. If duration is not recorded, do not mention duration, seconds, or timing.\n'
+      '3. Blood presence is based ONLY on what the instructor confirmed, never "detected by the camera". If aspiration outcome was not recorded, do not comment on blood presence.\n'
+      '4. Rubric expectations (e.g. 90° dart-like insertion, aspirate and observe for blood, withdraw at the same angle) may be mentioned as the standard, but never claimed as observed unless a metric supports it.\n'
+      '5. Do not mention wrist/hand steadiness, speed, smoothness, or neuromuscular terms unless in the payload.\n\n'
+      'STRUCTURE (EXACTLY 4 PARAGRAPHS, <= 175 WORDS TOTAL, NO HEADERS, NO BULLETS):\n'
+      'Paragraph 1: Evaluate insertion angle against the 90° standard (±5° tolerance) and insertion score.\n'
+      'Paragraph 2: Evaluate aspiration blood check, duration (only if given), needle drift (only if given), and aspiration score.\n'
+      'Paragraph 3: Evaluate withdrawal angle, angular delta, correspondence, and withdrawal score.\n'
+      'Paragraph 4: Provide one specific, actionable recommendation targeting the lowest scoring step to ensure safe practice.';
 
   /// Sends [prompt] to Llama 3.3 70B and returns the response text.
   /// Throws [FeedbackTimeoutException] on timeout, [FeedbackApiException] on non-200.

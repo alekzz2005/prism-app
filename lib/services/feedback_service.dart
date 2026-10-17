@@ -1,7 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/session_model.dart';
-import '../core/injection_config.dart';
 import '../core/aspiration_outcome.dart';
+import 'feedback_evidence.dart';
 import 'openrouter_api_client.dart';
 import 'feedback_exceptions.dart';
 
@@ -9,46 +9,46 @@ import 'feedback_exceptions.dart';
 /// Uses key:value pairs to minimise input tokens while maximising context.
 class PayloadBuilder {
   static String buildPrompt(SessionModel session) {
-    final config = InjectionConfigService.getConfig(session.injectionType);
+    final evidence = FeedbackEvidence.fromSession(session);
+    return buildPromptFromEvidence(evidence);
+  }
 
-    // Injection-specific clinical context from CIT-U rubrics
-    final clinicalContext = switch (session.injectionType) {
-      'IM' => 'CIT-U Rubric: Intramuscular (IM) Injection Return-Demonstration (Chronological Procedural Evaluation)',
-      _ => 'Parenteral Injection Return-Demonstration',
+  static String buildPromptFromEvidence(FeedbackEvidence evidence) {
+    const clinicalContext =
+        'CIT-U Rubric: Intramuscular (IM) Injection Return-Demonstration (Chronological Procedural Evaluation)';
+
+    final String aspirationCheck = switch (evidence.aspirationOutcome) {
+      AspirationOutcome.notRecorded =>
+        'Aspiration outcome not recorded; do not comment on blood presence',
+      AspirationOutcome.bleedingDetected =>
+        'Bleeding Detected (Blood return detected — vascular puncture, clinical risk)',
+      AspirationOutcome.noBleeding =>
+        'No Bleeding (No blood return — correct technique, muscle tissue safe)',
     };
 
-    final outcome = AspirationOutcome.parse(session.aspirationResult);
-    final String aspirationCheck;
-    if (outcome == AspirationOutcome.notRecorded) {
-      aspirationCheck = 'Outcome was not recorded';
-    } else if (outcome == AspirationOutcome.bleedingDetected) {
-      aspirationCheck = '${session.aspirationResult} (Blood return detected — vascular puncture, clinical risk)';
-    } else {
-      aspirationCheck = '${session.aspirationResult} (No blood return — correct technique, muscle tissue safe)';
-    }
+    final durationText = evidence.aspirationDuration != null
+        ? '${evidence.aspirationDuration!.toStringAsFixed(1)}s'
+        : 'not recorded';
 
-    final driftLine = session.aspirationAngleDrift != null
-        ? '• Needle Stability: ±${session.aspirationAngleDrift!.toStringAsFixed(1)}° from insertion angle\n'
-        : '';
-
-    final isFlagged = session.flagged || outcome.needsFlag;
+    final driftText = evidence.needleDrift != null
+        ? '±${evidence.needleDrift!.toStringAsFixed(1)}° from insertion angle'
+        : 'not recorded';
 
     return '$clinicalContext\n'
-        'Standard: 90° insertion (±${config.tolerance.toStringAsFixed(0)}° tolerance), 5-10s aspiration check, smooth withdrawal along same vector.\n\n'
+        'Standard: 90° insertion (±${evidence.tolerance.toStringAsFixed(0)}° tolerance), aspirate to check for blood, withdrawal along same vector.\n\n'
         'Step 1 - Insertion Phase:\n'
-        '• Target Angle: ${config.targetAngle.toStringAsFixed(0)}° (Tolerance ±${config.tolerance.toStringAsFixed(0)}°)\n'
-        '• Measured Angle: ${session.insertionAngle.toStringAsFixed(1)}° (Score: ${session.insertionScore}/5)\n\n'
+        '• Target Angle: ${evidence.targetAngle.toStringAsFixed(0)}° (Tolerance ±${evidence.tolerance.toStringAsFixed(0)}°)\n'
+        '• Measured Angle: ${evidence.insertionAngle.toStringAsFixed(1)}° (Score: ${evidence.insertionScore}/5)\n\n'
         'Step 2 - Aspiration Phase:\n'
         '• Aspiration Blood Check: $aspirationCheck\n'
-        '• Score: ${session.aspirationScore}/5\n'
-        '• Duration: ${session.aspirationDuration.toStringAsFixed(1)}s\n'
-        '$driftLine\n'
+        '• Score: ${evidence.aspirationScore}/5\n'
+        '• Duration: $durationText\n'
+        '• Needle Stability Drift: $driftText\n\n'
         'Step 3 - Withdrawal Phase:\n'
-        '• Measured Angle: ${session.withdrawalAngle.toStringAsFixed(1)}° (Score: ${session.withdrawalScore}/5)\n'
-        '• Angular Delta: ${session.angularDelta.toStringAsFixed(1)}° (${session.correspondenceResult})\n'
-        '${(session.motionSmoothness != 'N/A' && session.motionSmoothness.isNotEmpty) ? '• Motion Smoothness: ${session.motionSmoothness}\n' : ''}\n'
-        'Overall Rubric Score: ${session.overallScore}/5'
-        '${isFlagged ? '\nFLAGGED: One or more components were undetectable or bleeding was detected.' : ''}';
+        '• Measured Angle: ${evidence.withdrawalAngle.toStringAsFixed(1)}° (Score: ${evidence.withdrawalScore}/5)\n'
+        '• Angular Delta: ${evidence.angularDelta.toStringAsFixed(1)}° (${evidence.correspondence})\n\n'
+        'Overall Rubric Score: ${evidence.overallScore}/5'
+        '${evidence.flagged ? '\nFLAGGED: One or more components were undetectable or bleeding was detected.' : ''}';
   }
 }
 
