@@ -12,6 +12,7 @@ const Color _textDark    = Color(0xFF1A2B3C);
 const Color _textMid     = Color(0xFF4A5568);
 const Color _textLight   = Color(0xFF8A9BB0);
 const Color _green       = Color(0xFF1A7A4A);
+const Color _placeholderBg = Color(0xFFF1F5F9);
 
 class SnapshotEvidencePanel extends StatelessWidget {
   final SessionModel session;
@@ -24,15 +25,13 @@ class SnapshotEvidencePanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final galleryItems = <SnapshotImageItem>[
-      if (session.insertionImageBase64 != null)
+      if (session.insertionImageBase64 != null && session.insertionImageBase64!.isNotEmpty)
         SnapshotImageItem(title: 'Insertion', base64Image: session.insertionImageBase64!),
-      if (session.aspirationImageBase64 != null)
+      if (session.aspirationImageBase64 != null && session.aspirationImageBase64!.isNotEmpty)
         SnapshotImageItem(title: 'Aspiration', base64Image: session.aspirationImageBase64!),
-      if (session.withdrawalImageBase64 != null)
+      if (session.withdrawalImageBase64 != null && session.withdrawalImageBase64!.isNotEmpty)
         SnapshotImageItem(title: 'Withdrawal', base64Image: session.withdrawalImageBase64!),
     ];
-
-    if (galleryItems.isEmpty) return const SizedBox.shrink();
 
     final outcome = AspirationOutcome.parse(session.aspirationResult);
     final stabilityText = session.aspirationAngleDrift != null
@@ -46,68 +45,70 @@ class SnapshotEvidencePanel extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (session.insertionImageBase64 != null)
-            SnapshotCard(
-              key: const Key('snapshot_card_insertion'),
-              title: 'Insertion',
-              base64Image: session.insertionImageBase64,
-              onTap: () {
-                final idx = galleryItems.indexWhere((i) => i.title == 'Insertion');
-                if (idx != -1) {
-                  showImageGalleryDialog(context, items: galleryItems, initialIndex: idx);
-                }
-              },
-              metrics: [
-                _buildMetricRow('Measured Angle', '${session.insertionAngle.toStringAsFixed(1)}°'),
-                _buildMetricRow('Target Angle', '${target.toStringAsFixed(0)}°'),
-                _buildMetricRow('Deviation', '${deviation.toStringAsFixed(1)}°'),
-              ],
-              score: session.insertionScore,
-            ),
-          if (session.aspirationImageBase64 != null)
-            SnapshotCard(
-              key: const Key('snapshot_card_aspiration'),
-              title: 'Aspiration',
-              base64Image: session.aspirationImageBase64,
-              onTap: () {
-                final idx = galleryItems.indexWhere((i) => i.title == 'Aspiration');
-                if (idx != -1) {
-                  showImageGalleryDialog(context, items: galleryItems, initialIndex: idx);
-                }
-              },
-              metrics: [
-                _buildMetricRow(
-                  'Instructor blood check',
-                  outcome.label,
-                  valueColor: outcome == AspirationOutcome.noBleeding ? _green : null,
-                ),
-                _buildMetricRow('Aspiration time', '${session.aspirationDuration.toStringAsFixed(1)}s'),
-                _buildMetricRow('Needle stability', stabilityText),
-              ],
-              score: session.aspirationScore,
-            ),
-          if (session.withdrawalImageBase64 != null)
-            SnapshotCard(
-              key: const Key('snapshot_card_withdrawal'),
-              title: 'Withdrawal',
-              base64Image: session.withdrawalImageBase64,
-              onTap: () {
-                final idx = galleryItems.indexWhere((i) => i.title == 'Withdrawal');
-                if (idx != -1) {
-                  showImageGalleryDialog(context, items: galleryItems, initialIndex: idx);
-                }
-              },
-              metrics: [
-                _buildMetricRow('Withdrawal Angle', '${session.withdrawalAngle.toStringAsFixed(1)}°'),
-                _buildMetricRow('Angular Delta', '${session.angularDelta.toStringAsFixed(1)}°'),
-                _buildMetricRow(
-                  'Correspondence',
-                  session.correspondenceResult,
-                  valueColor: session.correspondenceResult == 'Matches' ? _green : null,
-                ),
-              ],
-              score: session.withdrawalScore,
-            ),
+          // ── 1. Insertion Card ──
+          SnapshotCard(
+            key: const Key('snapshot_card_insertion'),
+            title: 'Insertion',
+            base64Image: session.insertionImageBase64,
+            onTap: () {
+              final idx = galleryItems.indexWhere((i) => i.title == 'Insertion');
+              if (idx != -1) {
+                showImageGalleryDialog(context, items: galleryItems, initialIndex: idx);
+              }
+            },
+            metrics: [
+              _buildMetricRow('Measured Angle', '${session.insertionAngle.toStringAsFixed(1)}°'),
+              _buildMetricRow('Target Angle', '${target.toStringAsFixed(0)}°'),
+              _buildMetricRow('Deviation', '${deviation.toStringAsFixed(1)}°'),
+            ],
+            score: session.insertionScore,
+          ),
+
+          // ── 2. Aspiration Card ──
+          SnapshotCard(
+            key: const Key('snapshot_card_aspiration'),
+            title: 'Aspiration',
+            base64Image: session.aspirationImageBase64,
+            onTap: () {
+              final idx = galleryItems.indexWhere((i) => i.title == 'Aspiration');
+              if (idx != -1) {
+                showImageGalleryDialog(context, items: galleryItems, initialIndex: idx);
+              }
+            },
+            metrics: [
+              _buildMetricRow(
+                'Instructor blood check',
+                outcome.label,
+                valueColor: outcome == AspirationOutcome.noBleeding ? _green : null,
+              ),
+              _buildMetricRow('Aspiration time', '${session.aspirationDuration.toStringAsFixed(1)}s'),
+              _buildMetricRow('Needle stability', stabilityText),
+            ],
+            score: session.aspirationScore,
+          ),
+
+          // ── 3. Withdrawal Card ──
+          SnapshotCard(
+            key: const Key('snapshot_card_withdrawal'),
+            title: 'Withdrawal',
+            base64Image: session.withdrawalImageBase64,
+            onTap: () {
+              final idx = galleryItems.indexWhere((i) => i.title == 'Withdrawal');
+              if (idx != -1) {
+                showImageGalleryDialog(context, items: galleryItems, initialIndex: idx);
+              }
+            },
+            metrics: [
+              _buildMetricRow('Withdrawal Angle', '${session.withdrawalAngle.toStringAsFixed(1)}°'),
+              _buildMetricRow('Angular Delta', '${session.angularDelta.toStringAsFixed(1)}°'),
+              _buildMetricRow(
+                'Correspondence',
+                session.correspondenceResult,
+                valueColor: session.correspondenceResult == 'Matches' ? _green : null,
+              ),
+            ],
+            score: session.withdrawalScore,
+          ),
         ],
       ),
     );
@@ -159,6 +160,8 @@ class SnapshotCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final bool hasImage = base64Image != null && base64Image!.isNotEmpty;
+
     return Container(
       width: 220,
       margin: const EdgeInsets.only(right: 12),
@@ -178,7 +181,7 @@ class SnapshotCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (base64Image != null)
+          if (hasImage)
             GestureDetector(
               onTap: onTap,
               child: Stack(
@@ -191,7 +194,7 @@ class SnapshotCard extends StatelessWidget {
                         base64Decode(base64Image!),
                         fit: BoxFit.cover,
                         errorBuilder: (context, error, stackTrace) =>
-                            const Center(child: Icon(Icons.broken_image, color: _textLight)),
+                            _buildPlaceholder(),
                       ),
                     ),
                   ),
@@ -209,7 +212,9 @@ class SnapshotCard extends StatelessWidget {
                   ),
                 ],
               ),
-            ),
+            )
+          else
+            _buildPlaceholder(),
           Padding(
             padding: const EdgeInsets.all(12),
             child: Column(
@@ -235,6 +240,37 @@ class SnapshotCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  static Widget _buildPlaceholder() {
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(13)),
+      child: AspectRatio(
+        aspectRatio: 4 / 3,
+        child: Container(
+          color: _placeholderBg,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: const [
+              Icon(
+                Icons.no_photography_outlined,
+                color: _textLight,
+                size: 32,
+              ),
+              SizedBox(height: 6),
+              Text(
+                'Snapshot not captured',
+                style: TextStyle(
+                  color: _textMid,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

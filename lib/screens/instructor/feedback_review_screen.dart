@@ -151,11 +151,9 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
                     const SizedBox(height: 14),
 
                     // Snapshots
-                    if (s.insertionImageBase64 != null || s.aspirationImageBase64 != null || s.withdrawalImageBase64 != null) ...[
-                      _sectionHeader('Session Snapshots'),
-                      SnapshotEvidencePanel(session: s),
-                      const SizedBox(height: 14),
-                    ],
+                    _sectionHeader('Session Snapshots'),
+                    SnapshotEvidencePanel(session: s),
+                    const SizedBox(height: 14),
 
                     // Detection Results
                     _sectionHeader('Detection Results'),
