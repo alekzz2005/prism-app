@@ -35,7 +35,8 @@ class SessionModel {
   final int overallScore; // 1–5
 
   // Feedback
-  final String aiFeedbackText; // original Llama 3.3 output — never overwritten
+  final String aiFeedbackText; // feedback text shown to students (AI draft until instructor edits it)
+  final String aiFeedbackOriginal; // untouched AI draft, written once at generation, never changed
   final String feedbackStatus; // "Pending" | "Released" | "Feedback Generation Failed"
   final Timestamp? releaseTimestamp;
   final String instructorNote;
@@ -72,6 +73,7 @@ class SessionModel {
     required this.angularDelta,
     required this.overallScore,
     required this.aiFeedbackText,
+    this.aiFeedbackOriginal = '',
     required this.feedbackStatus,
     this.releaseTimestamp,
     required this.instructorNote,
@@ -118,6 +120,7 @@ class SessionModel {
       angularDelta: (data['angularDelta'] as num?)?.toDouble() ?? 0.0,
       overallScore: data['overallScore'] as int? ?? 1,
       aiFeedbackText: data['aiFeedbackText'] as String? ?? '',
+      aiFeedbackOriginal: data['aiFeedbackOriginal'] as String? ?? (data['aiFeedbackText'] as String? ?? ''),
       feedbackStatus: data['feedbackStatus'] as String? ?? 'Pending',
       releaseTimestamp: data['releaseTimestamp'] as Timestamp?,
       instructorNote: data['instructorNote'] as String? ?? '',
@@ -152,6 +155,7 @@ class SessionModel {
         'angularDelta': angularDelta,
         'overallScore': overallScore,
         'aiFeedbackText': aiFeedbackText,
+        'aiFeedbackOriginal': aiFeedbackOriginal.isNotEmpty ? aiFeedbackOriginal : aiFeedbackText,
         'feedbackStatus': feedbackStatus,
         if (releaseTimestamp != null) 'releaseTimestamp': releaseTimestamp,
         'instructorNote': instructorNote,
@@ -186,6 +190,7 @@ class SessionModel {
     double? angularDelta,
     int? overallScore,
     String? aiFeedbackText,
+    String? aiFeedbackOriginal,
     String? feedbackStatus,
     Timestamp? releaseTimestamp,
     String? instructorNote,
@@ -219,6 +224,7 @@ class SessionModel {
       angularDelta: angularDelta ?? this.angularDelta,
       overallScore: overallScore ?? this.overallScore,
       aiFeedbackText: aiFeedbackText ?? this.aiFeedbackText,
+      aiFeedbackOriginal: aiFeedbackOriginal ?? this.aiFeedbackOriginal,
       feedbackStatus: feedbackStatus ?? this.feedbackStatus,
       releaseTimestamp: releaseTimestamp ?? this.releaseTimestamp,
       instructorNote: instructorNote ?? this.instructorNote,

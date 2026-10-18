@@ -129,6 +129,9 @@ injectionType: String  // "IM"
 insertionAngle: double
 insertionScore: int  // 1–5
 aspirationResult: String  // "Correct" | "Incorrect" | "Not Detected"
+aspirationScore: int
+bleedingObserved: bool?
+aspirationAngleDrift: double?
 aspirationDuration: double  // seconds
 motionSmoothness: String  // "Good" | "Low"
 withdrawalAngle: double
@@ -136,11 +139,15 @@ withdrawalScore: int  // 1–5
 correspondenceResult: String  // "Matches" | "Deviates"
 angularDelta: double
 overallScore: int  // 1–5
-aiFeedbackText: String  // original Llama 3.3 output (never overwritten)
+aiFeedbackText: String  // feedback text shown to students: the AI draft, which the instructor may edit before release (practice sessions: AI guide, not editable)
+aiFeedbackOriginal: String  // untouched AI draft, written once at generation, never changed
 feedbackStatus: String  // "Pending" | "Released" | "Feedback Generation Failed"
 releaseTimestamp: Timestamp  // null until instructor releases
-instructorNote: String  // instructor edits; original aiFeedbackText preserved
+instructorNote: String  // PRIVATE instructor note about the student; never shown to students
 flagged: bool
+aiValidationStatus: String  // Passed | Auto-corrected | Template Fallback
+aiValidationNotes: List<String>
+isPractice: bool
 ```
 
 ---
@@ -151,6 +158,7 @@ flagged: bool
 - `overallScore` = average of the three component scores, rounded
 - Angle accuracy target: MAE ≤ 3° vs. expert annotation
 - If a component is undetectable → `flagged = true`, score defaults to 1
+- Aspiration score is decided only by the instructor's Stop/Continue: no blood = 5; blood or not recorded = 1 and flagged. Needle drift during aspiration is information only. Use `AspirationOutcome` in `lib/core/aspiration_outcome.dart`.
 
 ---
 
@@ -197,9 +205,9 @@ Body:
 
 ## Critical Implementation Notes for Agents
 
-2. **No video stored:** Only computed metrics go to Firestore. Never upload camera frames.
-3. **Firestore security rules:** Students read `sessions` only where `userId == request.auth.uid AND feedbackStatus == "Released"`. Instructors read all sessions.
-4. **aiFeedbackText is immutable:** Instructor edits write to `instructorNote` only.
+2. **No video or audio is stored.** Up to three key-phase still images per session are stored as Base64 fields and are hidden from students until release. Do not add video recording.
+3. **Firestore security rules:** Students read `sessions` only when `feedbackStatus == 'Released'` and the session is theirs; students may update only AI-feedback fields on their own practice sessions (`isPractice == true`); instructors read and update all sessions.
+4. **Feedback editing:** the instructor may edit `aiFeedbackText` before release; `aiFeedbackOriginal` keeps the untouched draft and is never changed after generation; `instructorNote` is private and must never be displayed to students; practice-mode feedback is an AI guide that students cannot edit.
 5. **One auto-retry on OpenRouter timeout.** On second failure, save session with `feedbackStatus = "Feedback Generation Failed"`.
 6. **State management:** All in-session data lives in `SessionStateProvider`. Clear it on session end before returning to injection type screen.
 7. **Roster Uniqueness:** When instructors add students to a section (manually or CSV), uniqueness is checked **strictly by email address**. Duplicate names are allowed.
@@ -229,7 +237,7 @@ Body:
 - Do not use `shared_preferences` for auth state — use Firebase Auth stream only
 - Do not hardcode API keys — use `--dart-define` or a `.env` approach
 - Do not store `InjectionConfig` in Firestore — it is in-memory only
-- Do not modify `aiFeedbackText` in Firestore — it is append-only
+- Feedback editing: the instructor may edit `aiFeedbackText` before release; `aiFeedbackOriginal` keeps the untouched draft and is never changed after generation; `instructorNote` is private and must never be displayed to students; practice-mode feedback is an AI guide that students cannot edit.
 
 ---
 

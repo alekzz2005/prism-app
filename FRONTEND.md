@@ -65,8 +65,10 @@ context.read<UserRoleProvider>().clear();
 .where('userId', isEqualTo: uid)
 .where('feedbackStatus', isEqualTo: 'Released')
 
-// Don't write to aiFeedbackText — it's immutable
-// Instructor edits write to instructorNote only
+// Feedback editing: the instructor may edit aiFeedbackText before release;
+// aiFeedbackOriginal keeps the untouched draft and is never changed after generation;
+// instructorNote is private and must never be displayed to students;
+// practice-mode feedback is an AI guide that students cannot edit.
 ```
 
 ### 4. Widget Keys — keep them for testing
@@ -140,8 +142,9 @@ session.withdrawalScore      // int 1-5
 session.correspondenceResult // String
 session.angularDelta         // double
 session.overallScore         // int 1-5
-session.aiFeedbackText       // String (READ ONLY — never edit)
-session.instructorNote       // String
+session.aiFeedbackText       // String (feedback shown to students; editable by instructor before release)
+session.aiFeedbackOriginal   // String (untouched AI draft; never change)
+session.instructorNote       // String (private note for instructor; never show to students)
 session.feedbackStatus       // "Pending" | "Released" | "Feedback Generation Failed"
 ```
 
@@ -241,13 +244,13 @@ Yes — run `flutter pub add package_name` and commit the updated `pubspec.yaml`
 
 | ❌ Don't | Why |
 |---|---|
-| Edit anything in `lib/services/` | Backend is done — don't touch |
+| Edit anything in `lib/services/` | Service/provider changes are allowed on their own branch per GIT_WORKFLOW.md and need a `CHANGE_LOG.md` entry. |
 | Edit anything in `lib/providers/` | State management is wired — don't touch |
 | Edit `lib/models/session_model.dart` | Mirrors Firestore schema exactly |
 | Edit `lib/core/injection_config.dart` | Config is in-memory, not in Firestore |
 | Edit `lib/widgets/auth_wrapper.dart` | Routing logic is done |
 | Edit `lib/main.dart` | App entry point is wired |
-| Write to `aiFeedbackText` | Immutable — instructor writes to `instructorNote` only |
+| Write to `aiFeedbackOriginal` or display `instructorNote` to students | Feedback editing: instructor may edit `aiFeedbackText` before release; never change `aiFeedbackOriginal`; never show `instructorNote` to students |
 | Add video recording/upload | Out of scope |
 | Store anything in `shared_preferences` | Use Firebase stream only |
 | Create new Firestore collections or fields | All fields are already in `session_model.dart` |

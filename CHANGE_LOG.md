@@ -64,6 +64,7 @@
   - Needle stability drift is null if syringe detection is lost for the entire aspiration phase.
 
 ## CR-2 — CR-2 AI feedback validation rules (SO 2.1)
+- Superseded by CR-2b for the instructor edit flow (aiFeedbackText is editable before release; aiFeedbackOriginal keeps the draft; instructorNote is private).
 - Validation finding / Specific Objective:
   - Validation finding: Instructors corrected technical details, timing information, and procedural explanations in generated AI feedback. Feedback made unsupported claims about unrecorded durations ("5-10s"), unmeasured physical traits (wrist steadiness, speed, smoothness), and camera-detected blood return.
   - Specific Objective: SO 2.1 — Validate AI clinical feedback against recorded telemetry, CIT-U rubrics, and instructor decisions to eliminate hallucinations and ensure factual clinical grounding.
@@ -225,5 +226,73 @@
   - Terminal output of `flutter test` showing all unit tests passing.
 - Known limitations:
   - Firestore security rules require manual publishing in Firebase Console or via Firebase CLI deploy.
+
+## CR-2b — CR-2b Instructor edits AI feedback, private note, AI-failure fallback
+- Validation finding / Specific Objective:
+  - Validation finding: CR-2 misread the intended design by treating `aiFeedbackText` as immutable, routing instructor edits into `instructorNote`, and displaying `instructorNote` to students on session detail screens. This broke the intended flow where instructors edit the AI feedback draft before release to students, leaked the instructor's private clinical note to students, and left feedback empty when AI generation failed completely.
+  - Specific Objective: Restore instructor editing of `aiFeedbackText` before release, preserve the untouched initial draft in `aiFeedbackOriginal`, ensure `instructorNote` remains strictly private to instructors, provide deterministic rule-based template fallback on complete AI generation failure, and prevent students from modifying `instructorNote` via Firestore rules.
+- Branch / PR:
+  - Branch: `fix/feedback/instructor_edit_and_private_note`
+  - PR: `fix(feedback): restore instructor editing, keep note private, add ai failure fallback`
+- Summary of change:
+  - Added `aiFeedbackOriginal` to `SessionModel` (`fromFirestore`, `toFirestore`, `copyWith`) to retain the untouched initial AI draft permanently.
+  - Updated `FeedbackService` to populate and save `aiFeedbackOriginal` alongside `aiFeedbackText` on both official and practice generation.
+  - Updated single release in `FeedbackReleaseService.releaseSession` to persist edited `aiFeedbackText` and `instructorNote` while never modifying `aiFeedbackOriginal`.
+  - Updated `FeedbackReviewScreen` to edit `aiFeedbackText` in the draft box and private notes in `instructorNote` (relabeled "Private instructor note (not shown to students)"); updated Revert button to restore `aiFeedbackOriginal`; enabled draft auto-saving of both fields via `InstructorSessionRepository.updateFeedbackDraft`.
+  - Removed all displays of `instructorNote` from student-facing screens; updated `SessionDetailScreen` to show only `aiFeedbackText` labeled "AI-assisted feedback, reviewed by your instructor" for official sessions and "AI guide for practice, not reviewed by an instructor" (or fallback notice) for practice sessions via `FeedbackLabels`.
+  - Hardened `firestore.rules` to disallow student writes to `instructorNote` on practice sessions, allowing only `['aiFeedbackText', 'aiFeedbackOriginal', 'aiValidationStatus', 'aiValidationNotes']`.
+  - Added deterministic fallback on AI generation failure (timeout, network, API error, empty reply) in `FeedbackService`: populates `DeterministicFeedbackBuilder` output into `aiFeedbackText` and `aiFeedbackOriginal` with `aiValidationStatus = 'Template Fallback'` and `aiValidationNotes = ['ai_unavailable']`; official sessions retain `feedbackStatus = 'Feedback Generation Failed'` for instructor review and editing while practice sessions remain `Released`.
+  - Added amber banner on `FeedbackReviewScreen` informing the instructor when AI generation failed and a template summary is shown.
+  - Surgically updated `AGENTS.md` and `FRONTEND.md` to eliminate outdated immutability guidance and document accurate feedback editing semantics.
+  - Added unit test suite in `test/feedback_service_test.dart` verifying fallback behavior and label generation across official and practice sessions.
+- SRS impact (UC ids + new/changed requirement wording):
+  - UC-4.2 step 4: The instructor may review and edit the AI-generated feedback draft before releasing it to the student. The edited text is persisted in `aiFeedbackText` and delivered to the student upon release. The original AI-generated draft is retained immutably in `aiFeedbackOriginal` for audit and quality tracking. The instructor note (`instructorNote`) is strictly private to the instructor and is never released or displayed to students.
+- SDD impact (components added/changed, data design fields):
+  - Updated `SessionModel`: added `aiFeedbackOriginal: String` (with safe fallback to `aiFeedbackText`).
+  - Updated `FeedbackService`: accepts optional injected `OpenRouterApiClient`, populates `aiFeedbackOriginal`, implements fallback on failure, and exposes `FeedbackLabels.studentFeedbackLabel`.
+  - Updated `FeedbackReleaseService`: writes `aiFeedbackText` and `instructorNote` upon release; does not touch `aiFeedbackOriginal`.
+  - Updated `InstructorSessionRepository`: `updateFeedbackDraft` supports updating `instructorNote` and `aiFeedbackText`.
+  - Updated `FeedbackReviewScreen`: draft edits `aiFeedbackText`, note edits `instructorNote`, Revert restores `aiFeedbackOriginal`, amber banner shown on fallback.
+  - Updated `SessionDetailScreen`: displays `aiFeedbackText` with role-specific labels; never shows `instructorNote`.
+  - Updated `firestore.rules`: student practice update field whitelist changed to `['aiFeedbackText', 'aiFeedbackOriginal', 'aiValidationStatus', 'aiValidationNotes']`.
+- Files changed:
+  - `lib/models/session_model.dart`
+  - `lib/services/feedback_service.dart`
+  - `lib/services/feedback_release_service.dart`
+  - `lib/services/instructor_session_repository.dart`
+  - `lib/screens/instructor/feedback_review_screen.dart`
+  - `lib/screens/student/session_detail_screen.dart`
+  - `lib/screens/student/practice_mode_screen.dart`
+  - `firestore.rules`
+  - `AGENTS.md`
+  - `FRONTEND.md`
+  - `test/feedback_service_test.dart`
+  - `CHANGE_LOG.md`
+- New/changed Firestore fields:
+  - `sessions/{sessionId}.aiFeedbackText`: `String` (feedback text shown to students; editable by instructor before release)
+  - `sessions/{sessionId}.aiFeedbackOriginal`: `String` (untouched initial AI draft, written once at generation, never changed)
+  - `sessions/{sessionId}.instructorNote`: `String` (private instructor note about the student; never displayed to students)
+- Widget Keys added:
+  - None (preserved all existing keys: `ai_feedback_field`, `instructor_note_field`, `release_button`, `ai_validation_badge`).
+- Acceptance criteria (testable, pass/fail):
+  - Instructor edits the AI text, releases, and the student sees the edited text; `aiFeedbackOriginal` still holds the original draft.
+  - The private instructor note appears in no student screen.
+  - If AI generation fails completely, a rule-based summary from the recorded metrics is stored and shown (instructor sees a banner; practice student sees an "Automatic summary" label); feedback is never empty.
+  - `AGENTS.md` and `FRONTEND.md` no longer say `aiFeedbackText` is immutable.
+  - Practice feedback is shown as an AI guide and cannot be edited by the student; a student cannot write `instructorNote` (rules).
+  - SRS impact: UC-4.2 step 4: the instructor may edit the AI-generated feedback draft; the original draft is retained; the instructor note is private and not released. SDD: fields `aiFeedbackText`, `aiFeedbackOriginal`, `instructorNote`.
+- Suggested test cases (for STD / RTM):
+  - TC-CR2B-01: Instructor edits AI draft on `FeedbackReviewScreen` and releases session -> `sessions/{id}.aiFeedbackText` contains edited text, `sessions/{id}.aiFeedbackOriginal` retains original draft, student sees edited text labeled "AI-assisted feedback, reviewed by your instructor".
+  - TC-CR2B-02: Instructor adds text to "Private instructor note" and releases -> `sessions/{id}.instructorNote` holds private note, student session detail screen does not display note anywhere.
+  - TC-CR2B-03: Instructor edits draft and clicks "Revert" -> `_aiFeedbackController` restores `aiFeedbackOriginal`.
+  - TC-CR2B-04: AI generation times out or returns API error -> session stores deterministic template summary in `aiFeedbackText` and `aiFeedbackOriginal` with `aiValidationStatus = 'Template Fallback'`, `aiValidationNotes = ['ai_unavailable']`; instructor sees amber banner on review screen; practice student sees "Automatic summary from your recorded metrics (AI unavailable). Not reviewed by an instructor."
+  - TC-CR2B-05: Authenticated student attempts to update `instructorNote` on their own practice session -> Firestore rules reject update.
+- Evidence to capture (screenshots/logs):
+  - `FeedbackReviewScreen` showing edited draft and separate "Private instructor note (not shown to students)" field.
+  - `SessionDetailScreen` showing edited feedback with "AI-assisted feedback, reviewed by your instructor" banner and no private note.
+  - `FeedbackReviewScreen` showing amber fallback banner for session where AI was unavailable.
+  - Terminal test runner output showing 30 passing tests including `test/feedback_service_test.dart`.
+- Known limitations:
+  - The private note is hidden in the app UI but, being in the session document, is readable by a student who queries Firestore directly. A separate instructor-only collection would remove that.
 
 

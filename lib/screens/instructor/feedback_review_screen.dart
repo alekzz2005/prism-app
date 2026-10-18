@@ -75,25 +75,13 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
     });
   }
 
-  String _effectiveInstructorNote() {
-    final note = _noteController.text.trim();
-    final editedAi = _aiFeedbackController.text.trim();
-    final originalAi = widget.session.aiFeedbackText.trim();
-    if (editedAi.isNotEmpty && editedAi != originalAi) {
-      if (note.isNotEmpty) {
-        return '$editedAi\n\nInstructor Note:\n$note';
-      }
-      return editedAi;
-    }
-    return note;
-  }
-
   Future<void> _saveDraftQuietly() async {
     if (!mounted || widget.session.feedbackStatus == 'Released') return;
     try {
       await InstructorSessionRepository().updateFeedbackDraft(
         widget.session.sessionId,
-        _effectiveInstructorNote(),
+        _noteController.text.trim(),
+        aiFeedbackText: _aiFeedbackController.text.trim(),
       );
     } catch (_) {
       // Silently fail for background draft saving
@@ -115,7 +103,7 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
     try {
       await _releaseService.releaseSession(
         widget.session.sessionId,
-        _effectiveInstructorNote(),
+        _noteController.text.trim(),
         _aiFeedbackController.text.trim(),
       );
       if (!mounted) return;
@@ -231,14 +219,22 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
                       stream: FirebaseFirestore.instance.collection('sessions').doc(widget.session.sessionId).snapshots(),
                       builder: (context, snapshot) {
                         String streamAiText = widget.session.aiFeedbackText;
+                        String streamOriginalAi = widget.session.aiFeedbackOriginal.isNotEmpty
+                            ? widget.session.aiFeedbackOriginal
+                            : widget.session.aiFeedbackText;
                         String streamStatus = widget.session.feedbackStatus;
                         String? streamValidationStatus = widget.session.aiValidationStatus;
+                        List<String>? streamValidationNotes = widget.session.aiValidationNotes;
 
                         if (snapshot.hasData && snapshot.data!.exists) {
                           final data = snapshot.data!.data() as Map<String, dynamic>;
                           streamAiText = data['aiFeedbackText'] as String? ?? '';
+                          streamOriginalAi = data['aiFeedbackOriginal'] as String? ?? (data['aiFeedbackText'] as String? ?? streamOriginalAi);
                           streamStatus = data['feedbackStatus'] as String? ?? 'Pending';
                           streamValidationStatus = data['aiValidationStatus'] as String? ?? streamValidationStatus;
+                          streamValidationNotes = (data['aiValidationNotes'] as List<dynamic>?)
+                              ?.map((e) => e.toString())
+                              .toList() ?? streamValidationNotes;
 
                           if (_aiFeedbackController.text.isEmpty && streamAiText.isNotEmpty) {
                             WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -248,6 +244,9 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
                             });
                           }
                         }
+
+                        final bool isUnavailableFallback = streamStatus == 'Feedback Generation Failed' ||
+                            (streamValidationNotes?.contains('ai_unavailable') ?? false);
 
                         return Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -291,7 +290,7 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
                                       const SizedBox(width: 8),
                                       TextButton.icon(
                                         onPressed: () {
-                                          _aiFeedbackController.text = streamAiText;
+                                          _aiFeedbackController.text = streamOriginalAi;
                                         },
                                         icon: const Icon(Icons.restore, size: 16, color: _textMid),
                                         label: const Text('Revert', style: TextStyle(color: _textMid, fontSize: 12)),
@@ -306,6 +305,30 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
                               ],
                             ),
                             const SizedBox(height: 8),
+                            if (isUnavailableFallback)
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                margin: const EdgeInsets.only(bottom: 8),
+                                decoration: BoxDecoration(
+                                  color: _amberBg,
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(color: _amberBorder),
+                                ),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: const [
+                                    Icon(Icons.warning_amber_rounded, color: _amber, size: 18),
+                                    SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        'AI feedback was unavailable. A summary built from the recorded metrics is shown. Review and edit before releasing.',
+                                        style: TextStyle(color: _amber, fontSize: 12, fontWeight: FontWeight.w600, height: 1.4),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             if (streamAiText.isEmpty && streamStatus == 'Pending')
                               Container(
                                 padding: const EdgeInsets.all(20),
@@ -382,7 +405,7 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        _sectionHeader('Instructor Note (optional)'),
+                        _sectionHeader('Private instructor note (not shown to students)'),
                         if (!isReleased)
                           ValueListenableBuilder<UndoHistoryValue>(
                             valueListenable: _noteUndoController,

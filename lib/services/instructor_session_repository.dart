@@ -42,9 +42,17 @@ class InstructorSessionRepository {
   }
 
   /// Updates a draft session with the edited feedback.
-  Future<void> updateFeedbackDraft(String sessionId, String noteText) async {
-    await _db.collection('sessions').doc(sessionId).update({
+  Future<void> updateFeedbackDraft(
+    String sessionId,
+    String noteText, {
+    String? aiFeedbackText,
+  }) async {
+    final data = <String, dynamic>{
       'instructorNote': noteText,
-    });
+    };
+    if (aiFeedbackText != null) {
+      data['aiFeedbackText'] = aiFeedbackText;
+    }
+    await _db.collection('sessions').doc(sessionId).update(data);
   }
 }

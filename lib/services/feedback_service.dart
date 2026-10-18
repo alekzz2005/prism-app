@@ -55,16 +55,35 @@ class PayloadBuilder {
   }
 }
 
+/// Helpers for user-facing feedback labels across roles and statuses.
+class FeedbackLabels {
+  static String studentFeedbackLabel({
+    required bool isPractice,
+    bool isTemplateFallback = false,
+  }) {
+    if (isPractice) {
+      if (isTemplateFallback) {
+        return 'Automatic summary from your recorded metrics (AI unavailable). Not reviewed by an instructor.';
+      }
+      return 'AI guide for practice, not reviewed by an instructor';
+    }
+    return 'AI-assisted feedback, reviewed by your instructor';
+  }
+}
+
 /// Orchestrates AI feedback generation and Firestore session persistence.
 class FeedbackService {
-  final _client = OpenRouterApiClient();
+  final OpenRouterApiClient _client;
+
+  FeedbackService({OpenRouterApiClient? client})
+      : _client = client ?? OpenRouterApiClient();
 
   /// Builds prompt, calls OpenRouter, and returns a new SessionModel with the AI feedback populated.
   Future<SessionModel> generateFeedbackForSession(SessionModel session) async {
     final evidence = FeedbackEvidence.fromSession(session);
     final prompt = PayloadBuilder.buildPromptFromEvidence(evidence);
     String feedbackText = '';
-    final isPractice = session.sectionName == 'Practice' || session.partnerName == 'Self-Practice';
+    final isPractice = session.isPractice || session.sectionName == 'Practice' || session.partnerName == 'Self-Practice';
     String feedbackStatus = (session.feedbackStatus == 'Released' || isPractice) ? 'Released' : 'Pending';
 
     String instructorNote = session.instructorNote;
@@ -73,6 +92,9 @@ class FeedbackService {
 
     try {
       feedbackText = await _client.generateFeedback(prompt, evidence: evidence);
+      if (feedbackText.trim().isEmpty) {
+        throw const FeedbackApiException(500, 'Empty response from AI');
+      }
       final firstViolations = FeedbackValidator.validate(feedbackText, evidence);
 
       if (firstViolations.isNotEmpty) {
@@ -84,6 +106,9 @@ class FeedbackService {
             'Rewrite the 4 paragraphs strictly adhering to all rules, citing ONLY numbers in the payload and eliminating unsupported claims.';
 
         final regeneratedText = await _client.generateFeedback(correctionPrompt, evidence: evidence);
+        if (regeneratedText.trim().isEmpty) {
+          throw const FeedbackApiException(500, 'Empty response on retry');
+        }
         final secondViolations = FeedbackValidator.validate(regeneratedText, evidence);
 
         if (secondViolations.isEmpty) {
@@ -97,21 +122,28 @@ class FeedbackService {
         validationStatus = 'Passed';
       }
     } on FeedbackTimeoutException catch (e) {
-      feedbackText = '';
-      feedbackStatus = 'Feedback Generation Failed';
+      feedbackText = DeterministicFeedbackBuilder.build(evidence);
+      validationStatus = 'Template Fallback';
+      validationNotes = ['ai_unavailable'];
+      if (!isPractice) feedbackStatus = 'Feedback Generation Failed';
       debugPrint('AI Timeout Error: $e');
     } on FeedbackApiException catch (e) {
-      feedbackText = '';
-      feedbackStatus = 'Feedback Generation Failed';
+      feedbackText = DeterministicFeedbackBuilder.build(evidence);
+      validationStatus = 'Template Fallback';
+      validationNotes = ['ai_unavailable'];
+      if (!isPractice) feedbackStatus = 'Feedback Generation Failed';
       debugPrint('AI API Error (Code ${e.statusCode}): ${e.body}');
     } catch (e) {
-      feedbackText = '';
-      feedbackStatus = 'Feedback Generation Failed';
+      feedbackText = DeterministicFeedbackBuilder.build(evidence);
+      validationStatus = 'Template Fallback';
+      validationNotes = ['ai_unavailable'];
+      if (!isPractice) feedbackStatus = 'Feedback Generation Failed';
       debugPrint('AI Unknown Error: $e');
     }
 
     return session.copyWith(
       aiFeedbackText: feedbackText,
+      aiFeedbackOriginal: feedbackText,
       feedbackStatus: feedbackStatus,
       instructorNote: instructorNote,
       aiValidationStatus: validationStatus,
@@ -123,19 +155,31 @@ class FeedbackService {
   Future<void> generateAndSaveFeedbackInBackground(SessionModel session) async {
     try {
       final updatedSession = await generateFeedbackForSession(session);
-      await FirebaseFirestore.instance.collection('sessions').doc(session.sessionId).update({
+      final updateData = <String, dynamic>{
         'aiFeedbackText': updatedSession.aiFeedbackText,
-        'feedbackStatus': updatedSession.feedbackStatus,
-        'instructorNote': updatedSession.instructorNote,
+        'aiFeedbackOriginal': updatedSession.aiFeedbackOriginal,
         if (updatedSession.aiValidationStatus != null)
           'aiValidationStatus': updatedSession.aiValidationStatus,
         if (updatedSession.aiValidationNotes != null)
           'aiValidationNotes': updatedSession.aiValidationNotes,
-      });
+      };
+      if (!session.isPractice) {
+        updateData['feedbackStatus'] = updatedSession.feedbackStatus;
+      }
+      await FirebaseFirestore.instance.collection('sessions').doc(session.sessionId).update(updateData);
     } catch (e) {
-      await FirebaseFirestore.instance.collection('sessions').doc(session.sessionId).update({
-        'feedbackStatus': 'Feedback Generation Failed',
-      });
+      final evidence = FeedbackEvidence.fromSession(session);
+      final fallbackText = DeterministicFeedbackBuilder.build(evidence);
+      final updateData = <String, dynamic>{
+        'aiFeedbackText': fallbackText,
+        'aiFeedbackOriginal': fallbackText,
+        'aiValidationStatus': 'Template Fallback',
+        'aiValidationNotes': ['ai_unavailable'],
+      };
+      if (!session.isPractice) {
+        updateData['feedbackStatus'] = 'Feedback Generation Failed';
+      }
+      await FirebaseFirestore.instance.collection('sessions').doc(session.sessionId).update(updateData);
     }
   }
 }

@@ -64,7 +64,7 @@ service cloud.firestore {
         resource.data.feedbackStatus == 'Released' &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'aiFeedbackText',
-          'instructorNote',
+          'aiFeedbackOriginal',
           'aiValidationStatus',
           'aiValidationNotes'
         ])

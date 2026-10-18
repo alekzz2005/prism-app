@@ -256,8 +256,9 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
                           return _buildFeedbackSection(
                             isPractice: isPractice,
                             aiText: session.aiFeedbackText,
-                            instructorNote: session.instructorNote,
                             status: session.feedbackStatus,
+                            validationStatus: session.aiValidationStatus,
+                            validationNotes: session.aiValidationNotes,
                           );
                         }
 
@@ -266,22 +267,27 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
                           builder: (context, snap) {
                             String streamAiText = session.aiFeedbackText;
                             String streamStatus = session.feedbackStatus;
-                            String streamInstructorNote = session.instructorNote;
+                            String? streamValidationStatus = session.aiValidationStatus;
+                            List<String>? streamValidationNotes = session.aiValidationNotes;
 
                             if (snap.hasData && snap.data!.exists) {
                               final data = snap.data!.data() as Map<String, dynamic>?;
                               if (data != null) {
                                 streamAiText = data['aiFeedbackText'] as String? ?? streamAiText;
                                 streamStatus = data['feedbackStatus'] as String? ?? streamStatus;
-                                streamInstructorNote = data['instructorNote'] as String? ?? streamInstructorNote;
+                                streamValidationStatus = data['aiValidationStatus'] as String? ?? streamValidationStatus;
+                                streamValidationNotes = (data['aiValidationNotes'] as List<dynamic>?)
+                                    ?.map((e) => e.toString())
+                                    .toList() ?? streamValidationNotes;
                               }
                             }
 
                             return _buildFeedbackSection(
                               isPractice: isPractice,
                               aiText: streamAiText,
-                              instructorNote: streamInstructorNote,
                               status: streamStatus,
+                              validationStatus: streamValidationStatus,
+                              validationNotes: streamValidationNotes,
                             );
                           },
                         );
@@ -301,45 +307,47 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
   Widget _buildFeedbackSection({
     required bool isPractice,
     required String aiText,
-    required String instructorNote,
     required String status,
+    String? validationStatus,
+    List<String>? validationNotes,
   }) {
-    final isFailed = status == 'Feedback Generation Failed';
-    final displayText = instructorNote.trim().isNotEmpty
-        ? instructorNote.trim()
-        : aiText.trim();
+    final isFailed = status == 'Feedback Generation Failed' && aiText.trim().isEmpty;
+    final displayText = aiText.trim();
     final isLoading = displayText.isEmpty && !isFailed;
+    final isTemplateFallback = validationStatus == 'Template Fallback' || (validationNotes?.contains('ai_unavailable') ?? false);
 
     return _SectionCard(
       themeColor: _accent,
       titleColor: const Color(0xFF3A7CA5),
-      title: isPractice ? 'Section 4 — AI Feedback' : 'Section 4 — Instructor & AI Feedback',
+      title: isPractice ? 'Section 4 — AI Feedback' : 'Section 4 — Clinical Feedback',
       padding: const EdgeInsets.only(top: 14),
       children: [
-        if (!isPractice)
-          Container(
-            margin: const EdgeInsets.fromLTRB(16, 0, 16, 0),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: _surface,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: _border),
-            ),
-            child: Row(
-              children: [
-                SvgPicture.string(
-                  '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" stroke="#8A9BB0" stroke-width="1.2"/><path d="M7 6v4M7 4.5v.5" stroke="#8A9BB0" stroke-width="1.3" stroke-linecap="round"/></svg>',
-                ),
-                const SizedBox(width: 8),
-                const Expanded(
-                  child: Text(
-                    'AI-Assisted and reviewed by your clinical instructor.',
-                    style: TextStyle(color: _textLight, fontSize: 13),
-                  ),
-                ),
-              ],
-            ),
+        Container(
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: _surface,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: _border),
           ),
+          child: Row(
+            children: [
+              SvgPicture.string(
+                '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" stroke="#8A9BB0" stroke-width="1.2"/><path d="M7 6v4M7 4.5v.5" stroke="#8A9BB0" stroke-width="1.3" stroke-linecap="round"/></svg>',
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  FeedbackLabels.studentFeedbackLabel(
+                    isPractice: isPractice,
+                    isTemplateFallback: isTemplateFallback,
+                  ),
+                  style: const TextStyle(color: _textLight, fontSize: 13),
+                ),
+              ),
+            ],
+          ),
+        ),
 
         if (isLoading)
           Container(
