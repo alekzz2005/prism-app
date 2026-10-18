@@ -138,6 +138,8 @@ class RoboflowDetectionService {
 
   /// Convert frame data to a HIGH-QUALITY 720p base64 JPEG for feedback-module snapshots.
   /// Called once per phase transition — high resolution for pinch-to-zoom in feedback review.
+  /// Includes a size guard to re-encode at lower quality (70) if the Base64 payload exceeds
+  /// ~250,000 characters, ensuring three snapshots stay well within Firestore's 1 MB document limit.
   static Future<String?> getSnapshotBase64(RawFrameData frameData) async {
     final snapFrame = RawFrameData(
       width: frameData.width,
@@ -156,7 +158,30 @@ class RoboflowDetectionService {
 
     final jpegBytes = await compute(_convertFrameDataToJpeg, snapFrame);
     if (jpegBytes == null || jpegBytes.isEmpty) return null;
-    return base64Encode(jpegBytes);
+    final encoded = base64Encode(jpegBytes);
+
+    if (encoded.length > 250000) {
+      final fallbackFrame = RawFrameData(
+        width: frameData.width,
+        height: frameData.height,
+        yBytes: frameData.yBytes,
+        uBytes: frameData.uBytes,
+        vBytes: frameData.vBytes,
+        yRowStride: frameData.yRowStride,
+        uRowStride: frameData.uRowStride,
+        uvPixelStride: frameData.uvPixelStride,
+        sensorOrientation: frameData.sensorOrientation,
+        isIOS: frameData.isIOS,
+        targetWidth: 720,
+        targetQuality: 70, // Re-encode at lower quality to stay under 1 MB document limit
+      );
+      final fallbackBytes = await compute(_convertFrameDataToJpeg, fallbackFrame);
+      if (fallbackBytes != null && fallbackBytes.isNotEmpty) {
+        return base64Encode(fallbackBytes);
+      }
+    }
+
+    return encoded;
   }
 
   /// Converts a [CameraImage] (YUV420) to JPEG, sends it to Roboflow,

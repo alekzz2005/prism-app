@@ -359,3 +359,63 @@
   - Keys injected via `--dart-define` are embedded in the compiled Android binary and extractable with reverse-engineering tools; mitigated by using dedicated spend-capped and revocable keys for evaluation builds.
   - Default APK uses Android debug signing key to retain compatibility with existing Firebase Google Sign-In SHA-1 certificates; production store deployment requires custom keystore configuration.
 
+## CR-3 — CR-3 Snapshot visual evidence beside measurements (SO 4.1)
+- Validation finding / Specific Objective:
+  - Validation finding: Instructors requested captured image snapshots displayed directly beside recorded numerical angle and technique measurements, enabling visual verification of technique before releasing feedback. Captured snapshots were previously presented in an isolated card above detection results, omitted missing phases, and lacked explicit Firestore size protection.
+  - Specific Objective: SO 4.1 — Present key-phase image snapshots alongside their corresponding clinical return-demonstration measurements on unified phase cards, show neutral placeholder states when snapshots are missed, enforce Base64 size limits to stay within Firestore document limits, and reuse the unified evidence component in student released views.
+- Branch / PR:
+  - Branch: `tech/feedback_review/snapshot_evidence_panel`
+  - PR: `tech(feedback_review): show snapshot evidence beside recorded measurements`
+- Summary of change:
+  - Extracted snapshot UI from `FeedbackReviewScreen` into dedicated reusable widget `SnapshotEvidencePanel` (`lib/widgets/snapshot_evidence_panel.dart`) featuring `SnapshotCard` components.
+  - Placed measurements directly underneath each phase snapshot card using `BRANDING.md` design system tokens:
+    - Insertion: measured angle, target angle, angular deviation, rubric score.
+    - Aspiration: instructor blood check outcome, elapsed aspiration time, needle stability drift, rubric score.
+    - Withdrawal: withdrawal angle, angular delta, correspondence result, rubric score.
+  - Added testable widget keys: `Key('snapshot_card_insertion')`, `Key('snapshot_card_aspiration')`, and `Key('snapshot_card_withdrawal')`.
+  - Added a neutral "Snapshot not captured" placeholder state for missing phase images instead of omitting cards.
+  - Added size guard in `RoboflowDetectionService.getSnapshotBase64`: re-encodes frame at quality 70 if encoded Base64 exceeds 250,000 characters, guaranteeing three snapshots remain safely within Firestore's 1 MB document limit.
+  - Updated `SessionDetailScreen` to reuse `SnapshotEvidencePanel` for released sessions, replacing duplicate code and enforcing privacy rules that hide unreleased session snapshots.
+- SRS impact (UC ids + new/changed requirement wording):
+  - UC-4.2: The instructor review screen shall display captured key-phase still image snapshots directly alongside their recorded measurements on phase-specific cards before release. Only key-phase still images (at most three per session: insertion, aspiration, withdrawal) are stored, with no video or audio recorded. Snapshots remain private and hidden from students until the instructor releases the return-demonstration session.
+- SDD impact (components added/changed, data design fields):
+  - Added `lib/widgets/snapshot_evidence_panel.dart` (`SnapshotEvidencePanel`, `SnapshotCard`).
+  - Updated `FeedbackReviewScreen`: replaced custom snapshot rows and cards with `SnapshotEvidencePanel`.
+  - Updated `SessionDetailScreen`: replaced duplicated snapshot builder with `SnapshotEvidencePanel` rendered conditionally for released sessions.
+  - Updated `RoboflowDetectionService.getSnapshotBase64`: implemented 250 KB Base64 size check and quality-70 fallback re-encoding.
+- Files changed:
+  - `lib/widgets/snapshot_evidence_panel.dart`
+  - `lib/screens/instructor/feedback_review_screen.dart`
+  - `lib/screens/student/session_detail_screen.dart`
+  - `lib/services/roboflow_service.dart`
+  - `CHANGE_LOG.md`
+- New/changed Firestore fields:
+  - None (utilizes existing `insertionImageBase64`, `aspirationImageBase64`, `withdrawalImageBase64` fields in `sessions/{id}`).
+- Widget Keys added:
+  - `Key('snapshot_card_insertion')`: Needle insertion phase evidence card.
+  - `Key('snapshot_card_aspiration')`: Needle aspiration phase evidence card.
+  - `Key('snapshot_card_withdrawal')`: Needle withdrawal phase evidence card.
+- Acceptance criteria (testable, pass/fail):
+  - The instructor sees each snapshot with its recorded measurement on the same card before releasing.
+  - A missing snapshot shows a placeholder ("Snapshot not captured").
+  - The student sees the same panel only for released sessions.
+  - SRS impact (UC-4.2): the review screen shows captured key-phase images alongside the recorded measurements. Privacy statement: only key-phase still images (at most three per session) are stored, no video or audio, hidden from students until release.
+  - Known limitations: no needle vector drawn on the image; images are stored as Base64 inside the session document (size-capped); capture time is not recorded.
+  - `flutter test` passes with zero failures.
+- Suggested test cases (for STD / RTM):
+  - TC-CR3-01: Session with all 3 snapshots present -> instructor review displays 3 cards with image previews, zoom icons, and measurements directly below each image.
+  - TC-CR3-02: Session missing aspiration snapshot -> aspiration card shows neutral "Snapshot not captured" placeholder while still displaying aspiration measurements and score.
+  - TC-CR3-03: Student opens unreleased session -> snapshot evidence panel is hidden until instructor releases session.
+  - TC-CR3-04: Student opens released session -> snapshot evidence panel renders with identical visual metrics.
+  - TC-CR3-05: Tap snapshot image on any card -> opens full-screen pinch-to-zoom image gallery dialog.
+  - TC-CR3-06: Snapshot capture produces Base64 > 250,000 chars -> `getSnapshotBase64` re-encodes at quality 70 and stays under size limit.
+- Evidence to capture (screenshots/logs):
+  - Instructor feedback review screen showing snapshots alongside measurements.
+  - Snapshot card displaying "Snapshot not captured" placeholder.
+  - Student session detail screen displaying snapshot panel for released session.
+  - Full-screen zoom gallery modal opened from snapshot card.
+  - Terminal output of `flutter test` showing all passing tests.
+- Known limitations:
+  - No needle vector overlay drawn directly onto the stored image bitmap.
+  - Images are stored as Base64 strings inside the Firestore session document (capped to stay under 1 MB document limit).
+  - Exact frame capture timestamp is not recorded separately from session timestamp.
