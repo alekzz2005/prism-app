@@ -295,4 +295,67 @@
 - Known limitations:
   - The private note is hidden in the app UI but, being in the session document, is readable by a student who queries Firestore directly. A separate instructor-only collection would remove that.
 
+## CR-5 — CR-5 Reproducible release build and deployment guide
+- Validation finding / Specific Objective:
+  - Validation finding: Release builds relied on bundled `.env` assets packaged inside the APK, lacked reproducible build automation, had no documented deployment procedure, and did not support optional release signing.
+  - Specific Objective: Establish a reproducible release build process for Android, inject API keys at build time via `--dart-define` / `--dart-define-from-file`, automate APK compilation and checksum generation via platform build scripts, document end-to-end deployment in `DEPLOYMENT.md`, and bump application version to `3.0.0+3` for midterm evaluation.
+- Branch / PR:
+  - Branch: `setup/deployment/release_apk_build`
+  - PR: `setup(deployment): add reproducible release build and deployment guide`
+- Summary of change:
+  - Created `lib/core/app_env.dart` to expose API keys (`openRouterApiKey`, `roboflowApiKey`, `roboflowWorkflowUrl`, `useMockFeedback`) via `String.fromEnvironment` and `bool.fromEnvironment` with validation logging, eliminating `flutter_dotenv` dependency and asset bundling.
+  - Replaced all `dotenv` usages across `lib/main.dart`, `lib/services/openrouter_api_client.dart`, and `lib/services/roboflow_service.dart`.
+  - Removed `flutter_dotenv` dependency and `.env` asset entry from `pubspec.yaml` (retaining `assets/`).
+  - Removed dummy `.env` step in `.github/workflows/ios_unsigned_build.yml`.
+  - Added `.env.json.example` template with variable placeholders.
+  - Configured optional release signing in `android/app/build.gradle.kts` loading credentials from `android/key.properties` when present, while safely defaulting to debug signing for Google Sign-In and development compatibility.
+  - Created reproducible release build scripts `scripts/build_release.ps1` (PowerShell) and `scripts/build_release.sh` (Bash) that check `.env.json`, run `flutter build apk --release --dart-define-from-file=.env.json`, stage the binary to `dist/prism-v3.0.0-midterm.apk`, and compute its SHA-256 hash.
+  - Bumped version in `pubspec.yaml` to `3.0.0+3`.
+  - Authored comprehensive `DEPLOYMENT.md` covering prerequisites, setup, development/mock runs, reproducible builds, checksum verification, GitHub Releases distribution, evaluator installation, demo account handling, Firestore rules publishing, security notes, and troubleshooting.
+- SRS impact (UC ids + new/changed requirement wording):
+  - Non-functional requirement / Deployment: The application shall support reproducible release packaging via build-time environment injection without bundling secrets in static assets. Build scripts shall produce signed APK artifacts staged in `dist/` with cryptographic SHA-256 integrity verification.
+- SDD impact (components added/changed, data design fields):
+  - Added `lib/core/app_env.dart` (`AppEnv` static class providing compile-time environment configuration).
+  - Updated `OpenRouterApiClient` and `RoboflowService` to read credentials from `AppEnv`.
+  - Updated `android/app/build.gradle.kts` with conditional `signingConfigs.create("release")` reading `android/key.properties`.
+  - Added `scripts/build_release.ps1` and `scripts/build_release.sh`.
+  - Added `.env.json.example` and `DEPLOYMENT.md`.
+- Files changed:
+  - `lib/core/app_env.dart`
+  - `lib/main.dart`
+  - `lib/services/openrouter_api_client.dart`
+  - `lib/services/roboflow_service.dart`
+  - `pubspec.yaml`
+  - `.github/workflows/ios_unsigned_build.yml`
+  - `.env.json.example`
+  - `android/app/build.gradle.kts`
+  - `scripts/build_release.ps1`
+  - `scripts/build_release.sh`
+  - `DEPLOYMENT.md`
+  - `CHANGE_LOG.md`
+- New/changed Firestore fields:
+  - None.
+- Widget Keys added:
+  - None.
+- Acceptance criteria (testable, pass/fail):
+  - `git grep -nE "dotenv|flutter_dotenv"` finds nothing in `lib/` and `pubspec.yaml`; no `.env` asset remains.
+  - `git grep -nE "sk-or|Bearer [A-Za-z0-9]"` finds nothing.
+  - Following `DEPLOYMENT.md` from a clean clone produces the APK with `scripts/build_release.ps1`.
+  - Known limitation: keys are still extractable from the installed APK (mitigated by capped, revocable demo keys); the demo APK is signed with the development key.
+  - `flutter test` passes with zero failures.
+- Suggested test cases (for STD / RTM):
+  - TC-CR5-01: Run `flutter test` -> all 30 tests pass without needing `.env` or `flutter_dotenv`.
+  - TC-CR5-02: Grep codebase for `dotenv` or `flutter_dotenv` in `lib/` and `pubspec.yaml` -> zero matches returned.
+  - TC-CR5-03: Execute release build script (`scripts/build_release.ps1` / `scripts/build_release.sh`) with `.env.json` present -> compiles APK to `dist/prism-v3.0.0-midterm.apk` and displays SHA-256 hash.
+  - TC-CR5-04: Execute release build script when `.env.json` is missing -> build halts with descriptive error message.
+  - TC-CR5-05: Inspect `android/app/build.gradle.kts` without `key.properties` -> defaults cleanly to debug signing configuration.
+  - TC-CR5-06: Inspect `android/app/build.gradle.kts` with `key.properties` present -> loads keystore and applies custom release signing config.
+- Evidence to capture (screenshots/logs):
+  - Terminal output of `git grep -nE "dotenv|flutter_dotenv"` returning empty in `lib/` and `pubspec.yaml`.
+  - Terminal output of `git grep -nE "sk-or|Bearer [A-Za-z0-9]"` returning empty.
+  - Terminal output of `flutter test` showing 30 passing tests.
+  - Release build script output showing successful APK staging in `dist/` and SHA-256 calculation.
+- Known limitations:
+  - Keys injected via `--dart-define` are embedded in the compiled Android binary and extractable with reverse-engineering tools; mitigated by using dedicated spend-capped and revocable keys for evaluation builds.
+  - Default APK uses Android debug signing key to retain compatibility with existing Firebase Google Sign-In SHA-1 certificates; production store deployment requires custom keystore configuration.
 
