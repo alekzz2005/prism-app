@@ -6,7 +6,7 @@ import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:image/image.dart' as img;
-import 'package:flutter_dotenv/flutter_dotenv.dart';
+import '../core/app_env.dart';
 
 // ─── Roboflow Detection Result ──────────────────────────────────────────────
 /// Holds the bounding-box centres and dimensions of detected objects.
@@ -89,9 +89,9 @@ class RawFrameData {
 
 // ─── Service ────────────────────────────────────────────────────────────────
 class RoboflowDetectionService {
-  // ---- Configuration from .env ----
-  static String get _workflowUrl => dotenv.env['ROBOFLOW_WORKFLOW_URL'] ?? '';
-  static String get _apiKey => dotenv.env['ROBOFLOW_API_KEY'] ?? '';
+  // ---- Configuration from AppEnv ----
+  static String get _workflowUrl => AppEnv.roboflowWorkflowUrl;
+  static String get _apiKey => AppEnv.roboflowApiKey;
 
   /// When true, bypasses the API and generates simulated detections.
   static bool mockMode = false;
