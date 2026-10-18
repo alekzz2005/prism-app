@@ -2,20 +2,14 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:provider/provider.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'core/app_env.dart';
 import 'providers/session_state_provider.dart';
 import 'providers/user_role_provider.dart';
 import 'widgets/auth_wrapper.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  try {
-    await dotenv.load(fileName: ".env");
-  } catch (e) {
-    if (kDebugMode) {
-      debugPrint('Failed to load .env: $e');
-    }
-  }
+  AppEnv.validate();
   runApp(const PrismApp());
 }
 

@@ -1,10 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import 'package:flutter_dotenv/flutter_dotenv.dart';
+import '../core/app_env.dart';
 import 'feedback_exceptions.dart';
 import 'feedback_evidence.dart';
 import 'deterministic_feedback_builder.dart';
@@ -25,7 +23,7 @@ const String _mockFeedbackText =
 
 /// HTTP client for the OpenRouter Llama 3.3 70B (free tier) API.
 ///
-/// **To use with a real key**, ensure `OPENROUTER_API_KEY` is set in your `.env` file.
+/// **To use with a real key**, ensure `OPENROUTER_API_KEY` is set via `--dart-define` or `.env.json`.
 ///
 /// **To test without a key** (mock mode):
 /// ```
@@ -33,7 +31,7 @@ const String _mockFeedbackText =
 /// ```
 
 class OpenRouterApiClient {
-  static String get _apiKey => dotenv.env['OPENROUTER_API_KEY'] ?? '';
+  static String get _apiKey => AppEnv.openRouterApiKey;
 
   static const String _baseUrl =
       'https://openrouter.ai/api/v1/chat/completions';
