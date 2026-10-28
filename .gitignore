@@ -53,4 +53,4 @@ key.properties
 dist/
 
 # Ignore local AI agent layouts and wireframes
-wireframes/
+wireframes/android/build/

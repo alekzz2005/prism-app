@@ -30,6 +30,39 @@ PRISM evaluates Intramuscular (IM) injection technique:
 | :--- | :--- |
 | **Intramuscular (IM)** | $90^{\circ}$ |
 
+## 🚀 Setup & Running
+
+PRISM uses compile-time environment injection via `--dart-define-from-file` to keep API credentials secure and decoupled from compiled binaries.
+
+### 1. Environment Configuration
+Copy `.env.json.example` to `.env.json` in the project root:
+```bash
+cp .env.json.example .env.json
+```
+Populate `.env.json` with your credentials:
+```json
+{
+  "OPENROUTER_API_KEY": "your-openrouter-key",
+  "ROBOFLOW_API_KEY": "your-roboflow-key",
+  "ROBOFLOW_WORKFLOW_URL": "your-roboflow-workflow-url"
+}
+```
+
+### 2. Running the App
+Run using the shortcut script:
+```powershell
+.\run
+```
+Or directly with Flutter:
+```bash
+flutter run --dart-define-from-file=.env.json
+```
+
+> [!IMPORTANT]
+> Running with plain `flutter run` without `--dart-define-from-file=.env.json` leaves credentials empty, causing live Roboflow CV detection to fail. Always run with `.\run` or `--dart-define-from-file=.env.json`.
+
+For release APK generation and deployment instructions, refer to [DEPLOYMENT.md](DEPLOYMENT.md).
+
 ## ⚠️ Constraints & Safety
 * **Advisory Feedback**: AI-generated feedback is advisory and does not replace instructor judgment.
 * **Privacy**: No session video footage is stored; only computed metrics and text feedback are persisted.

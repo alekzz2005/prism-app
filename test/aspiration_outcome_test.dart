@@ -60,11 +60,63 @@ void main() {
     });
   });
 
-  group('label', () {
-    test('returns user-friendly labels', () {
-      expect(AspirationOutcome.noBleeding.label, equals('No blood'));
-      expect(AspirationOutcome.bleedingDetected.label, equals('Blood present'));
-      expect(AspirationOutcome.notRecorded.label, equals('Not recorded'));
+  group('isWithdrawalPerformed', () {
+    test('returns false when bleedingObserved is true', () {
+      expect(isWithdrawalPerformed(true), isFalse);
+    });
+
+    test('returns true when bleedingObserved is false or null', () {
+      expect(isWithdrawalPerformed(false), isTrue);
+      expect(isWithdrawalPerformed(null), isTrue);
+    });
+  });
+
+  group('createBleedingStoppedSession', () {
+    test('uses bloodSessionGuardText and stops session with overallScore 1', () {
+      final session = createBleedingStoppedSession(
+        userId: 'student@cit.edu',
+        studentName: 'Juan Dela Cruz',
+        injectionType: 'IM',
+        sectionName: 'BSN-3A',
+        partnerName: 'Maria Santos',
+        insertionAngle: 88.5,
+        insertionScore: 5,
+        aspirationAngleDrift: 1.4,
+        aspirationDuration: 5.2,
+      );
+
+      expect(session.bleedingObserved, isTrue);
+      expect(session.aspirationResult, equals('Bleeding Detected'));
+      expect(session.overallScore, equals(1));
+      expect(session.aiFeedbackText, equals(bloodSessionGuardText));
+      expect(session.aiFeedbackOriginal, equals(bloodSessionGuardText));
+      expect(session.aiValidationStatus, isNull);
+      expect(session.withdrawalAngle, equals(0.0));
+      expect(session.withdrawalScore, equals(1));
+      expect(session.flagged, isTrue);
+      expect(isWithdrawalPerformed(session.bleedingObserved), isFalse);
+    });
+
+    test('applies same guard text and overallScore for practice sessions', () {
+      final practiceSession = createBleedingStoppedSession(
+        userId: 'student@cit.edu',
+        studentName: 'Juan Dela Cruz',
+        injectionType: 'IM',
+        insertionAngle: 90.0,
+        insertionScore: 5,
+        aspirationAngleDrift: 0.5,
+        aspirationDuration: 4.0,
+        isPractice: true,
+      );
+
+      expect(practiceSession.isPractice, isTrue);
+      expect(practiceSession.bleedingObserved, isTrue);
+      expect(practiceSession.overallScore, equals(1));
+      expect(practiceSession.aiFeedbackText, equals(bloodSessionGuardText));
+      expect(practiceSession.aiFeedbackOriginal, equals(bloodSessionGuardText));
+      expect(practiceSession.aiValidationStatus, isNull);
+      expect(practiceSession.feedbackStatus, equals('Released'));
     });
   });
 }
+

@@ -39,8 +39,19 @@ class SessionDetailScreen extends StatefulWidget {
 
 class _SessionDetailScreenState extends State<SessionDetailScreen> {
   bool _isRetrying = false;
+  late final Stream<DocumentSnapshot> _sessionStream;
+
+  @override
+  void initState() {
+    super.initState();
+    _sessionStream = FirebaseFirestore.instance
+        .collection('sessions')
+        .doc(widget.session.sessionId)
+        .snapshots();
+  }
 
   Future<void> _retryAiFeedback(SessionModel session) async {
+    if (session.bleedingObserved == true) return;
     setState(() => _isRetrying = true);
     try {
       await FeedbackService().generateAndSaveFeedbackInBackground(session);
@@ -193,27 +204,31 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
                     _SectionCard(
                       themeColor: const Color(0xFF2E6DA4),
                       title: 'Section 3 — Needle Withdrawal',
-                      children: [
-                        _DataRow('Withdrawal Angle', '${session.withdrawalAngle.toStringAsFixed(1)}°', false),
-                        _DataRow('Angular Delta', '${session.angularDelta.toStringAsFixed(1)}°', false),
-                        _DataRow(
-                          'Correspondence', '', false,
-                          trailing: _Chip(
-                            text: session.correspondenceResult,
-                            textColor: session.correspondenceResult == 'Matches' ? _green : _amber,
-                            bgColor: session.correspondenceResult == 'Matches' ? _greenBg : _amberBg,
-                          ),
-                        ),
-                        _DataRow('Rubric Score', "${session.withdrawalScore} / 5", false),
-                        _DataRow(
-                          'Result', '', true,
-                          trailing: _Chip(
-                            text: withdrawalPass ? 'Pass' : 'Fail',
-                            textColor: withdrawalPass ? _green : _red,
-                            bgColor: withdrawalPass ? _greenBg : _redBg,
-                          ),
-                        ),
-                      ],
+                      children: session.bleedingObserved == true
+                          ? const [
+                              _DataRow('Withdrawal', 'Not performed (session stopped)', true),
+                            ]
+                          : [
+                              _DataRow('Withdrawal Angle', '${session.withdrawalAngle.toStringAsFixed(1)}°', false),
+                              _DataRow('Angular Delta', '${session.angularDelta.toStringAsFixed(1)}°', false),
+                              _DataRow(
+                                'Correspondence', '', false,
+                                trailing: _Chip(
+                                  text: session.correspondenceResult,
+                                  textColor: session.correspondenceResult == 'Matches' ? _green : _amber,
+                                  bgColor: session.correspondenceResult == 'Matches' ? _greenBg : _amberBg,
+                                ),
+                              ),
+                              _DataRow('Rubric Score', "${session.withdrawalScore} / 5", false),
+                              _DataRow(
+                                'Result', '', true,
+                                trailing: _Chip(
+                                  text: withdrawalPass ? 'Pass' : 'Fail',
+                                  textColor: withdrawalPass ? _green : _red,
+                                  bgColor: withdrawalPass ? _greenBg : _redBg,
+                                ),
+                              ),
+                            ],
                     ),
                     const SizedBox(height: 10),
 
@@ -234,7 +249,7 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
                         }
 
                         return StreamBuilder<DocumentSnapshot>(
-                          stream: FirebaseFirestore.instance.collection('sessions').doc(session.sessionId).snapshots(),
+                          stream: _sessionStream,
                           builder: (context, snap) {
                             String streamAiText = session.aiFeedbackText;
                             String streamStatus = session.feedbackStatus;

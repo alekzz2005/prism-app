@@ -59,7 +59,9 @@ void main() {
           'Maintain this alignment with 42.7 millimeters depth and 73 percent steadiness.';
 
       final violations = FeedbackValidator.validate(text, evidence);
-      expect(violations, contains(FeedbackValidator.violationUnsupportedNumber));
+      expect(violations.any((v) => v.startsWith('${FeedbackValidator.violationUnsupportedNumber}:')), isTrue);
+      expect(violations, contains('unsupported_number:42.7'));
+      expect(violations, contains('unsupported_number:73'));
     });
 
     test('no-blood outcome with blood claim triggers aspiration_conflict', () {
@@ -221,5 +223,110 @@ void main() {
         );
       }
     });
+
+    test('getCorrectionInstructions returns specific offending values in instructions', () {
+      final session = _createDummySession(aspirationResult: 'No Bleeding');
+      final evidence = FeedbackEvidence.fromSession(session);
+
+      // Contains unallowed numbers (42.7, 73) and unmeasured term ('wrist steadiness')
+      const text =
+          'The insertion angle was 89.5 degrees with a score of 5 out of 5.\n\n'
+          'During the aspiration phase, vascular puncture was observed with blood return.\n\n'
+          'The withdrawal was at 88.0 degrees with a score of 5 out of 5.\n\n'
+          'Maintain wrist steadiness with 42.7 millimeters and 73 units.';
+
+      final instructions = FeedbackValidator.getCorrectionInstructions(text, evidence);
+
+      expect(instructions.any((i) => i.contains('42.7')), isTrue);
+      expect(instructions.any((i) => i.contains('73')), isTrue);
+      expect(instructions.any((i) => i.contains('no blood return') || i.contains('vascular puncture')), isTrue);
+      expect(instructions.any((i) => i.contains('wrist') || i.contains('steadiness')), isTrue);
+    });
+
+    test('deterministic builder output with updated no-blood wording passes validator', () {
+      final session = _createDummySession(aspirationResult: 'No Bleeding');
+      final evidence = FeedbackEvidence.fromSession(session);
+      final text = DeterministicFeedbackBuilder.build(evidence);
+
+      expect(text.contains('confirming proper intramuscular placement'), isFalse);
+      expect(text.contains('the instructor reported no blood during aspiration'), isTrue);
+
+      final violations = FeedbackValidator.validate(text, evidence);
+      expect(violations, isEmpty);
+    });
+
+    test('unsupported terms "proper placement" and "confirming placement" trigger violation', () {
+      final session = _createDummySession();
+      final evidence = FeedbackEvidence.fromSession(session);
+
+      const textProper =
+          'The insertion angle was 89.5 degrees with a score of 5 out of 5.\n\n'
+          'During the aspiration phase, no blood return occurred confirming proper placement.\n\n'
+          'The withdrawal was at 88.0 degrees with a score of 5 out of 5.\n\n'
+          'Continue to maintain correct technique on subsequent return demonstrations.';
+      expect(FeedbackValidator.validate(textProper, evidence),
+          contains(FeedbackValidator.violationUnsupportedTerm));
+
+      const textConfirming =
+          'The insertion angle was 89.5 degrees with a score of 5 out of 5.\n\n'
+          'During the aspiration phase, no blood was seen confirming placement in muscle.\n\n'
+          'The withdrawal was at 88.0 degrees with a score of 5 out of 5.\n\n'
+          'Continue to maintain correct technique on subsequent return demonstrations.';
+      expect(FeedbackValidator.validate(textConfirming, evidence),
+          contains(FeedbackValidator.violationUnsupportedTerm));
+    });
+
+    test('rubric step number is accepted as "step 19" but "20" alone fails', () {
+      final session = _createDummySession();
+      final evidence = FeedbackEvidence.fromSession(session);
+
+      // "step 19" qualified rubric step should pass
+      const textWithStep =
+          'The insertion angle was 89.5 degrees adhering to step 19 with a score of 5 out of 5.\n\n'
+          'During the aspiration phase across 3.5s, no blood return was observed, scoring 5 out of 5.\n\n'
+          'The withdrawal was at 88.0 degrees with an angular delta of 1.5 degrees, scoring 5 out of 5.\n\n'
+          'Maintain this standard on subsequent intramuscular return demonstrations.';
+
+      final stepViolations = FeedbackValidator.validate(textWithStep, evidence);
+      expect(stepViolations.any((v) => v.contains('19')), isFalse);
+      expect(stepViolations, isEmpty);
+
+      // "20" alone without "step" should fail
+      const textWithPlainNumber =
+          'The insertion angle was 89.5 degrees for 20 minutes with a score of 5 out of 5.\n\n'
+          'During the aspiration phase across 3.5s, no blood return was observed, scoring 5 out of 5.\n\n'
+          'The withdrawal was at 88.0 degrees with an angular delta of 1.5 degrees, scoring 5 out of 5.\n\n'
+          'Maintain this standard on subsequent intramuscular return demonstrations.';
+
+      final plainViolations = FeedbackValidator.validate(textWithPlainNumber, evidence);
+      expect(plainViolations, contains('unsupported_number:20'));
+    });
+
+    test('validator accepts whole-number form 14 for 14.6 aspiration duration but rejects 42.7', () {
+      final session = _createDummySession(aspirationDuration: 14.6);
+      final evidence = FeedbackEvidence.fromSession(session);
+
+      // Text using whole-number "14" seconds for 14.6 recorded aspiration duration
+      const textWith14 =
+          'The insertion angle was 89.5 degrees with a score of 5 out of 5.\n\n'
+          'During the aspiration phase across 14s, the instructor reported no blood during aspiration.\n\n'
+          'The withdrawal was at 88.0 degrees with an angular delta of 1.5 degrees, scoring 5 out of 5.\n\n'
+          'Maintain this standard on subsequent intramuscular return demonstrations.';
+
+      final violations14 = FeedbackValidator.validate(textWith14, evidence);
+      expect(violations14.any((v) => v.contains('unsupported_number:14')), isFalse);
+      expect(violations14, isEmpty);
+
+      // Text using arbitrary unrecorded number 42.7
+      const textWith42Point7 =
+          'The insertion angle was 89.5 degrees with a score of 5 out of 5.\n\n'
+          'During the aspiration phase across 42.7s, the instructor reported no blood during aspiration.\n\n'
+          'The withdrawal was at 88.0 degrees with an angular delta of 1.5 degrees, scoring 5 out of 5.\n\n'
+          'Maintain this standard on subsequent intramuscular return demonstrations.';
+
+      final violations42Point7 = FeedbackValidator.validate(textWith42Point7, evidence);
+      expect(violations42Point7, contains('unsupported_number:42.7'));
+    });
   });
 }
+

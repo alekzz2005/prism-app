@@ -56,10 +56,15 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
   final _releaseService = FeedbackReleaseService();
   bool _isReleasing = false;
   Timer? _debounceTimer;
+  late final Stream<DocumentSnapshot> _sessionStream;
 
   @override
   void initState() {
     super.initState();
+    _sessionStream = FirebaseFirestore.instance
+        .collection('sessions')
+        .doc(widget.session.sessionId)
+        .snapshots();
     _noteController = TextEditingController(text: widget.session.instructorNote);
     _aiFeedbackController =
         TextEditingController(text: widget.session.aiFeedbackText);
@@ -161,7 +166,7 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
                       builder: (context) {
                         final outcome = AspirationOutcome.parse(s.aspirationResult);
                         final stabilityText = s.aspirationAngleDrift != null
-                            ? '±${s.aspirationAngleDrift!.toStringAsFixed(1)}\u00b0 from insertion angle'
+                            ? '±${s.aspirationAngleDrift!.toStringAsFixed(1)}\u00b0'
                             : 'Not measured';
                         return _Card(
                           child: Column(
@@ -178,27 +183,34 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
                                 score: s.aspirationScore,
                               ),
                               _ResultRow(
-                                label: 'Needle stability during aspiration',
+                                label: 'Needle stability',
                                 value: stabilityText,
                               ),
                               _ResultRow(
                                 label: 'Aspiration time',
                                 value: '${s.aspirationDuration.toStringAsFixed(1)}s',
                               ),
-                              _ResultRow(
-                                label: 'Withdrawal',
-                                value: '${s.withdrawalAngle.toStringAsFixed(1)}\u00b0',
-                                score: s.withdrawalScore,
-                              ),
-                              _ResultRow(
-                                label: 'Correspondence',
-                                value: s.correspondenceResult,
-                                isValueGreen: s.correspondenceResult == 'Matches',
-                              ),
-                              _ResultRow(
-                                label: 'Angular Delta',
-                                value: '${s.angularDelta.toStringAsFixed(1)}\u00b0',
-                              ),
+                              if (s.bleedingObserved == true)
+                                const _ResultRow(
+                                  label: 'Withdrawal',
+                                  value: 'Not performed (session stopped)',
+                                )
+                              else ...[
+                                _ResultRow(
+                                  label: 'Withdrawal',
+                                  value: '${s.withdrawalAngle.toStringAsFixed(1)}\u00b0',
+                                  score: s.withdrawalScore,
+                                ),
+                                _ResultRow(
+                                  label: 'Correspondence',
+                                  value: s.correspondenceResult,
+                                  isValueGreen: s.correspondenceResult == 'Matches',
+                                ),
+                                _ResultRow(
+                                  label: 'Angular Delta',
+                                  value: '${s.angularDelta.toStringAsFixed(1)}\u00b0',
+                                ),
+                              ],
                               Container(height: 1, color: _cardBorder, margin: const EdgeInsets.symmetric(vertical: 6)),
                               _ResultRow(
                                 label: 'Overall Score',
@@ -215,7 +227,7 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
 
                     // ── AI Draft (editable & streaming) ──
                     StreamBuilder<DocumentSnapshot>(
-                      stream: FirebaseFirestore.instance.collection('sessions').doc(widget.session.sessionId).snapshots(),
+                      stream: _sessionStream,
                       builder: (context, snapshot) {
                         String streamAiText = widget.session.aiFeedbackText;
                         String streamOriginalAi = widget.session.aiFeedbackOriginal.isNotEmpty
@@ -404,7 +416,9 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        _sectionHeader('Private instructor note (not shown to students)'),
+                        Expanded(
+                          child: _sectionHeader('Private instructor note'),
+                        ),
                         if (!isReleased)
                           ValueListenableBuilder<UndoHistoryValue>(
                             valueListenable: _noteUndoController,
@@ -605,46 +619,58 @@ Widget _buildAiValidationBadge(String? status) {
   final effectiveStatus = (status == null || status.isEmpty) ? 'Passed' : status;
   final Color bg;
   final Color border;
-  final Color text;
+  final Color textColor;
+  final IconData icon;
   final String label;
 
   switch (effectiveStatus) {
     case 'Auto-corrected':
-      bg = _amberBg;
-      border = _amberBorder;
-      text = _amber;
+      bg = const Color(0xFFFEF3C7);
+      border = const Color(0xFFFDE68A);
+      textColor = const Color(0xFFB45309);
+      icon = Icons.auto_fix_high_rounded;
       label = 'Auto-corrected';
       break;
     case 'Template Fallback':
-      bg = _amberBg;
-      border = _amberBorder;
-      text = _amber;
-      label = 'Template draft — review closely';
+      bg = const Color(0xFFF1F5F9);
+      border = const Color(0xFFCBD5E1);
+      textColor = const Color(0xFF475569);
+      icon = Icons.description_outlined;
+      label = 'Template Draft';
       break;
     case 'Passed':
     default:
-      bg = _greenBg;
-      border = _greenBorder;
-      text = _green;
-      label = 'Validated';
+      bg = const Color(0xFFDCFCE7);
+      border = const Color(0xFF86EFAC);
+      textColor = const Color(0xFF15803D);
+      icon = Icons.check_circle_outline_rounded;
+      label = 'AI Validated';
       break;
   }
 
   return Container(
     key: const Key('ai_validation_badge'),
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
     decoration: BoxDecoration(
       color: bg,
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(16),
       border: Border.all(color: border),
     ),
-    child: Text(
-      label,
-      style: TextStyle(
-        color: text,
-        fontSize: 11,
-        fontWeight: FontWeight.w600,
-      ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 12, color: textColor),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          style: TextStyle(
+            color: textColor,
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.2,
+          ),
+        ),
+      ],
     ),
   );
 }
@@ -693,14 +719,17 @@ class _ResultRow extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            label,
-            style: TextStyle(
-              color: highlight ? _textDark : _textMid,
-              fontSize: highlight ? 14 : 13,
-              fontWeight: highlight ? FontWeight.w700 : FontWeight.w400,
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                color: highlight ? _textDark : _textMid,
+                fontSize: highlight ? 14 : 13,
+                fontWeight: highlight ? FontWeight.w700 : FontWeight.w400,
+              ),
             ),
           ),
+          const SizedBox(width: 8),
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
