@@ -267,65 +267,39 @@ class _PracticeModeScreenState extends State<PracticeModeScreen> {
       final email = user?.email ?? '';
       final name = user?.displayName ?? 'Student';
 
-      final insAngle = _insertionAngle ?? _liveAngle;
-      final insScore = _insertionScore ?? _liveScore;
-      final wthAngle = _liveAngle;
-      const wthScore = 1;
-      final delta = (_liveAngle - insAngle).abs();
-      final correspondence = delta <= 5.0 ? 'Matches' : 'Deviates';
-      const outcome = AspirationOutcome.bleedingDetected;
-      final aspirationScore = outcome.score;
-      const aspirationResult = 'Bleeding Detected';
-      const bleedingObserved = true;
-      final aspirationAngleDrift = _maxAspirationDrift;
-      final overall = 1;
-
       if (_lastFrameData != null) {
         final snap = await RoboflowDetectionService.getSnapshotBase64(_lastFrameData!);
         if (snap != null) _aspirationBase64 = snap;
       }
 
+      final insAngle = _insertionAngle ?? _liveAngle;
+      final insScore = _insertionScore ?? _liveScore;
+      final aspirationAngleDrift = _maxAspirationDrift;
+
       final aspDuration = _aspirationDuration ?? (_aspirationStartTime != null
           ? double.parse((DateTime.now().difference(_aspirationStartTime!).inMilliseconds / 1000.0).toStringAsFixed(1))
           : 0.0);
 
-      final initialSession = SessionModel(
-        sessionId: '',
+      final failedSession = createBleedingStoppedSession(
         userId: email,
         studentName: name,
-        timestamp: Timestamp.now(),
         injectionType: 'IM',
         sectionName: 'Practice',
         partnerName: 'Self-Practice',
         insertionAngle: insAngle,
         insertionScore: insScore,
-        aspirationResult: aspirationResult,
-        aspirationScore: aspirationScore,
-        bleedingObserved: bleedingObserved,
         aspirationAngleDrift: aspirationAngleDrift,
         aspirationDuration: aspDuration,
-        motionSmoothness: 'N/A',
-        withdrawalAngle: wthAngle,
-        withdrawalScore: wthScore,
-        correspondenceResult: correspondence,
-        angularDelta: delta,
-        overallScore: overall,
-        aiFeedbackText: '',
-        feedbackStatus: 'Released',
-        releaseTimestamp: Timestamp.now(),
-        instructorNote: '',
-        flagged: true,
         insertionImageBase64: _insertionBase64,
         aspirationImageBase64: _aspirationBase64,
-        withdrawalImageBase64: _withdrawalBase64,
         isPractice: true,
       );
 
       final repo = InstructorSessionRepository();
-      final docId = await repo.saveSession(initialSession);
+      final docId = await repo.saveSession(failedSession);
 
-      final sessionWithId = initialSession.copyWith(sessionId: docId);
-      FeedbackService().generateAndSaveFeedbackInBackground(sessionWithId);
+      final sessionWithId = failedSession.copyWith(sessionId: docId);
+      // NOTE: Do NOT call AI feedback generation for blood sessions (session stopped after aspiration)
 
       if (user != null) {
         int practiceNum = 1;
@@ -333,6 +307,7 @@ class _PracticeModeScreenState extends State<PracticeModeScreen> {
           final countSnap = await FirebaseFirestore.instance
               .collection('sessions')
               .where('userId', isEqualTo: email)
+              .where('feedbackStatus', isEqualTo: 'Released')
               .where('sectionName', isEqualTo: 'Practice')
               .get();
           practiceNum = countSnap.docs.length;
@@ -433,6 +408,7 @@ class _PracticeModeScreenState extends State<PracticeModeScreen> {
           final countSnap = await FirebaseFirestore.instance
               .collection('sessions')
               .where('userId', isEqualTo: email)
+              .where('feedbackStatus', isEqualTo: 'Released')
               .where('sectionName', isEqualTo: 'Practice')
               .get();
           practiceNum = countSnap.docs.length;

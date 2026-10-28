@@ -80,6 +80,12 @@ class FeedbackService {
 
   /// Builds prompt, calls OpenRouter, and returns a new SessionModel with the AI feedback populated.
   Future<SessionModel> generateFeedbackForSession(SessionModel session) async {
+    if (session.bleedingObserved == true) {
+      return session.copyWith(
+        aiFeedbackText: bloodSessionGuardText,
+        aiFeedbackOriginal: bloodSessionGuardText,
+      );
+    }
     final evidence = FeedbackEvidence.fromSession(session);
     final prompt = PayloadBuilder.buildPromptFromEvidence(evidence);
     String feedbackText = '';
@@ -98,11 +104,23 @@ class FeedbackService {
       final firstViolations = FeedbackValidator.validate(feedbackText, evidence);
 
       if (firstViolations.isNotEmpty) {
+        if (kDebugMode) {
+          debugPrint('=== [AI Feedback Rejected First Pass] ===');
+          debugPrint('Violations: ${firstViolations.join(', ')}');
+          debugPrint('Text:\n$feedbackText');
+          debugPrint('=========================================');
+        }
         validationNotes = firstViolations;
+        final instructions = FeedbackValidator.getCorrectionInstructions(feedbackText, evidence);
+        final detailsBlock = instructions.isNotEmpty
+            ? '\nSpecific corrections required:\n${instructions.map((i) => '- $i').join('\n')}\n'
+            : '';
+
         // Regenerate ONCE with corrections required
         final correctionPrompt = '$prompt\n\n'
             'Corrections required:\n'
             'The previous draft failed clinical validation with violations: ${firstViolations.join(', ')}.\n'
+            '$detailsBlock'
             'Rewrite the 4 paragraphs strictly adhering to all rules, citing ONLY numbers in the payload and eliminating unsupported claims.';
 
         final regeneratedText = await _client.generateFeedback(correctionPrompt, evidence: evidence);
@@ -153,6 +171,7 @@ class FeedbackService {
 
   /// Fire-and-forget background task that updates Firestore once generation completes.
   Future<void> generateAndSaveFeedbackInBackground(SessionModel session) async {
+    if (session.bleedingObserved == true) return;
     try {
       final updatedSession = await generateFeedbackForSession(session);
       final updateData = <String, dynamic>{

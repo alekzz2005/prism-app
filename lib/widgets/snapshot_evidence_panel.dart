@@ -88,27 +88,49 @@ class SnapshotEvidencePanel extends StatelessWidget {
           ),
 
           // ── 3. Withdrawal Card ──
-          SnapshotCard(
-            key: const Key('snapshot_card_withdrawal'),
-            title: 'Withdrawal',
-            base64Image: session.withdrawalImageBase64,
-            onTap: () {
-              final idx = galleryItems.indexWhere((i) => i.title == 'Withdrawal');
-              if (idx != -1) {
-                showImageGalleryDialog(context, items: galleryItems, initialIndex: idx);
-              }
-            },
-            metrics: [
-              _buildMetricRow('Withdrawal Angle', '${session.withdrawalAngle.toStringAsFixed(1)}°'),
-              _buildMetricRow('Angular Delta', '${session.angularDelta.toStringAsFixed(1)}°'),
-              _buildMetricRow(
-                'Correspondence',
-                session.correspondenceResult,
-                valueColor: session.correspondenceResult == 'Matches' ? _green : null,
-              ),
-            ],
-            score: session.withdrawalScore,
-          ),
+          if (session.bleedingObserved == true)
+            const SnapshotCard(
+              key: Key('snapshot_card_withdrawal'),
+              title: 'Withdrawal',
+              isNotPerformed: true,
+              placeholderText: 'Not performed',
+              hideScore: true,
+              metrics: [
+                Padding(
+                  padding: EdgeInsets.symmetric(vertical: 4),
+                  child: Text(
+                    'Withdrawal: not performed (session stopped)',
+                    style: TextStyle(
+                      color: _textMid,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            )
+          else
+            SnapshotCard(
+              key: const Key('snapshot_card_withdrawal'),
+              title: 'Withdrawal',
+              base64Image: session.withdrawalImageBase64,
+              onTap: () {
+                final idx = galleryItems.indexWhere((i) => i.title == 'Withdrawal');
+                if (idx != -1) {
+                  showImageGalleryDialog(context, items: galleryItems, initialIndex: idx);
+                }
+              },
+              metrics: [
+                _buildMetricRow('Withdrawal Angle', '${session.withdrawalAngle.toStringAsFixed(1)}°'),
+                _buildMetricRow('Angular Delta', '${session.angularDelta.toStringAsFixed(1)}°'),
+                _buildMetricRow(
+                  'Correspondence',
+                  session.correspondenceResult,
+                  valueColor: session.correspondenceResult == 'Matches' ? _green : null,
+                ),
+              ],
+              score: session.withdrawalScore,
+            ),
         ],
       ),
     );
@@ -148,6 +170,9 @@ class SnapshotCard extends StatelessWidget {
   final VoidCallback? onTap;
   final List<Widget> metrics;
   final int score;
+  final bool isNotPerformed;
+  final String placeholderText;
+  final bool hideScore;
 
   const SnapshotCard({
     super.key,
@@ -156,11 +181,14 @@ class SnapshotCard extends StatelessWidget {
     this.onTap,
     this.metrics = const [],
     this.score = 5,
+    this.isNotPerformed = false,
+    this.placeholderText = 'Snapshot not captured',
+    this.hideScore = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    final bool hasImage = base64Image != null && base64Image!.isNotEmpty;
+    final bool hasImage = !isNotPerformed && base64Image != null && base64Image!.isNotEmpty;
 
     return Container(
       width: 220,
@@ -194,7 +222,7 @@ class SnapshotCard extends StatelessWidget {
                         base64Decode(base64Image!),
                         fit: BoxFit.cover,
                         errorBuilder: (context, error, stackTrace) =>
-                            _buildPlaceholder(),
+                            _buildPlaceholder(placeholderText, icon: Icons.no_photography_outlined),
                       ),
                     ),
                   ),
@@ -214,7 +242,10 @@ class SnapshotCard extends StatelessWidget {
               ),
             )
           else
-            _buildPlaceholder(),
+            _buildPlaceholder(
+              placeholderText,
+              icon: isNotPerformed ? Icons.block_rounded : Icons.no_photography_outlined,
+            ),
           Padding(
             padding: const EdgeInsets.all(12),
             child: Column(
@@ -232,10 +263,12 @@ class SnapshotCard extends StatelessWidget {
                   const SizedBox(height: 8),
                   ...metrics,
                 ],
-                const SizedBox(height: 8),
-                Container(height: 1, color: _cardBorder),
-                const SizedBox(height: 8),
-                _buildScoreRow(score),
+                if (!hideScore) ...[
+                  const SizedBox(height: 8),
+                  Container(height: 1, color: _cardBorder),
+                  const SizedBox(height: 8),
+                  _buildScoreRow(score),
+                ],
               ],
             ),
           ),
@@ -244,7 +277,7 @@ class SnapshotCard extends StatelessWidget {
     );
   }
 
-  static Widget _buildPlaceholder() {
+  static Widget _buildPlaceholder(String text, {IconData icon = Icons.no_photography_outlined}) {
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(13)),
       child: AspectRatio(
@@ -253,16 +286,16 @@ class SnapshotCard extends StatelessWidget {
           color: _placeholderBg,
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
-            children: const [
+            children: [
               Icon(
-                Icons.no_photography_outlined,
+                icon,
                 color: _textLight,
                 size: 32,
               ),
-              SizedBox(height: 6),
+              const SizedBox(height: 6),
               Text(
-                'Snapshot not captured',
-                style: TextStyle(
+                text,
+                style: const TextStyle(
                   color: _textMid,
                   fontSize: 11,
                   fontWeight: FontWeight.w500,

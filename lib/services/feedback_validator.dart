@@ -24,20 +24,27 @@ class FeedbackValidator {
     }
 
     // ── 1. Numeric Token Validation ──────────────────────────────────────────
-    // Match any numeric token (integer or decimal)
+    // Rubric step numbers (19, 20, 21) are accepted ONLY when explicitly qualified as "step N" or "steps N"
+    final stepRegex = RegExp(
+      r'\b(?:step|steps)\s*(?:19|20|21)(?:\s*(?:[-–]|to)\s*(?:19|20|21))*\b',
+      caseSensitive: false,
+    );
+    final textForNumCheck = trimmed
+        .replaceAll(stepRegex, ' ')
+        .replaceAllMapped(RegExp(r'(\d+(?:\.\d+)?)[sS]\b'), (m) => '${m.group(1)} ');
+
     final numRegex = RegExp(r'(?<![a-zA-Z0-9_])(\d+(?:\.\d+)?)(?![a-zA-Z0-9_])');
-    for (final match in numRegex.allMatches(trimmed)) {
+    for (final match in numRegex.allMatches(textForNumCheck)) {
       final token = match.group(1);
       if (token == null) continue;
       final val = double.tryParse(token);
       if (val == null) continue;
 
       final isAllowed = evidence.allowedNumbers.any(
-        (allowed) => (val - allowed).abs() <= 0.05,
+        (allowed) => (val - allowed).abs() <= 0.15,
       );
       if (!isAllowed) {
-        violations.add(violationUnsupportedNumber);
-        break;
+        violations.add('$violationUnsupportedNumber:$token');
       }
     }
 
@@ -80,6 +87,10 @@ class FeedbackValidator {
       r'camera[- ]detected blood',
       r'detected by (?:the )?camera',
       r'camera detection',
+      r'proper placement',
+      r'confirming placement',
+      r'proper intramuscular placement',
+      r'confirming proper',
     ];
 
     if (evidence.aspirationDuration == null) {
@@ -110,5 +121,131 @@ class FeedbackValidator {
     }
 
     return violations.toList();
+  }
+
+  /// Generates specific, human-readable correction instructions for any violations found in [text].
+  /// Used in the regeneration prompt so the model is informed of the exact offending values.
+  static List<String> getCorrectionInstructions(String text, FeedbackEvidence evidence) {
+    final instructions = <String>[];
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) {
+      return ['The draft was empty: provide exactly 4 paragraphs adhering to the clinical format.'];
+    }
+
+    // 1. Numeric violations
+    final stepRegex = RegExp(
+      r'\b(?:step|steps)\s*(?:19|20|21)(?:\s*(?:[-–]|to)\s*(?:19|20|21))*\b',
+      caseSensitive: false,
+    );
+    final textForNumCheck = trimmed
+        .replaceAll(stepRegex, ' ')
+        .replaceAllMapped(RegExp(r'(\d+(?:\.\d+)?)[sS]\b'), (m) => '${m.group(1)} ');
+
+    final numRegex = RegExp(r'(?<![a-zA-Z0-9_])(\d+(?:\.\d+)?)(?![a-zA-Z0-9_])');
+    final offendingNumbers = <String>{};
+    for (final match in numRegex.allMatches(textForNumCheck)) {
+      final token = match.group(1);
+      if (token == null) continue;
+      final val = double.tryParse(token);
+      if (val == null) continue;
+
+      final isAllowed = evidence.allowedNumbers.any(
+        (allowed) => (val - allowed).abs() <= 0.15,
+      );
+      if (!isAllowed) {
+        offendingNumbers.add(token);
+      }
+    }
+    if (offendingNumbers.isNotEmpty) {
+      final plural = offendingNumbers.length > 1;
+      instructions.add(
+        'The number${plural ? 's' : ''} ${offendingNumbers.join(', ')} ${plural ? 'are' : 'is'} not in the recorded metrics: remove ${plural ? 'them' : 'it'} or use ONLY numbers from the payload.',
+      );
+    }
+
+    // 2. Aspiration conflicts
+    switch (evidence.aspirationOutcome) {
+      case AspirationOutcome.noBleeding:
+        final sanitized = trimmed.replaceAll(
+          RegExp(r'\b(no blood(?: return)?|no bleeding|without blood(?: return)?|absence of blood|negative for blood|free of blood)\b', caseSensitive: false),
+          '',
+        );
+        if (RegExp(r'\b(blood(?: return)?|bleeding|vascular puncture)\b', caseSensitive: false).hasMatch(sanitized)) {
+          instructions.add(
+            'The aspiration check confirmed no blood return (safe intramuscular placement): do not state blood return was observed, and do not mention vascular puncture.',
+          );
+        }
+        break;
+
+      case AspirationOutcome.bleedingDetected:
+        if (RegExp(r'\b(safe|no blood(?: return)?|correct aspiration|safe to inject)\b', caseSensitive: false).hasMatch(trimmed)) {
+          instructions.add(
+            'The aspiration check confirmed vascular puncture (blood return detected): do not claim injection was safe or that no blood was observed.',
+          );
+        }
+        break;
+
+      case AspirationOutcome.notRecorded:
+        if (RegExp(r'\b(blood(?: return)?|bleeding|vascular puncture)\b', caseSensitive: false).hasMatch(trimmed)) {
+          instructions.add(
+            'Aspiration blood check was not recorded: do not comment on blood presence or absence.',
+          );
+        }
+        break;
+    }
+
+    // 3. Unsupported terms
+    final unsupportedTermPatterns = <String, String>{
+      r'\bwrist\b': 'wrist',
+      r'\bsteadiness\b': 'steadiness',
+      r'\bhand steadiness\b': 'hand steadiness',
+      r'\bspeed\b': 'speed',
+      r'\bsmoothness\b': 'smoothness',
+      r'\bneuromuscular\b': 'neuromuscular',
+      r'camera[- ]detected blood': 'camera-detected blood',
+      r'detected by (?:the )?camera': 'detected by camera',
+      r'camera detection': 'camera detection',
+      r'proper placement': 'proper placement',
+      r'confirming placement': 'confirming placement',
+      r'proper intramuscular placement': 'proper placement',
+      r'confirming proper': 'confirming placement',
+    };
+
+    if (evidence.aspirationDuration == null) {
+      unsupportedTermPatterns[r'\bseconds?\b'] = 'seconds';
+      unsupportedTermPatterns[r'\bduration\b'] = 'duration';
+    }
+
+    final matchedTerms = <String>{};
+    for (final entry in unsupportedTermPatterns.entries) {
+      if (RegExp(entry.key, caseSensitive: false).hasMatch(trimmed)) {
+        matchedTerms.add(entry.value);
+      }
+    }
+    if (matchedTerms.isNotEmpty) {
+      instructions.add(
+        'Remove unmeasured claims (${matchedTerms.join(', ')}): PRISM does not measure physical stability/speed/smoothness or detect blood via camera.',
+      );
+    }
+
+    // 4. Structure
+    final paragraphs = trimmed
+        .split(RegExp(r'\n\s*\n+'))
+        .where((p) => p.trim().isNotEmpty)
+        .toList();
+
+    final words = trimmed
+        .split(RegExp(r'\s+'))
+        .where((w) => w.isNotEmpty)
+        .toList();
+
+    if (paragraphs.length != 4) {
+      instructions.add('The previous draft had ${paragraphs.length} paragraphs: rewrite to have exactly 4 paragraphs.');
+    }
+    if (words.length > 175) {
+      instructions.add('The previous draft had ${words.length} words: condense to no more than 175 words total.');
+    }
+
+    return instructions;
   }
 }

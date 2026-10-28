@@ -144,6 +144,7 @@ class _MySessionsScreenState extends State<MySessionsScreen> with TickerProvider
     return FirebaseFirestore.instance
         .collection('sessions')
         .where('userId', isEqualTo: email)
+        .where('feedbackStatus', isEqualTo: 'Released')
         .snapshots();
   }
 
@@ -517,6 +518,7 @@ class _SessionListState extends State<_SessionList> with AutomaticKeepAliveClien
     _stream = FirebaseFirestore.instance
         .collection('sessions')
         .where('userId', isEqualTo: email)
+        .where('feedbackStatus', isEqualTo: 'Released')
         .snapshots();
   }
 

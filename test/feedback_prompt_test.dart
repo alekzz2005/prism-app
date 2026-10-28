@@ -1,6 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:prism_app/core/aspiration_outcome.dart';
 import 'package:prism_app/models/session_model.dart';
 import 'package:prism_app/services/feedback_evidence.dart';
 import 'package:prism_app/services/feedback_service.dart';

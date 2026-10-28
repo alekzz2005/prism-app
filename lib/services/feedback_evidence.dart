@@ -67,31 +67,51 @@ class FeedbackEvidence {
     final isFlagged = session.flagged || aspOutcome.needsFlag;
 
     // Allowed numeric values that may legally appear in prompt/feedback text
+    final insDeviation = (target - insAngle).abs();
+    final wthDeviation = (target - wthAngle).abs();
     final allowed = <double>{
-      1.0, 2.0, 3.0, 4.0, 5.0, 90.0,
+      0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 90.0,
       target,
       tol,
       target - tol,
       target + tol,
       insAngle,
       double.parse(insAngle.toStringAsFixed(1)),
+      insAngle.roundToDouble(),
+      insAngle.floorToDouble(),
+      insDeviation,
+      double.parse(insDeviation.toStringAsFixed(1)),
+      insDeviation.roundToDouble(),
+      insDeviation.floorToDouble(),
       insScore.toDouble(),
       aspScore.toDouble(),
       wthAngle,
       double.parse(wthAngle.toStringAsFixed(1)),
+      wthAngle.roundToDouble(),
+      wthAngle.floorToDouble(),
+      wthDeviation,
+      double.parse(wthDeviation.toStringAsFixed(1)),
+      wthDeviation.roundToDouble(),
+      wthDeviation.floorToDouble(),
       wthScore.toDouble(),
       delta,
       double.parse(delta.toStringAsFixed(1)),
+      delta.roundToDouble(),
+      delta.floorToDouble(),
       ovrScore.toDouble(),
     };
 
     if (drift != null) {
       allowed.add(drift);
       allowed.add(double.parse(drift.toStringAsFixed(1)));
+      allowed.add(drift.roundToDouble());
+      allowed.add(drift.floorToDouble());
     }
     if (aspDuration != null) {
       allowed.add(aspDuration);
       allowed.add(double.parse(aspDuration.toStringAsFixed(1)));
+      allowed.add(aspDuration.roundToDouble());
+      allowed.add(aspDuration.floorToDouble());
     }
 
     return FeedbackEvidence(

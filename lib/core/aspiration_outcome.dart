@@ -1,3 +1,6 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '../models/session_model.dart';
+
 /// Aspiration outcome single source of truth for PRISM.
 ///
 /// Implements CIT-U rubric and validation finding decisions:
@@ -76,4 +79,68 @@ int aspirationScore(AspirationOutcome o) {
     case AspirationOutcome.notRecorded:
       return 1;
   }
+}
+
+/// Standard guard text used when an injection session is aborted due to blood return during aspiration.
+const String bloodSessionGuardText =
+    'Session automatically flagged: Blood return was observed during aspiration. In clinical practice, the injection must be aborted immediately without injecting medication, the needle safely withdrawn, and the procedure restarted with new equipment.';
+
+/// Pure helper returning whether needle withdrawal was performed for a given session.
+/// Returns false when blood return was observed (the session is stopped after aspiration).
+bool isWithdrawalPerformed(bool? bleedingObserved) => bleedingObserved != true;
+
+/// Builds a stopped session document when blood return is observed during aspiration.
+/// Withdrawal is not performed, not scored, and the session is automatically flagged with overallScore 1.
+SessionModel createBleedingStoppedSession({
+  required String userId,
+  required String studentName,
+  required String injectionType,
+  String? sectionName,
+  String? partnerName,
+  required double insertionAngle,
+  required int insertionScore,
+  required double? aspirationAngleDrift,
+  required double aspirationDuration,
+  String? insertionImageBase64,
+  String? aspirationImageBase64,
+  bool isPractice = false,
+  String instructorNote = '',
+  String sessionId = '',
+}) {
+  return SessionModel(
+    sessionId: sessionId,
+    userId: userId,
+    studentName: studentName,
+    timestamp: Timestamp.now(),
+    injectionType: injectionType,
+    sectionName: sectionName ?? '',
+    partnerName: partnerName ?? '',
+    insertionAngle: insertionAngle,
+    insertionScore: insertionScore,
+    aspirationResult: 'Bleeding Detected',
+    aspirationScore: 1,
+    bleedingObserved: true,
+    aspirationAngleDrift: aspirationAngleDrift,
+    aspirationDuration: aspirationDuration,
+    motionSmoothness: 'N/A',
+    withdrawalAngle: 0.0,
+    withdrawalScore: 1,
+    correspondenceResult: 'Deviates',
+    angularDelta: 0.0,
+    overallScore: 1, // Automatic fail on blood return
+    aiFeedbackText: bloodSessionGuardText,
+    aiFeedbackOriginal: bloodSessionGuardText,
+    feedbackStatus: isPractice ? 'Released' : 'Pending',
+    releaseTimestamp: isPractice ? Timestamp.now() : null,
+    instructorNote: isPractice
+        ? instructorNote
+        : (instructorNote.isNotEmpty
+            ? instructorNote
+            : 'Instructor cancelled session: Patient bleeding detected during aspiration.'),
+    flagged: true,
+    insertionImageBase64: insertionImageBase64,
+    aspirationImageBase64: aspirationImageBase64,
+    withdrawalImageBase64: null,
+    isPractice: isPractice,
+  );
 }

@@ -29,8 +29,7 @@ class DeterministicFeedbackBuilder {
 
     switch (evidence.aspirationOutcome) {
       case AspirationOutcome.noBleeding:
-        p2 = 'During the aspiration phase$durationSnippet, no blood return was observed, '
-            'confirming proper intramuscular placement$driftSnippet. '
+        p2 = 'During the aspiration phase$durationSnippet, the instructor reported no blood during aspiration$driftSnippet. '
             'This phase achieved a rubric score of ${evidence.aspirationScore} out of 5.';
         break;
       case AspirationOutcome.bleedingDetected:

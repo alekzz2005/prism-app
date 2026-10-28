@@ -66,20 +66,20 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
   DateTime? _aspirationStartTime;
   Timer? _aspirationTimer;
   double _aspirationElapsedSeconds = 0.0;
+  final ValueNotifier<double> _aspirationSecondsNotifier = ValueNotifier<double>(0.0);
   String? _lastObservedPhase;
+  Stream<LiveSessionModel?>? _sessionStream;
 
   void _startAspirationTimer() {
     if (_aspirationTimer != null) return;
     _aspirationStartTime = DateTime.now();
     _aspirationElapsedSeconds = 0.0;
+    _aspirationSecondsNotifier.value = 0.0;
     _aspirationTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
-      if (mounted) {
-        setState(() {
-          if (_aspirationStartTime != null) {
-            _aspirationElapsedSeconds =
-                DateTime.now().difference(_aspirationStartTime!).inMilliseconds / 1000.0;
-          }
-        });
+      if (_aspirationStartTime != null) {
+        _aspirationElapsedSeconds =
+            DateTime.now().difference(_aspirationStartTime!).inMilliseconds / 1000.0;
+        _aspirationSecondsNotifier.value = _aspirationElapsedSeconds;
       }
     });
   }
@@ -90,6 +90,7 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
     if (_aspirationStartTime != null) {
       _aspirationElapsedSeconds =
           DateTime.now().difference(_aspirationStartTime!).inMilliseconds / 1000.0;
+      _aspirationSecondsNotifier.value = _aspirationElapsedSeconds;
     }
   }
 
@@ -137,11 +138,9 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
                 final phase = parts[1];
                 final snap = text.substring('SNAP:$phase:'.length);
                 if (mounted) {
-                  setState(() {
-                    if (phase == 'insertion')  _insertionBase64  = snap;
-                    if (phase == 'aspiration') _aspirationBase64 = snap;
-                    if (phase == 'withdrawal') _withdrawalBase64 = snap;
-                  });
+                  if (phase == 'insertion')  _insertionBase64  = snap;
+                  if (phase == 'aspiration') _aspirationBase64 = snap;
+                  if (phase == 'withdrawal') _withdrawalBase64 = snap;
                   debugPrint('[RemoteControl] 📸 Snapshot stored for phase: $phase');
                 }
               }
@@ -233,6 +232,7 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
   @override
   void dispose() {
     _aspirationTimer?.cancel();
+    _aspirationSecondsNotifier.dispose();
     _offerSub?.cancel();
     _iceSub?.cancel();
     _peerConnection?.close();
@@ -348,42 +348,19 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
       ),
     );
 
-    String finalUserId = session.studentEmail;
-
-    final outcome = AspirationOutcome.bleedingDetected;
-    final aspirationScore = outcome.score;
-    const aspirationResult = 'Bleeding Detected';
-    const bleedingObserved = true;
-    final aspirationAngleDrift = session.aspirationAngleDrift;
-    final aspirationDuration = double.parse(_aspirationElapsedSeconds.toStringAsFixed(1));
-
-    SessionModel failedSession = SessionModel(
-      sessionId: '', // Auto-generated
-      userId: finalUserId, 
+    final failedSession = createBleedingStoppedSession(
+      userId: session.studentEmail,
       studentName: session.studentName,
-      timestamp: Timestamp.now(), 
       injectionType: session.injectionType,
       sectionName: session.sectionName,
       partnerName: session.partnerName,
-      insertionAngle: session.finalInsertionAngle ?? 0,
+      insertionAngle: session.finalInsertionAngle ?? 0.0,
       insertionScore: session.insertionScore ?? 1,
-      aspirationResult: aspirationResult,
-      aspirationScore: aspirationScore,
-      bleedingObserved: bleedingObserved,
-      aspirationAngleDrift: aspirationAngleDrift,
-      aspirationDuration: aspirationDuration,
-      motionSmoothness: 'N/A',
-      withdrawalAngle: 0,
-      withdrawalScore: 1,
-      correspondenceResult: 'Deviates',
-      angularDelta: 0,
-      overallScore: 1, // Automatic fail
-      aiFeedbackText: 'Session automatically flagged: Blood return was observed during aspiration. In clinical practice, the injection must be aborted immediately without injecting medication, the needle safely withdrawn, and the procedure restarted with new equipment.',
-      feedbackStatus: 'Pending',
-      instructorNote: 'Instructor cancelled session: Patient bleeding detected during aspiration.',
-      flagged: true,
+      aspirationAngleDrift: session.aspirationAngleDrift,
+      aspirationDuration: double.parse(_aspirationElapsedSeconds.toStringAsFixed(1)),
       insertionImageBase64: _insertionBase64,
       aspirationImageBase64: _aspirationBase64,
+      isPractice: false,
     );
 
     final failedDocId = await _repo.saveSession(failedSession);
@@ -405,17 +382,34 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final uid = context.watch<UserRoleProvider>().uid;
+    if (uid != null && (uid != _instructorId || _sessionStream == null)) {
+      _instructorId = uid;
+      _sessionStream = _liveService.watchSession(uid);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final instructorId = context.watch<UserRoleProvider>().uid;
+    if (instructorId == null) {
+      return const Scaffold(
+        body: Center(child: Text('Instructor not found.', style: TextStyle(color: _textMid))),
+      );
+    }
+
+    final stream = _sessionStream ?? _liveService.watchSession(instructorId);
 
     return Scaffold(
       backgroundColor: _cardBg,
       body: SafeArea(
         bottom: false,
         child: StreamBuilder<LiveSessionModel?>(
-          stream: _liveService.watchSession(instructorId!),
+          stream: stream,
           builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
+            if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
               return const Center(child: CircularProgressIndicator(color: _navy));
             }
 
@@ -787,21 +781,26 @@ class _RemoteControlScreenState extends State<RemoteControlScreen> {
                 ),
               ],
             ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.timer_outlined, size: 20, color: _navy),
-                const SizedBox(width: 8),
-                Text(
-                  'Aspiration time: ${_aspirationElapsedSeconds.toStringAsFixed(1)}s',
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: _textDark,
-                  ),
-                ),
-              ],
+            child: ValueListenableBuilder<double>(
+              valueListenable: _aspirationSecondsNotifier,
+              builder: (context, seconds, _) {
+                return Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.timer_outlined, size: 20, color: _navy),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Aspiration time: ${seconds.toStringAsFixed(1)}s',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: _textDark,
+                      ),
+                    ),
+                  ],
+                );
+              },
             ),
           ),
           _ControlButton(
