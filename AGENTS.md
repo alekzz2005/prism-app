@@ -8,8 +8,9 @@
 | File | Purpose |
 |---|---|
 | `AGENTS.md` | *(this file)* Full project spec — architecture, schema, APIs, rules |
-| `FRONTEND.md` | UI teammate guide — what to edit, data available, feature extension rules |
-| `GIT_WORKFLOW.md` | Branch naming, commit format, PR process — all team members follow this |
+| ~~`FRONTEND.md`~~ | *(Obsolete — removed from repository and archived externally)* |
+| `docs/development/GIT_WORKFLOW.md` | Branch naming, commit format, PR process — all team members follow this |
+| `docs/architecture/ROBOFLOW_KEYPOINT_GUIDE.md` | Roboflow keypoint detection pipeline and angle geometry guide |
 
 ---
 

@@ -7,16 +7,70 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function hasInstructorClaim() {
+      return isSignedIn() && (
+        request.auth.token.get('role', '') == 'Instructor' ||
+        request.auth.token.get('instructor', false) == true
+      );
+    }
+
     function isInstructor() {
-      return isSignedIn() &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Instructor';
+      return isSignedIn() && (
+        hasInstructorClaim() ||
+        (
+          exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'Instructor'
+        )
+      );
+    }
+
+    function hasNoPublicInstructorNote(data) {
+      return !('instructorNote' in data) || data.instructorNote == '';
+    }
+
+    function isSessionOwner(data) {
+      return isSignedIn() && (
+        data.get('userId', '') == request.auth.uid ||
+        (
+          request.auth.token.get('email', '') != '' &&
+          data.get('userId', '') == request.auth.token.get('email', '')
+        )
+      );
     }
 
     // ── Users collection ──────────────────────────────────────────────
     match /users/{uid} {
-      // Users can read/write their own document; Instructors can read user profiles (e.g. resolving email to UID)
+      // Users can read their own document; Instructors can read user profiles (e.g. resolving email to UID)
       allow read: if isSignedIn() && (request.auth.uid == uid || isInstructor());
-      allow write: if isSignedIn() && request.auth.uid == uid;
+
+      // Self-registration can ONLY create a 'Student' profile unless the auth token carries a trusted Instructor claim.
+      // Instructor accounts are provisioned by administrators via Firebase Console / Admin SDK (which bypasses client rules)
+      // or via Firebase Auth custom claims.
+      allow create: if isSignedIn() &&
+        request.auth.uid == uid &&
+        request.resource.data.get('uid', '') == uid &&
+        (
+          request.resource.data.get('role', '') == 'Student' ||
+          (hasInstructorClaim() && request.resource.data.get('role', '') == 'Instructor')
+        );
+
+      // Users may update their own profile fields (e.g. fullName, hasPassword, emailVerified),
+      // but can NEVER modify 'role', 'uid', or 'createdAt'. Existing legitimate Instructors retain their role.
+      allow update: if isSignedIn() &&
+        request.auth.uid == uid &&
+        request.resource.data.get('role', '') == resource.data.get('role', '') &&
+        (!('uid' in resource.data) || request.resource.data.get('uid', '') == resource.data.get('uid', '')) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'fullName',
+          'email',
+          'emailVerified',
+          'requiresEmailVerification',
+          'authProvider',
+          'hasPassword'
+        ]);
+
+      // Prevent client-side user document deletion (blocks delete-and-recreate role escalation).
+      allow delete: if false;
       
       // User In-App Notifications
       match /notifications/{notifId} {
@@ -34,54 +88,67 @@ service cloud.firestore {
     // ── Sessions collection ───────────────────────────────────────────
     match /sessions/{sessionId} {
       // Instructors can create official sessions.
-      // Students may create their own practice sessions (must match auth.uid, isPractice == true, and feedbackStatus == 'Released')
-      allow create: if isSignedIn() && (
-        isInstructor() ||
-        (
-          (request.resource.data.userId == request.auth.uid || request.resource.data.userId == request.auth.token.email) &&
-          request.resource.data.feedbackStatus == 'Released' &&
-          request.resource.data.isPractice == true
-        )
-      );
+      // Students may create their own practice sessions (must match auth.uid/email, isPractice == true, feedbackStatus == 'Released').
+      // Private instructor notes must NEVER be stored on the student-readable session document.
+      allow create: if isSignedIn() &&
+        hasNoPublicInstructorNote(request.resource.data) && (
+          isInstructor() ||
+          (
+            isSessionOwner(request.resource.data) &&
+            request.resource.data.get('feedbackStatus', '') == 'Released' &&
+            request.resource.data.get('isPractice', false) == true
+          )
+        );
       
       // Students can read their own sessions ONLY after feedback is Released (Pre-Release Feedback Quarantine)
-      // Instructors can read ALL sessions
+      // and ONLY when no unmigrated private instructorNote is present on the public session document.
+      // Instructors can read ALL sessions.
       allow read: if isSignedIn() && (
         (
-          (resource.data.userId == request.auth.uid || resource.data.userId == request.auth.token.email) &&
-          resource.data.feedbackStatus == 'Released'
+          isSessionOwner(resource.data) &&
+          resource.data.get('feedbackStatus', '') == 'Released' &&
+          hasNoPublicInstructorNote(resource.data)
         ) ||
         isInstructor()
       );
       
-      // Instructors have full update rights.
+      // Instructors have full update rights on session metrics and feedback (provided no public instructorNote is written).
       // Students may update ONLY their own practice sessions to populate generated AI feedback.
       // Strictly restricted to feedback fields; cannot alter scores, angles, userId, isPractice, or feedbackStatus.
-      allow update: if isInstructor() || (
-        isSignedIn() &&
-        (resource.data.userId == request.auth.uid || resource.data.userId == request.auth.token.email) &&
-        resource.data.isPractice == true &&
-        resource.data.feedbackStatus == 'Released' &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'aiFeedbackText',
-          'aiFeedbackOriginal',
-          'aiValidationStatus',
-          'aiValidationNotes'
-        ])
-      );
+      allow update: if isSignedIn() &&
+        hasNoPublicInstructorNote(request.resource.data) && (
+          isInstructor() || (
+            isSessionOwner(resource.data) &&
+            resource.data.get('isPractice', false) == true &&
+            resource.data.get('feedbackStatus', '') == 'Released' &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'aiFeedbackText',
+              'aiFeedbackOriginal',
+              'aiValidationStatus',
+              'aiValidationNotes'
+            ])
+          )
+        );
       
       // Instructors only can delete session documents
       allow delete: if isInstructor();
+
+      // ── Private Instructor Notes (Instructor-Only Subcollection) ───────
+      // Stores `sessions/{sessionId}/private/instructor_note` so students can never
+      // retrieve private clinical notes via direct Firestore reads.
+      match /private/{docId} {
+        allow read, write: if isInstructor();
+      }
     }
 
     // ── Live Sessions (Two-Device Architecture & WebRTC Signaling) ──────
     // The instructor (Remote) and camera node read/write to this document
     // and subcollections (ice_candidates for WebRTC P2P signaling). Instructors only.
     match /live_sessions/{instructorId} {
-      allow read, write: if isInstructor();
+      allow read, write: if isSignedIn() && request.auth.uid == instructorId && isInstructor();
 
-      match /{allChildren=**} {
-        allow read, write: if isInstructor();
+      match /{subcollection}/{docId=**} {
+        allow read, write: if isSignedIn() && request.auth.uid == instructorId && isInstructor();
       }
     }
 

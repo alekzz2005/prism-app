@@ -72,6 +72,21 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
     // Auto-save logic
     _noteController.addListener(_debouncedSaveDraft);
     _aiFeedbackController.addListener(_debouncedSaveDraft);
+    _loadPrivateInstructorNote();
+  }
+
+  Future<void> _loadPrivateInstructorNote() async {
+    if (widget.session.sessionId.isEmpty) return;
+    final savedNote = await widget.repo.fetchInstructorNote(
+      widget.session.sessionId,
+      fallback: widget.session.instructorNote,
+    );
+    if (!mounted) return;
+    if (_noteController.text.isEmpty && savedNote.isNotEmpty) {
+      _noteController.removeListener(_debouncedSaveDraft);
+      _noteController.text = savedNote;
+      _noteController.addListener(_debouncedSaveDraft);
+    }
   }
 
   void _debouncedSaveDraft() {
@@ -84,7 +99,7 @@ class _FeedbackReviewScreenState extends State<FeedbackReviewScreen> {
   Future<void> _saveDraftQuietly() async {
     if (!mounted || widget.session.feedbackStatus == 'Released') return;
     try {
-      await InstructorSessionRepository().updateFeedbackDraft(
+      await widget.repo.updateFeedbackDraft(
         widget.session.sessionId,
         _noteController.text.trim(),
         aiFeedbackText: _aiFeedbackController.text.trim(),

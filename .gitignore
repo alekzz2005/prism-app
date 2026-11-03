@@ -54,3 +54,5 @@ dist/
 
 # Ignore local AI agent layouts and wireframes
 wireframes/android/build/
+/android/build/
+node_modules/
