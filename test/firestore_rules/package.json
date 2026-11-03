@@ -1,0 +1,16 @@
+{
+  "name": "prism-firestore-rules-tests",
+  "version": "3.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Firebase Firestore Emulator security rules verification suite for PRISM v3.0.0",
+  "scripts": {
+    "test:unit": "node --test firestore_rules.test.mjs",
+    "test": "firebase emulators:exec --only firestore --project prism-app-ae2d6 \"node --test firestore_rules.test.mjs\""
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^4.0.0",
+    "firebase": "^11.0.0"
+  }
+}
+

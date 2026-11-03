@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'instructor_session_repository.dart';
 
 /// Thrown when both release attempts fail.
 class ReleaseFailedException implements Exception {
@@ -9,21 +10,45 @@ class ReleaseFailedException implements Exception {
 }
 
 /// Atomically updates a session document to release feedback to the student.
-/// Writes edited aiFeedbackText and instructorNote, but never touches aiFeedbackOriginal.
+/// Writes edited [aiFeedbackText] to `sessions/{sessionId}` (scrubbing any public `instructorNote`)
+/// and writes [instructorNote] to `sessions/{sessionId}/private/instructor_note`,
+/// while never touching `aiFeedbackOriginal`.
 class FeedbackReleaseService {
-  final _db = FirebaseFirestore.instance;
+  final FirebaseFirestore? _firestore;
+
+  FeedbackReleaseService({FirebaseFirestore? firestore})
+      : _firestore = firestore;
+
+  FirebaseFirestore get _db => _firestore ?? FirebaseFirestore.instance;
+
+  DocumentReference<Map<String, dynamic>> _privateNoteRef(String sessionId) =>
+      _db
+          .collection('sessions')
+          .doc(sessionId)
+          .collection(InstructorSessionRepository.privateCollectionName)
+          .doc(InstructorSessionRepository.instructorNoteDocId);
 
   Future<void> releaseSession(
       String sessionId, String instructorNote, String aiFeedbackText) async {
     Exception? lastError;
     for (int attempt = 0; attempt < 2; attempt++) {
       try {
-        await _db.collection('sessions').doc(sessionId).update({
+        final batch = _db.batch();
+        batch.set(
+          _privateNoteRef(sessionId),
+          {
+            'instructorNote': instructorNote,
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+        batch.update(_db.collection('sessions').doc(sessionId), {
           'feedbackStatus': 'Released',
           'releaseTimestamp': FieldValue.serverTimestamp(),
-          'instructorNote': instructorNote,
+          'instructorNote': '',
           'aiFeedbackText': aiFeedbackText,
         });
+        await batch.commit();
         
         final sessionSnap = await _db.collection('sessions').doc(sessionId).get();
         final sessionData = sessionSnap.data();
@@ -91,9 +116,21 @@ class FeedbackReleaseService {
     
     final batch = _db.batch();
     for (var doc in pendingSessions.docs) {
+      final legacyNote = doc.data()['instructorNote'] as String? ?? '';
+      if (legacyNote.isNotEmpty) {
+        batch.set(
+          _privateNoteRef(doc.id),
+          {
+            'instructorNote': legacyNote,
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+      }
       batch.update(doc.reference, {
         'feedbackStatus': 'Released',
         'releaseTimestamp': FieldValue.serverTimestamp(),
+        'instructorNote': '',
       });
     }
     
@@ -111,9 +148,21 @@ class FeedbackReleaseService {
     
     final batch = _db.batch();
     for (var doc in pendingSessions.docs) {
+      final legacyNote = doc.data()['instructorNote'] as String? ?? '';
+      if (legacyNote.isNotEmpty) {
+        batch.set(
+          _privateNoteRef(doc.id),
+          {
+            'instructorNote': legacyNote,
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+      }
       batch.update(doc.reference, {
         'feedbackStatus': 'Released',
         'releaseTimestamp': FieldValue.serverTimestamp(),
+        'instructorNote': '',
       });
     }
     
@@ -126,9 +175,23 @@ class FeedbackReleaseService {
     
     final batch = _db.batch();
     for (var id in sessionIds) {
-      batch.update(_db.collection('sessions').doc(id), {
+      final docRef = _db.collection('sessions').doc(id);
+      final snap = await docRef.get();
+      final legacyNote = snap.data()?['instructorNote'] as String? ?? '';
+      if (legacyNote.isNotEmpty) {
+        batch.set(
+          _privateNoteRef(id),
+          {
+            'instructorNote': legacyNote,
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+      }
+      batch.update(docRef, {
         'feedbackStatus': 'Released',
         'releaseTimestamp': FieldValue.serverTimestamp(),
+        'instructorNote': '',
       });
     }
     

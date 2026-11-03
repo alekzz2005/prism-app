@@ -110,7 +110,16 @@ class _InstructorDashboardScreenState extends State<InstructorDashboardScreen> w
   void initState() {
     super.initState();
     _sessionsStream = _repo.watchAllSessions();
+    _runLegacyNoteMigration();
     _fabController = AnimationController(vsync: this, duration: const Duration(milliseconds: 200));
+  }
+
+  Future<void> _runLegacyNoteMigration() async {
+    try {
+      await _repo.migrateLegacyInstructorNotes();
+    } catch (e) {
+      debugPrint('[InstructorDashboard] Failed to migrate legacy instructor notes: $e');
+    }
   }
 
   String? _lastUid;

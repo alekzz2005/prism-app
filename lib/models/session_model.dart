@@ -86,7 +86,10 @@ class SessionModel {
     this.isPractice = false,
   });
 
-  factory SessionModel.fromFirestore(DocumentSnapshot doc) {
+  factory SessionModel.fromFirestore(
+    DocumentSnapshot doc, {
+    String? privateInstructorNote,
+  }) {
     final data = doc.data() as Map<String, dynamic>? ?? {};
     
     String? rawSection = data['sectionName'] as String?;
@@ -123,7 +126,7 @@ class SessionModel {
       aiFeedbackOriginal: data['aiFeedbackOriginal'] as String? ?? (data['aiFeedbackText'] as String? ?? ''),
       feedbackStatus: data['feedbackStatus'] as String? ?? 'Pending',
       releaseTimestamp: data['releaseTimestamp'] as Timestamp?,
-      instructorNote: data['instructorNote'] as String? ?? '',
+      instructorNote: privateInstructorNote ?? (data['instructorNote'] as String? ?? ''),
       flagged: data['flagged'] as bool? ?? false,
       aiValidationStatus: data['aiValidationStatus'] as String? ?? 'Passed',
       aiValidationNotes: (data['aiValidationNotes'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? const [],
@@ -158,7 +161,7 @@ class SessionModel {
         'aiFeedbackOriginal': aiFeedbackOriginal.isNotEmpty ? aiFeedbackOriginal : aiFeedbackText,
         'feedbackStatus': feedbackStatus,
         if (releaseTimestamp != null) 'releaseTimestamp': releaseTimestamp,
-        'instructorNote': instructorNote,
+        'instructorNote': '',
         'flagged': flagged,
         if (aiValidationStatus != null) 'aiValidationStatus': aiValidationStatus,
         if (aiValidationNotes != null) 'aiValidationNotes': aiValidationNotes,
@@ -166,6 +169,13 @@ class SessionModel {
         if (aspirationImageBase64 != null) 'aspirationImageBase64': aspirationImageBase64,
         if (withdrawalImageBase64 != null) 'withdrawalImageBase64': withdrawalImageBase64,
         'isPractice': isPractice,
+      };
+
+  /// Serializes the private instructor note for the instructor-only
+  /// `sessions/{sessionId}/private/instructor_note` subcollection document.
+  Map<String, dynamic> toPrivateNoteFirestore() => {
+        'instructorNote': instructorNote,
+        'updatedAt': FieldValue.serverTimestamp(),
       };
 
   SessionModel copyWith({
